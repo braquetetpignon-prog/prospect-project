@@ -1,0 +1,3 @@
+ENV=preproduction
+DB_PATH=/data/app.db
+SECRET_KEY=change-me
