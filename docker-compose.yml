@@ -3,14 +3,14 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "3000:3000"
     environment:
       - ENV=preproduction
       - DB_PATH=/data/app.db
     volumes:
       - app_data:/data
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3000/health')"]
       interval: 30s
       timeout: 5s
       retries: 3
