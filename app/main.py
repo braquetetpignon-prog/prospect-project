@@ -1,37 +1,47 @@
 import os
-import sqlite3
+import psycopg2
 from flask import Flask, jsonify
 
-DB_PATH = os.environ.get("DB_PATH", "/data/app.db")
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
 app = Flask(__name__)
 
+SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "schema.sql")
+
 
 def get_db():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS visits ("
-        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-        "ts TEXT DEFAULT CURRENT_TIMESTAMP)"
-    )
-    return conn
+    return psycopg2.connect(DATABASE_URL)
+
+
+def init_db():
+    with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
+        schema_sql = f.read()
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(schema_sql)
+        conn.commit()
+    finally:
+        conn.close()
 
 
 @app.route("/")
 def index():
-    conn = get_db()
-    conn.execute("INSERT INTO visits DEFAULT VALUES")
-    conn.commit()
-    count = conn.execute("SELECT COUNT(*) FROM visits").fetchone()[0]
-    conn.close()
-    return jsonify(status="ok", env=os.environ.get("ENV", "dev"), visits=count)
+    return jsonify(status="ok", env=os.environ.get("ENV", "dev"))
 
 
 @app.route("/health")
 def health():
-    return jsonify(status="healthy")
+    try:
+        conn = get_db()
+        conn.cursor().execute("SELECT 1")
+        conn.close()
+        return jsonify(status="healthy", db="ok")
+    except Exception as e:
+        return jsonify(status="unhealthy", db="error", detail=str(e)), 503
 
+
+init_db()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=3000)
