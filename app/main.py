@@ -8,6 +8,9 @@ from app import naf_search
 from app import ia_search
 from app import workspace_settings
 from app import campaigns
+from app import consent
+from app import sending
+from app import scheduler
 
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "schema.sql")
 
@@ -235,7 +238,96 @@ def campaigns_update(campaign_id):
     return jsonify(status="updated")
 
 
+# --- Option 3 : RGPD / Consentement ---------------------------------------
+
+@app.route("/api/prospects/<int:prospect_id>/consent", methods=["GET", "POST"])
+def prospect_consent(prospect_id):
+    if request.method == "GET":
+        return jsonify(consent.get_all_consent_status(prospect_id))
+
+    body = request.get_json(silent=True) or {}
+    type_ = body.get("type")
+    statut = body.get("statut")
+    source = body.get("source")
+    if not type_ or not statut:
+        return jsonify(error="type et statut sont requis"), 400
+
+    try:
+        consent.record_consent(prospect_id, type_, statut, source)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+
+    return jsonify(status="recorded"), 201
+
+
+@app.route("/unsubscribe")
+def unsubscribe():
+    prospect_id = request.args.get("prospect_id", type=int)
+    type_ = request.args.get("type")
+    sig = request.args.get("sig", "")
+
+    if not prospect_id or not type_:
+        return jsonify(error="Lien de désinscription incomplet."), 400
+
+    ok, message = consent.verify_and_unsubscribe(prospect_id, type_, sig)
+    if not ok:
+        return jsonify(error=message), 400
+
+    return jsonify(status="unsubscribed", message="Vous avez bien été désinscrit·e.")
+
+
+@app.route("/api/admin/purge-consent-history", methods=["POST"])
+def admin_purge_consent_history():
+    deleted = consent.purge_old_consent_history()
+    return jsonify(status="ok", deleted_rows=deleted)
+
+
+# --- Option 3 : Envoi ------------------------------------------------------
+
+@app.route("/api/campaigns/<int:campaign_id>/send", methods=["POST"])
+def campaign_send(campaign_id):
+    body = request.get_json(silent=True) or {}
+    prospect_ids = body.get("prospect_ids")
+    planifie_pour = body.get("planifie_pour")  # ISO 8601, optionnel
+
+    if not prospect_ids or not isinstance(prospect_ids, list):
+        return jsonify(error="prospect_ids requis (liste, même à un seul élément pour un envoi unitaire)"), 400
+
+    try:
+        result = sending.queue_send(campaign_id, prospect_ids, planifie_pour)
+    except sending.SendError as exc:
+        return jsonify(error=str(exc)), 400
+
+    return jsonify(result), 202
+
+
+@app.route("/api/campaigns/<int:campaign_id>/sends")
+def campaign_sends_list(campaign_id):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, prospect_id, canal, statut, planifie_pour, envoye_at, created_at
+                FROM campaign_sends WHERE campaign_id = %s ORDER BY created_at DESC LIMIT 200
+                """,
+                (campaign_id,),
+            )
+            rows = cur.fetchall()
+        cols = ["id", "prospect_id", "canal", "statut", "planifie_pour", "envoye_at", "created_at"]
+        return jsonify(sends=[dict(zip(cols, r)) for r in rows])
+    finally:
+        conn.close()
+
+
+@app.route("/api/admin/process-due-sends", methods=["POST"])
+def admin_process_due_sends():
+    processed = sending.process_due_sends()
+    return jsonify(status="ok", processed=processed)
+
+
 init_db()
+scheduler.start()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=3000)

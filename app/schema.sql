@@ -53,6 +53,12 @@ CREATE INDEX IF NOT EXISTS idx_prospects_workspace ON prospects(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_prospects_statut ON prospects(statut);
 CREATE INDEX IF NOT EXISTS idx_prospects_siren ON prospects(siren);
 
+-- Nom du contact (pour personnaliser "Bonjour {prenom}" dans les emails de campagne).
+-- ALTER plutôt que colonne dans le CREATE TABLE ci-dessus : la table existe déjà en
+-- production, un CREATE TABLE IF NOT EXISTS ne la modifierait pas.
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS contact_prenom TEXT;
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS contact_nom TEXT;
+
 -- Historique des lancements de recherche IA (pour appliquer le quota de 3/jour/espace)
 CREATE TABLE IF NOT EXISTS ia_search_log (
     id SERIAL PRIMARY KEY,
@@ -105,6 +111,10 @@ CREATE TABLE IF NOT EXISTS campaign_sends (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_campaign_sends_campaign ON campaign_sends(campaign_id);
+
+-- Horodatage de prise en charge par un worker (pour détecter un envoi resté bloqué,
+-- ex: worker redémarré en pleine tâche — cf. app/sending.py).
+ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS locked_at TIMESTAMPTZ;
 
 -- Consentements RGPD (opt-in / opt-out / intérêt légitime), par prospect et par type de campagne
 CREATE TABLE IF NOT EXISTS consents (

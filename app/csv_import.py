@@ -23,6 +23,8 @@ from app.db import get_db
 # Colonnes acceptées comme cible de mapping, et contrainte associée.
 PROSPECT_FIELDS = {
     "nom_entreprise": {"required": True, "max_length": 255},
+    "contact_prenom": {"required": False, "max_length": 100},
+    "contact_nom": {"required": False, "max_length": 100},
     "siren": {"required": False, "pattern": re.compile(r"^\d{9}$")},
     "siret": {"required": False, "pattern": re.compile(r"^\d{14}$")},
     "naf_code": {"required": False, "max_length": 10},
