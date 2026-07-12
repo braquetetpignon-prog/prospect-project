@@ -5,6 +5,7 @@ from flask import Flask, jsonify, request
 from app.db import get_db
 from app import csv_import
 from app import naf_search
+from app import ia_search
 
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "schema.sql")
 
@@ -120,6 +121,37 @@ def naf_codes_search():
         return jsonify(error="Précisez au moins 2 caractères"), 400
     results = naf_search.search_naf_codes(query)
     return jsonify(query=query, results=results)
+
+
+# --- Recherche IA intégrée (Option 2) -----------------------------------
+
+@app.route("/api/ia-search/quota")
+def ia_search_quota():
+    workspace_id = request.args.get("workspace_id", type=int)
+    if not workspace_id:
+        return jsonify(error="workspace_id requis"), 400
+    return jsonify(ia_search.get_quota_status(workspace_id))
+
+
+@app.route("/api/ia-search", methods=["POST"])
+def ia_search_start():
+    body = request.get_json(silent=True) or {}
+    workspace_id = body.get("workspace_id")
+    lieu = (body.get("lieu") or "").strip()
+    type_entreprise = (body.get("type_entreprise") or "").strip()
+    criteres_additionnels = (body.get("criteres_additionnels") or "").strip() or None
+
+    if not workspace_id or not lieu or not type_entreprise:
+        return jsonify(error="workspace_id, lieu et type_entreprise sont requis"), 400
+
+    try:
+        result = ia_search.perform_search(workspace_id, lieu, type_entreprise, criteres_additionnels)
+    except ia_search.QuotaExceeded as exc:
+        return jsonify(error=str(exc)), 429
+    except ia_search.GeminiError as exc:
+        return jsonify(error=str(exc)), 502
+
+    return jsonify(result)
 
 
 init_db()
