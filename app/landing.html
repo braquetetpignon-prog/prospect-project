@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ClickProspect — Trouvez vos prochains clients, sans le casse-tête</title>
+<meta name="description" content="ClickProspect aide les artisans à repérer, qualifier et recontacter leurs prospects — sans tableur, sans prise de tête.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,500;0,600;0,700;1,500&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --cream: #FAF6F0;
+    --cream-warm: #F1E9DC;
+    --terracotta: #C1653D;
+    --terracotta-deep: #A2502E;
+    --sauge: #7A9471;
+    --sauge-light: #E7EDE3;
+    --text: #35302A;
+    --text-soft: #6E6459;
+    --white: #FFFFFF;
+    --shadow: 0 12px 32px rgba(53, 40, 24, 0.09);
+    --shadow-soft: 0 6px 18px rgba(53, 40, 24, 0.06);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--cream);
+    color: var(--text);
+    font-family: 'Figtree', sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3, .display {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    line-height: 1.15;
+    margin: 0;
+    color: var(--text);
+  }
+
+  a { color: inherit; }
+
+  img, svg { display: block; max-width: 100%; }
+
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 32px;
+  }
+
+  /* --- Nav --- */
+  nav {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    background: rgba(250, 246, 240, 0.88);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(53, 48, 42, 0.06);
+  }
+  .nav-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 0;
+  }
+  .logo {
+    font-family: 'Fraunces', serif;
+    font-weight: 700;
+    font-size: 22px;
+    letter-spacing: -0.02em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+    color: var(--text);
+  }
+  .logo-mark {
+    width: 30px;
+    height: 30px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, var(--terracotta), var(--sauge));
+  }
+  .nav-links {
+    display: flex;
+    align-items: center;
+    gap: 36px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: 15px;
+    font-weight: 500;
+  }
+  .nav-links a { text-decoration: none; color: var(--text-soft); transition: color .15s; }
+  .nav-links a:hover { color: var(--text); }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 13px 26px;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 15px;
+    text-decoration: none;
+    border: none;
+    cursor: pointer;
+    transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
+    font-family: 'Figtree', sans-serif;
+  }
+  .btn-primary {
+    background: var(--terracotta);
+    color: var(--white);
+    box-shadow: var(--shadow-soft);
+  }
+  .btn-primary:hover { background: var(--terracotta-deep); transform: translateY(-1px); box-shadow: var(--shadow); }
+  .btn-ghost {
+    background: transparent;
+    color: var(--text);
+    border: 1.5px solid rgba(53, 48, 42, 0.16);
+  }
+  .btn-ghost:hover { border-color: var(--text); }
+  .btn-sm { padding: 10px 20px; font-size: 14px; }
+
+  /* --- Hero --- */
+  .hero {
+    position: relative;
+    padding: 88px 0 60px;
+    overflow: hidden;
+  }
+  .hero-blob {
+    position: absolute;
+    top: -180px;
+    right: -220px;
+    width: 720px;
+    height: 720px;
+    z-index: 0;
+    opacity: 0.55;
+  }
+  .hero-grid {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: 1.05fr 0.95fr;
+    gap: 56px;
+    align-items: center;
+  }
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--sauge-light);
+    color: #4F6647;
+    font-weight: 600;
+    font-size: 13px;
+    padding: 7px 16px;
+    border-radius: 999px;
+    margin-bottom: 22px;
+  }
+  .eyebrow-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--sauge); }
+  .hero h1 {
+    font-size: clamp(34px, 4.4vw, 54px);
+    letter-spacing: -0.015em;
+  }
+  .hero h1 em {
+    font-style: italic;
+    color: var(--terracotta);
+  }
+  .hero p.lead {
+    font-size: 18px;
+    color: var(--text-soft);
+    max-width: 480px;
+    margin: 22px 0 32px;
+  }
+  .hero-ctas { display: flex; gap: 14px; flex-wrap: wrap; }
+
+  .trust-row {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    margin-top: 40px;
+    font-size: 14px;
+    color: var(--text-soft);
+  }
+  .trust-row .avatars { display: flex; }
+  .trust-row .avatars span {
+    width: 32px; height: 32px; border-radius: 50%;
+    border: 2px solid var(--cream);
+    margin-left: -10px;
+    display: inline-block;
+  }
+  .trust-row .avatars span:first-child { margin-left: 0; }
+
+  /* --- Hero product glimpse --- */
+  .glimpse {
+    background: var(--white);
+    border-radius: 24px;
+    box-shadow: var(--shadow);
+    padding: 22px;
+    transform: rotate(1.2deg);
+  }
+  .glimpse-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .glimpse-header .title { font-family: 'Fraunces', serif; font-weight: 600; font-size: 15px; }
+  .glimpse-header .badge {
+    font-size: 12px; font-weight: 600; color: var(--sauge);
+    background: var(--sauge-light); padding: 4px 10px; border-radius: 999px;
+  }
+  .glimpse-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 10px;
+    border-radius: 14px;
+  }
+  .glimpse-row:nth-child(odd) { background: var(--cream); }
+  .glimpse-avatar {
+    width: 36px; height: 36px; border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .glimpse-name { font-weight: 600; font-size: 14px; }
+  .glimpse-sub { font-size: 12.5px; color: var(--text-soft); }
+  .glimpse-status {
+    margin-left: auto;
+    font-size: 11.5px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .status-nouveau { background: #EAF0FF; color: #3454A8; }
+  .status-qualifie { background: var(--sauge-light); color: #4F6647; }
+  .status-client { background: #FDECE3; color: var(--terracotta-deep); }
+
+  /* --- Sections --- */
+  section { padding: 88px 0; }
+  .section-head { max-width: 620px; margin: 0 auto 56px; text-align: center; }
+  .section-head h2 { font-size: clamp(28px, 3.2vw, 38px); letter-spacing: -0.01em; }
+  .section-head p { color: var(--text-soft); font-size: 16.5px; margin-top: 14px; }
+
+  .features { background: var(--cream-warm); border-radius: 40px; }
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+  }
+  .feature-card {
+    background: var(--white);
+    border-radius: 20px;
+    padding: 32px;
+    box-shadow: var(--shadow-soft);
+  }
+  .feature-icon {
+    width: 46px; height: 46px;
+    border-radius: 13px;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 20px;
+  }
+  .feature-card h3 { font-size: 19px; margin-bottom: 10px; }
+  .feature-card p { color: var(--text-soft); font-size: 15px; margin: 0; }
+
+  /* --- How it works --- */
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 32px;
+    counter-reset: step;
+  }
+  .step { position: relative; padding-top: 8px; }
+  .step-num {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 44px;
+    color: var(--terracotta);
+    opacity: 0.85;
+    margin-bottom: 14px;
+    display: block;
+  }
+  .step h3 { font-size: 19px; margin-bottom: 10px; }
+  .step p { color: var(--text-soft); font-size: 15px; margin: 0; }
+  .step-connector {
+    position: absolute;
+    top: 26px;
+    left: calc(100% + 4px);
+    width: calc(100% - 30px);
+    height: 1px;
+    background: repeating-linear-gradient(90deg, rgba(53,48,42,0.18) 0 6px, transparent 6px 12px);
+  }
+
+  /* --- Testimonial --- */
+  .testimonial-wrap { background: var(--sauge); border-radius: 40px; color: var(--white); }
+  .testimonial {
+    max-width: 680px;
+    margin: 0 auto;
+    text-align: center;
+  }
+  .testimonial blockquote {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-weight: 500;
+    font-size: clamp(22px, 2.6vw, 30px);
+    line-height: 1.4;
+    margin: 0 0 28px;
+  }
+  .testimonial-author { font-weight: 600; font-size: 15px; }
+  .testimonial-role { font-size: 14px; opacity: 0.8; margin-top: 2px; }
+  .testimonial-avatar {
+    width: 56px; height: 56px; border-radius: 50%;
+    margin: 0 auto 18px;
+    background: rgba(255,255,255,0.25);
+  }
+
+  /* --- Final CTA --- */
+  .final-cta {
+    text-align: center;
+    padding: 96px 0 110px;
+  }
+  .final-cta h2 { font-size: clamp(30px, 4vw, 44px); max-width: 640px; margin: 0 auto 18px; letter-spacing: -0.015em; }
+  .final-cta p { color: var(--text-soft); font-size: 17px; margin-bottom: 34px; }
+
+  footer {
+    border-top: 1px solid rgba(53, 48, 42, 0.08);
+    padding: 40px 0;
+  }
+  .footer-inner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 14px;
+    color: var(--text-soft);
+  }
+  .footer-links { display: flex; gap: 24px; list-style: none; padding: 0; margin: 0; }
+  .footer-links a { text-decoration: none; color: var(--text-soft); }
+  .footer-links a:hover { color: var(--text); }
+
+  @media (max-width: 880px) {
+    .hero-grid { grid-template-columns: 1fr; }
+    .glimpse { transform: none; }
+    .feature-grid { grid-template-columns: 1fr; }
+    .steps { grid-template-columns: 1fr; gap: 40px; }
+    .step-connector { display: none; }
+    .nav-links { display: none; }
+    .footer-inner { flex-direction: column; gap: 16px; text-align: center; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap nav-inner">
+    <a href="/" class="logo"><span class="logo-mark"></span>ClickProspect</a>
+    <ul class="nav-links">
+      <li><a href="#fonctionnalites">Fonctionnalités</a></li>
+      <li><a href="#comment-ca-marche">Comment ça marche</a></li>
+      <li><a href="#avis">Avis</a></li>
+    </ul>
+    <a href="/dashboard" class="btn btn-primary btn-sm">Accéder à l'app</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <svg class="hero-blob" viewBox="0 0 600 600" xmlns="http://www.w3.org/2000/svg">
+    <path fill="#C1653D" d="M431,305Q447,360,398,398Q349,436,291,447Q233,458,182,424Q131,390,110,331Q89,272,116,216Q143,160,197,127Q251,94,309,109Q367,124,406,169Q445,214,431,305Z"/>
+  </svg>
+  <div class="wrap hero-grid">
+    <div>
+      <span class="eyebrow"><span class="eyebrow-dot"></span>Pensé pour les artisans, pas les informaticiens</span>
+      <h1>Concentrez-vous sur votre métier.<br>On s'occupe de trouver vos <em>prochains clients</em>.</h1>
+      <p class="lead">ClickProspect vous aide à repérer, qualifier et recontacter vos prospects — sans tableur, sans jargon technique, sans y passer vos soirées.</p>
+      <div class="hero-ctas">
+        <a href="/dashboard" class="btn btn-primary">Essayer gratuitement</a>
+        <a href="#comment-ca-marche" class="btn btn-ghost">Voir comment ça marche</a>
+      </div>
+      <div class="trust-row">
+        <span class="avatars">
+          <span style="background:#E7C9B4"></span>
+          <span style="background:#C7D6C0"></span>
+          <span style="background:#E3B8A4"></span>
+        </span>
+        Déjà utilisé par des artisans du bâtiment et des services de proximité
+      </div>
+    </div>
+    <div class="glimpse">
+      <div class="glimpse-header">
+        <span class="title">Vos prospects</span>
+        <span class="badge">12 nouveaux</span>
+      </div>
+      <div class="glimpse-row">
+        <span class="glimpse-avatar" style="background:#E7C9B4"></span>
+        <div>
+          <div class="glimpse-name">Boulangerie du Marché</div>
+          <div class="glimpse-sub">Niort · Import CSV</div>
+        </div>
+        <span class="glimpse-status status-nouveau">Nouveau</span>
+      </div>
+      <div class="glimpse-row">
+        <span class="glimpse-avatar" style="background:#C7D6C0"></span>
+        <div>
+          <div class="glimpse-name">Plomberie Dupont</div>
+          <div class="glimpse-sub">La Rochelle · Recherche IA</div>
+        </div>
+        <span class="glimpse-status status-qualifie">Qualifié</span>
+      </div>
+      <div class="glimpse-row">
+        <span class="glimpse-avatar" style="background:#E3B8A4"></span>
+        <div>
+          <div class="glimpse-name">Atelier Rousseau</div>
+          <div class="glimpse-sub">Poitiers · Client</div>
+        </div>
+        <span class="glimpse-status status-client">Client</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section id="fonctionnalites" class="features">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Tout ce qu'il faut, rien de superflu</h2>
+      <p>Quatre outils simples qui font le travail à votre place.</p>
+    </div>
+    <div class="feature-grid">
+      <div class="feature-card">
+        <div class="feature-icon" style="background:var(--sauge-light)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4F6647" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </div>
+        <h3>Import en un glisser-déposer</h3>
+        <p>Déposez votre fichier de contacts, associez les colonnes, ClickProspect vérifie chaque ligne et signale les erreurs — sans bloquer le reste.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:#FDECE3">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#A2502E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </div>
+        <h3>Recherche de prospects guidée</h3>
+        <p>Un texte de recherche déjà prêt : précisez juste le lieu et le métier recherché, l'assistant propose une liste à valider vous-même.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:var(--sauge-light)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4F6647" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+        </div>
+        <h3>Demandes d'avis automatisées</h3>
+        <p>Envoyez des demandes d'avis Google à vos clients satisfaits, avec un modèle prêt à l'emploi que vous pouvez ajuster.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:#FDECE3">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#A2502E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </div>
+        <h3>Conforme RGPD, sans y penser</h3>
+        <p>Consentement, désinscription en un clic, conservation encadrée : tout est géré pour vous, dans les règles.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="comment-ca-marche">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Trois étapes, pas plus</h2>
+      <p>De la première liste de contacts au client fidélisé.</p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <span class="step-num">01</span>
+        <h3>Importez ou recherchez vos prospects</h3>
+        <p>Depuis un fichier existant ou via la recherche guidée.</p>
+        <div class="step-connector"></div>
+      </div>
+      <div class="step">
+        <span class="step-num">02</span>
+        <h3>Qualifiez-les en un coup d'œil</h3>
+        <p>Statut, coordonnées, historique : tout est réuni sur une seule fiche.</p>
+        <div class="step-connector"></div>
+      </div>
+      <div class="step">
+        <span class="step-num">03</span>
+        <h3>Recontactez au bon moment</h3>
+        <p>Demande d'avis, offre, newsletter : programmez l'envoi et passez à autre chose.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="avis" class="testimonial-wrap">
+  <div class="wrap">
+    <div class="testimonial">
+      <span class="testimonial-avatar"></span>
+      <blockquote>"Avant, je notais mes prospects sur un carnet dans la camionnette. Maintenant je sais exactement qui rappeler, et mes clients pensent enfin à me laisser un avis."</blockquote>
+      <div class="testimonial-author">Marc</div>
+      <div class="testimonial-role">Plombier, Niort</div>
+    </div>
+  </div>
+</section>
+
+<section class="final-cta">
+  <div class="wrap">
+    <h2>Prêt à arrêter de courir après vos prospects ?</h2>
+    <p>Gratuit pour commencer, aucune carte bancaire requise.</p>
+    <a href="/dashboard" class="btn btn-primary">Essayer ClickProspect</a>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap footer-inner">
+    <span>© 2026 ClickProspect</span>
+    <ul class="footer-links">
+      <li><a href="#">Confidentialité</a></li>
+      <li><a href="#">Conditions</a></li>
+      <li><a href="#">Contact</a></li>
+    </ul>
+  </div>
+</footer>
+
+</body>
+</html>
