@@ -76,6 +76,33 @@ CREATE TABLE IF NOT EXISTS ia_search_log (
 );
 CREATE INDEX IF NOT EXISTS idx_ia_search_log_workspace_date ON ia_search_log(workspace_id, created_at);
 
+-- Recherches IA planifiées (relance automatique quotidienne, fiable côté serveur)
+CREATE TABLE IF NOT EXISTS scheduled_searches (
+    id SERIAL PRIMARY KEY,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    lieu TEXT NOT NULL,
+    type_entreprise TEXT NOT NULL,
+    criteres_additionnels TEXT,
+    heure TIME NOT NULL,
+    actif BOOLEAN NOT NULL DEFAULT TRUE,
+    derniere_execution DATE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_scheduled_searches_workspace ON scheduled_searches(workspace_id);
+
+-- Résultats des recherches planifiées, en attente de vérification manuelle par l'utilisateur
+-- (jamais insérés directement dans prospects — même principe que la recherche manuelle :
+-- rien n'est enregistré sans validation humaine).
+CREATE TABLE IF NOT EXISTS scheduled_search_results (
+    id SERIAL PRIMARY KEY,
+    scheduled_search_id INTEGER NOT NULL REFERENCES scheduled_searches(id) ON DELETE CASCADE,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    fields JSONB NOT NULL,
+    statut TEXT NOT NULL DEFAULT 'a_verifier',  -- a_verifier / traite
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_scheduled_search_results_workspace ON scheduled_search_results(workspace_id, statut);
+
 -- Configuration SMTP par espace de travail (identifiants chiffrés côté application avant écriture)
 CREATE TABLE IF NOT EXISTS smtp_configs (
     workspace_id INTEGER PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
