@@ -6,6 +6,8 @@ from app.db import get_db
 from app import csv_import
 from app import naf_search
 from app import ia_search
+from app import workspace_settings
+from app import campaigns
 
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "schema.sql")
 
@@ -152,6 +154,85 @@ def ia_search_start():
         return jsonify(error=str(exc)), 502
 
     return jsonify(result)
+
+
+# --- Option 3 : Configuration --------------------------------------------
+
+@app.route("/api/workspaces/<int:workspace_id>/google-business-profile", methods=["GET", "PUT"])
+def google_business_profile(workspace_id):
+    if request.method == "GET":
+        return jsonify(workspace_settings.get_google_business_profile(workspace_id))
+
+    body = request.get_json(silent=True) or {}
+    profile_url = (body.get("profile_url") or "").strip()
+    if not profile_url:
+        return jsonify(error="profile_url requis"), 400
+    workspace_settings.set_google_business_profile(workspace_id, profile_url)
+    return jsonify(status="ok")
+
+
+@app.route("/api/workspaces/<int:workspace_id>/smtp-config", methods=["GET", "PUT"])
+def smtp_config(workspace_id):
+    if request.method == "GET":
+        return jsonify(workspace_settings.get_smtp_config(workspace_id))
+
+    body = request.get_json(silent=True) or {}
+    required = ["host", "port", "username", "password", "from_email"]
+    missing = [f for f in required if not body.get(f)]
+    if missing:
+        return jsonify(error=f"Champs manquants : {', '.join(missing)}"), 400
+
+    try:
+        workspace_settings.set_smtp_config(
+            workspace_id, body["host"], body["port"], body["username"],
+            body["password"], body["from_email"],
+        )
+    except workspace_settings.crypto_utils.EncryptionNotConfigured as exc:
+        return jsonify(error=str(exc)), 503
+
+    return jsonify(status="ok")
+
+
+@app.route("/api/campaigns", methods=["GET", "POST"])
+def campaigns_collection():
+    if request.method == "GET":
+        workspace_id = request.args.get("workspace_id", type=int)
+        if not workspace_id:
+            return jsonify(error="workspace_id requis"), 400
+        return jsonify(campaigns=campaigns.list_campaigns(workspace_id))
+
+    body = request.get_json(silent=True) or {}
+    workspace_id = body.get("workspace_id")
+    type_ = body.get("type")
+    nom = body.get("nom")
+    if not workspace_id or not type_ or not nom:
+        return jsonify(error="workspace_id, type et nom sont requis"), 400
+
+    try:
+        campaign_id = campaigns.create_campaign(
+            workspace_id, type_, nom,
+            sujet=body.get("sujet"), contenu=body.get("contenu"),
+            quota_par_jour=body.get("quota_par_jour", 100),
+        )
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+
+    return jsonify(id=campaign_id, status="created"), 201
+
+
+@app.route("/api/campaigns/<int:campaign_id>", methods=["PUT"])
+def campaigns_update(campaign_id):
+    body = request.get_json(silent=True) or {}
+    workspace_id = body.pop("workspace_id", None)
+    if not workspace_id:
+        return jsonify(error="workspace_id requis"), 400
+
+    try:
+        campaigns.update_campaign(workspace_id, campaign_id, **body)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+
+    return jsonify(status="updated")
 
 
 init_db()
