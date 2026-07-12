@@ -79,6 +79,20 @@ def get_all_consent_status(prospect_id):
     return {t: get_consent_status(prospect_id, t) for t in CONSENT_TYPES}
 
 
+def prospect_workspace_id(prospect_id):
+    """Retourne le workspace_id du prospect, ou None s'il n'existe pas.
+    Utilisé pour vérifier qu'un utilisateur n'accède qu'aux prospects de son
+    propre espace de travail."""
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT workspace_id FROM prospects WHERE id = %s", (prospect_id,))
+            row = cur.fetchone()
+        return row[0] if row else None
+    finally:
+        conn.close()
+
+
 def can_send(prospect_id, type_):
     """Vérifie si un envoi de ce type est autorisé pour ce prospect."""
     if type_ not in CONSENT_TYPES:

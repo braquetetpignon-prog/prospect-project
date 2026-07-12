@@ -196,9 +196,9 @@
     <a href="/" class="logo"><span class="logo-mark"></span>ClickProspect</a>
 
     <div class="workspace-picker">
-      <label for="workspace-select">Espace de travail</label>
-      <select id="workspace-select"></select>
-      <button class="workspace-new" id="new-workspace-btn" type="button">+ Nouvel espace</button>
+      <label>Espace de travail</label>
+      <div id="workspace-name-display" style="font-weight:600; font-size:14.5px; padding:2px 0;">Chargement…</div>
+      <div id="user-role-display" style="font-size:12px; color:var(--text-soft); margin-top:2px;"></div>
     </div>
 
     <nav class="side-nav">
@@ -232,6 +232,11 @@
         <span class="soon-tag">Bientôt</span>
       </a>
     </nav>
+
+    <button id="logout-btn" type="button" class="side-link" style="border:none; background:none; width:100%; text-align:left; cursor:pointer; margin-top:auto;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      Déconnexion
+    </button>
   </aside>
 
   <main class="main">
@@ -273,6 +278,7 @@
 </div>
 
 <script>
+const roleLabels = { admin: 'Administrateur', commercial: 'Commercial', lecture_seule: 'Lecture seule' };
 const statusLabels = { nouveau: 'Nouveau', qualifie: 'Qualifié', client: 'Client', recale: 'Recalé' };
 
 function badgeHtml(statut) {
@@ -280,60 +286,33 @@ function badgeHtml(statut) {
   return `<span class="badge badge-${statut}">${label}</span>`;
 }
 
-function getStoredWorkspaceId() {
-  return localStorage.getItem('clickprospect_workspace_id');
-}
-function setStoredWorkspaceId(id) {
-  localStorage.setItem('clickprospect_workspace_id', id);
-}
-
 async function fetchJSON(url, options) {
   const res = await fetch(url, options);
+  if (res.status === 401) {
+    window.location.href = '/login';
+    throw new Error('Non authentifié');
+  }
   if (!res.ok) throw new Error(`Erreur ${res.status} sur ${url}`);
   return res.json();
 }
 
-async function loadWorkspaces() {
-  const select = document.getElementById('workspace-select');
+async function checkAuthAndLoad() {
+  let me;
   try {
-    const data = await fetchJSON('/api/workspaces');
-    if (!data.workspaces.length) {
-      select.innerHTML = '<option>Aucun espace de travail</option>';
-      renderEmptyDashboard();
-      return null;
-    }
-    select.innerHTML = data.workspaces.map(w => `<option value="${w.id}">${w.name}</option>`).join('');
-
-    const stored = getStoredWorkspaceId();
-    const validStored = data.workspaces.find(w => String(w.id) === stored);
-    const selected = validStored ? stored : data.workspaces[0].id;
-    select.value = selected;
-    setStoredWorkspaceId(selected);
-    return selected;
+    me = await fetchJSON('/api/auth/me');
   } catch (e) {
-    select.innerHTML = '<option>Erreur de chargement</option>';
-    return null;
+    return; // déjà redirigé vers /login
   }
-}
 
-function renderEmptyDashboard() {
-  document.getElementById('workspace-label').textContent = "Créez votre premier espace de travail pour commencer.";
-  document.getElementById('stat-grid').innerHTML = '';
-  document.getElementById('prospect-list-container').innerHTML = `
-    <div class="empty-state">
-      <h3>Pas encore d'espace de travail</h3>
-      <p>Un espace de travail regroupe vos prospects, vos campagnes et vos paramètres.</p>
-      <button class="btn btn-primary" onclick="document.getElementById('new-workspace-btn').click()">Créer un espace de travail</button>
-    </div>`;
-  document.getElementById('activity-container').innerHTML = '';
+  document.getElementById('workspace-name-display').textContent = me.workspace_name;
+  document.getElementById('user-role-display').textContent = `${me.email} · ${roleLabels[me.role] || me.role}`;
+  document.getElementById('greeting').textContent = 'Bonjour 👋';
+  document.getElementById('workspace-label').textContent = `Voici ce qui se passe dans « ${me.workspace_name} ».`;
+
+  loadDashboard(me.workspace_id);
 }
 
 async function loadDashboard(workspaceId) {
-  const select = document.getElementById('workspace-select');
-  const wsName = select.options[select.selectedIndex]?.text || '';
-  document.getElementById('greeting').textContent = `Bonjour 👋`;
-  document.getElementById('workspace-label').textContent = `Voici ce qui se passe dans « ${wsName} ».`;
-
   try {
     const stats = await fetchJSON(`/api/workspaces/${workspaceId}/dashboard-stats`);
     renderStats(stats);
@@ -403,32 +382,12 @@ function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
-document.getElementById('workspace-select').addEventListener('change', (e) => {
-  setStoredWorkspaceId(e.target.value);
-  loadDashboard(e.target.value);
+document.getElementById('logout-btn').addEventListener('click', async () => {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  window.location.href = '/login';
 });
 
-document.getElementById('new-workspace-btn').addEventListener('click', async () => {
-  const name = prompt("Nom du nouvel espace de travail :");
-  if (!name || !name.trim()) return;
-  try {
-    const created = await fetchJSON('/api/workspaces', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name.trim() }),
-    });
-    setStoredWorkspaceId(created.id);
-    const workspaceId = await loadWorkspaces();
-    if (workspaceId) loadDashboard(workspaceId);
-  } catch (e) {
-    alert("Impossible de créer l'espace de travail.");
-  }
-});
-
-(async function init() {
-  const workspaceId = await loadWorkspaces();
-  if (workspaceId) loadDashboard(workspaceId);
-})();
+checkAuthAndLoad();
 </script>
 
 </body>

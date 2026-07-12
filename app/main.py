@@ -1,6 +1,7 @@
 import os
+from datetime import timedelta
 
-from flask import Flask, jsonify, request, render_template as flask_render_template
+from flask import Flask, jsonify, request, session, render_template as flask_render_template
 
 from app.db import get_db
 from app import csv_import
@@ -11,10 +12,18 @@ from app import campaigns
 from app import consent
 from app import sending
 from app import scheduler
+from app import auth
+from app.auth import login_required, require_own_workspace, require_role, WRITE_ROLES
 
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "schema.sql")
 
 app = Flask(__name__, template_folder=os.path.dirname(os.path.abspath(__file__)))
+
+app.secret_key = os.environ.get("SECRET_KEY")
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=14)
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = os.environ.get("ENV") == "preproduction"
 
 MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 Mo
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
@@ -35,6 +44,16 @@ def init_db():
 @app.route("/")
 def index():
     return flask_render_template("landing.html")
+
+
+@app.route("/signup")
+def signup_page():
+    return flask_render_template("signup.html")
+
+
+@app.route("/login")
+def login_page():
+    return flask_render_template("login.html")
 
 
 @app.route("/dashboard")
@@ -58,12 +77,124 @@ def health():
         return jsonify(status="unhealthy", db="error", detail=str(e)), 503
 
 
+# --- Authentification -------------------------------------------------
+
+@app.route("/api/auth/signup", methods=["POST"])
+def auth_signup():
+    """Inscription d'un nouvel artisan : crée son espace de travail et son
+    compte administrateur en une seule étape."""
+    body = request.get_json(silent=True) or {}
+    workspace_name = (body.get("workspace_name") or "").strip()
+    email = (body.get("email") or "").strip()
+    password = body.get("password") or ""
+
+    if not workspace_name or not email or not password:
+        return jsonify(error="workspace_name, email et password sont requis"), 400
+
+    try:
+        workspace_id, user_id = auth.create_workspace_with_admin(workspace_name, email, password)
+    except auth.AuthError as exc:
+        return jsonify(error=str(exc)), 400
+
+    auth.login(email, password)
+    return jsonify(status="ok", workspace_id=workspace_id), 201
+
+
+@app.route("/api/auth/login", methods=["POST"])
+def auth_login():
+    body = request.get_json(silent=True) or {}
+    email = (body.get("email") or "").strip()
+    password = body.get("password") or ""
+    if not email or not password:
+        return jsonify(error="email et password sont requis"), 400
+
+    try:
+        auth.login(email, password)
+    except auth.AuthError as exc:
+        return jsonify(error=str(exc)), 401
+
+    return jsonify(status="ok")
+
+
+@app.route("/api/auth/logout", methods=["POST"])
+def auth_logout():
+    auth.logout()
+    return jsonify(status="ok")
+
+
+@app.route("/api/auth/me")
+def auth_me():
+    user = auth.current_user()
+    if not user:
+        return jsonify(error="Non connecté."), 401
+
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT email FROM users WHERE id = %s", (user["user_id"],))
+            email_row = cur.fetchone()
+            cur.execute("SELECT name FROM workspaces WHERE id = %s", (user["workspace_id"],))
+            workspace_row = cur.fetchone()
+    finally:
+        conn.close()
+
+    return jsonify(
+        email=email_row[0] if email_row else None,
+        role=user["role"],
+        workspace_id=user["workspace_id"],
+        workspace_name=workspace_row[0] if workspace_row else None,
+    )
+
+
+# --- Gestion des membres (admin uniquement) --------------------------------
+
+@app.route("/api/workspaces/<int:workspace_id>/users", methods=["GET", "POST"])
+@login_required
+@require_own_workspace
+@require_role("admin")
+def workspace_users(workspace_id):
+    if request.method == "GET":
+        return jsonify(users=auth.list_users(workspace_id))
+
+    body = request.get_json(silent=True) or {}
+    email = (body.get("email") or "").strip()
+    password = body.get("password") or ""
+    role = body.get("role") or "commercial"
+
+    if not email or not password:
+        return jsonify(error="email et password sont requis"), 400
+
+    try:
+        user_id = auth.create_user(workspace_id, email, password, role)
+    except auth.AuthError as exc:
+        return jsonify(error=str(exc)), 400
+
+    return jsonify(id=user_id, status="created"), 201
+
+
+@app.route("/api/workspaces/<int:workspace_id>/users/<int:user_id>", methods=["PUT"])
+@login_required
+@require_own_workspace
+@require_role("admin")
+def workspace_user_update(workspace_id, user_id):
+    body = request.get_json(silent=True) or {}
+    if "is_active" not in body:
+        return jsonify(error="is_active requis"), 400
+
+    try:
+        auth.set_user_active(workspace_id, user_id, bool(body["is_active"]))
+    except auth.AuthError as exc:
+        return jsonify(error=str(exc)), 404
+
+    return jsonify(status="updated")
+
+
 # --- Import CSV -------------------------------------------------------
 
-# NOTE : workspace_id est passé explicitement pour l'instant, en attendant
-# la mise en place de l'authentification / session par espace de travail.
-
 @app.route("/api/imports/preview", methods=["POST"])
+@login_required
+@require_own_workspace
+@require_role(*WRITE_ROLES)
 def import_preview():
     if "file" not in request.files:
         return jsonify(error="Fichier manquant (champ 'file')"), 400
@@ -96,8 +227,24 @@ def import_preview():
     )
 
 
+def _check_import_job_access(job_id):
+    """Renvoie (job, error_response) — error_response est None si l'accès est autorisé."""
+    job = csv_import.get_job(job_id)
+    if not job:
+        return None, (jsonify(error="Job introuvable"), 404)
+    if job["workspace_id"] != session.get("workspace_id"):
+        return None, (jsonify(error="Job introuvable"), 404)
+    return job, None
+
+
 @app.route("/api/imports/<int:job_id>/start", methods=["POST"])
+@login_required
+@require_role(*WRITE_ROLES)
 def import_start(job_id):
+    job, error = _check_import_job_access(job_id)
+    if error:
+        return error
+
     body = request.get_json(silent=True) or {}
     mapping = body.get("mapping")
     if not mapping or not isinstance(mapping, dict):
@@ -112,24 +259,30 @@ def import_start(job_id):
 
 
 @app.route("/api/imports/<int:job_id>/status")
+@login_required
 def import_status(job_id):
-    job = csv_import.get_job(job_id)
-    if not job:
-        return jsonify(error="Job introuvable"), 404
+    job, error = _check_import_job_access(job_id)
+    if error:
+        return error
     job.pop("workspace_id", None)
     return jsonify(job)
 
 
 @app.route("/api/imports/<int:job_id>/errors")
+@login_required
 def import_errors(job_id):
+    _, error = _check_import_job_access(job_id)
+    if error:
+        return error
     page = request.args.get("page", 1, type=int)
     errors = csv_import.get_job_errors(job_id, page=page)
     return jsonify(page=page, errors=errors)
 
 
-# --- Recherche de code NAF ---------------------------------------------
+# --- Recherche de code NAF (référence publique, pas de donnée d'espace) ----
 
 @app.route("/api/naf-codes/search")
+@login_required
 def naf_codes_search():
     query = request.args.get("q", "")
     if len(query.strip()) < 2:
@@ -141,6 +294,8 @@ def naf_codes_search():
 # --- Recherche IA intégrée (Option 2) -----------------------------------
 
 @app.route("/api/ia-search/quota")
+@login_required
+@require_own_workspace
 def ia_search_quota():
     workspace_id = request.args.get("workspace_id", type=int)
     if not workspace_id:
@@ -149,6 +304,9 @@ def ia_search_quota():
 
 
 @app.route("/api/ia-search", methods=["POST"])
+@login_required
+@require_own_workspace
+@require_role(*WRITE_ROLES)
 def ia_search_start():
     body = request.get_json(silent=True) or {}
     workspace_id = body.get("workspace_id")
@@ -169,12 +327,17 @@ def ia_search_start():
     return jsonify(result)
 
 
-# --- Option 3 : Configuration --------------------------------------------
+# --- Option 3 : Configuration (paramètres réservés à l'administrateur) ----
 
 @app.route("/api/workspaces/<int:workspace_id>/google-business-profile", methods=["GET", "PUT"])
+@login_required
+@require_own_workspace
 def google_business_profile(workspace_id):
     if request.method == "GET":
         return jsonify(workspace_settings.get_google_business_profile(workspace_id))
+
+    if session.get("role") != "admin":
+        return jsonify(error="Réservé aux administrateurs."), 403
 
     body = request.get_json(silent=True) or {}
     profile_url = (body.get("profile_url") or "").strip()
@@ -185,6 +348,9 @@ def google_business_profile(workspace_id):
 
 
 @app.route("/api/workspaces/<int:workspace_id>/smtp-config", methods=["GET", "PUT"])
+@login_required
+@require_own_workspace
+@require_role("admin")
 def smtp_config(workspace_id):
     if request.method == "GET":
         return jsonify(workspace_settings.get_smtp_config(workspace_id))
@@ -207,12 +373,17 @@ def smtp_config(workspace_id):
 
 
 @app.route("/api/campaigns", methods=["GET", "POST"])
+@login_required
+@require_own_workspace
 def campaigns_collection():
     if request.method == "GET":
         workspace_id = request.args.get("workspace_id", type=int)
         if not workspace_id:
             return jsonify(error="workspace_id requis"), 400
         return jsonify(campaigns=campaigns.list_campaigns(workspace_id))
+
+    if session.get("role") not in WRITE_ROLES:
+        return jsonify(error="Permission insuffisante pour cette action."), 403
 
     body = request.get_json(silent=True) or {}
     workspace_id = body.get("workspace_id")
@@ -233,15 +404,26 @@ def campaigns_collection():
     return jsonify(id=campaign_id, status="created"), 201
 
 
+def _check_campaign_access(campaign_id):
+    ws_id = campaigns.campaign_workspace_id(campaign_id)
+    if ws_id is None or ws_id != session.get("workspace_id"):
+        return jsonify(error="Campagne introuvable"), 404
+    return None
+
+
 @app.route("/api/campaigns/<int:campaign_id>", methods=["PUT"])
+@login_required
+@require_role(*WRITE_ROLES)
 def campaigns_update(campaign_id):
+    error = _check_campaign_access(campaign_id)
+    if error:
+        return error
+
     body = request.get_json(silent=True) or {}
-    workspace_id = body.pop("workspace_id", None)
-    if not workspace_id:
-        return jsonify(error="workspace_id requis"), 400
+    body.pop("workspace_id", None)
 
     try:
-        campaigns.update_campaign(workspace_id, campaign_id, **body)
+        campaigns.update_campaign(session["workspace_id"], campaign_id, **body)
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
 
@@ -251,9 +433,17 @@ def campaigns_update(campaign_id):
 # --- Option 3 : RGPD / Consentement ---------------------------------------
 
 @app.route("/api/prospects/<int:prospect_id>/consent", methods=["GET", "POST"])
+@login_required
 def prospect_consent(prospect_id):
+    ws_id = consent.prospect_workspace_id(prospect_id)
+    if ws_id is None or ws_id != session.get("workspace_id"):
+        return jsonify(error="Prospect introuvable"), 404
+
     if request.method == "GET":
         return jsonify(consent.get_all_consent_status(prospect_id))
+
+    if session.get("role") not in WRITE_ROLES:
+        return jsonify(error="Permission insuffisante pour cette action."), 403
 
     body = request.get_json(silent=True) or {}
     type_ = body.get("type")
@@ -272,6 +462,8 @@ def prospect_consent(prospect_id):
 
 @app.route("/unsubscribe")
 def unsubscribe():
+    # Route publique, volontairement sans authentification : cliquée par un
+    # destinataire externe depuis un e-mail, pas par un utilisateur ClickProspect.
     prospect_id = request.args.get("prospect_id", type=int)
     type_ = request.args.get("type")
     sig = request.args.get("sig", "")
@@ -287,6 +479,8 @@ def unsubscribe():
 
 
 @app.route("/api/admin/purge-consent-history", methods=["POST"])
+@login_required
+@require_role("admin")
 def admin_purge_consent_history():
     deleted = consent.purge_old_consent_history()
     return jsonify(status="ok", deleted_rows=deleted)
@@ -295,7 +489,13 @@ def admin_purge_consent_history():
 # --- Option 3 : Envoi ------------------------------------------------------
 
 @app.route("/api/campaigns/<int:campaign_id>/send", methods=["POST"])
+@login_required
+@require_role(*WRITE_ROLES)
 def campaign_send(campaign_id):
+    error = _check_campaign_access(campaign_id)
+    if error:
+        return error
+
     body = request.get_json(silent=True) or {}
     prospect_ids = body.get("prospect_ids")
     planifie_pour = body.get("planifie_pour")  # ISO 8601, optionnel
@@ -312,7 +512,12 @@ def campaign_send(campaign_id):
 
 
 @app.route("/api/campaigns/<int:campaign_id>/sends")
+@login_required
 def campaign_sends_list(campaign_id):
+    error = _check_campaign_access(campaign_id)
+    if error:
+        return error
+
     conn = get_db()
     try:
         with conn.cursor() as cur:
@@ -331,6 +536,8 @@ def campaign_sends_list(campaign_id):
 
 
 @app.route("/api/admin/process-due-sends", methods=["POST"])
+@login_required
+@require_role("admin")
 def admin_process_due_sends():
     processed = sending.process_due_sends()
     return jsonify(status="ok", processed=processed)
@@ -338,34 +545,9 @@ def admin_process_due_sends():
 
 # --- Données pour le dashboard ---------------------------------------------
 
-@app.route("/api/workspaces", methods=["GET", "POST"])
-def workspaces_list():
-    if request.method == "POST":
-        body = request.get_json(silent=True) or {}
-        name = (body.get("name") or "").strip()
-        if not name:
-            return jsonify(error="name requis"), 400
-        conn = get_db()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("INSERT INTO workspaces (name) VALUES (%s) RETURNING id", (name,))
-                workspace_id = cur.fetchone()[0]
-            conn.commit()
-        finally:
-            conn.close()
-        return jsonify(id=workspace_id, name=name), 201
-
-    conn = get_db()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT id, name FROM workspaces ORDER BY name")
-            rows = cur.fetchall()
-        return jsonify(workspaces=[{"id": r[0], "name": r[1]} for r in rows])
-    finally:
-        conn.close()
-
-
 @app.route("/api/prospects")
+@login_required
+@require_own_workspace
 def prospects_list():
     workspace_id = request.args.get("workspace_id", type=int)
     if not workspace_id:
@@ -401,6 +583,8 @@ def prospects_list():
 
 
 @app.route("/api/workspaces/<int:workspace_id>/dashboard-stats")
+@login_required
+@require_own_workspace
 def dashboard_stats(workspace_id):
     conn = get_db()
     try:

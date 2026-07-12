@@ -19,14 +19,22 @@ CREATE TABLE IF NOT EXISTS workspaces (
 );
 
 -- Utilisateurs rattachés à un espace de travail
--- (schéma minimal — à affiner quand l'authentification sera spécifiée)
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     email TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'commercial',  -- admin / commercial / lecture_seule
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_users_workspace ON users(workspace_id);
+
+-- ALTER plutôt que colonnes dans le CREATE TABLE ci-dessus : la table existe déjà
+-- en production (créée lors de la migration initiale), un CREATE TABLE IF NOT
+-- EXISTS ne la modifierait pas.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'commercial';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
 
 -- Prospects
 CREATE TABLE IF NOT EXISTS prospects (

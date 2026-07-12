@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Créer votre espace — ClickProspect</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600,0,700&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --cream: #FAF6F0; --terracotta: #C1653D; --terracotta-deep: #A2502E;
+    --sauge: #7A9471; --sauge-light: #E7EDE3; --text: #35302A; --text-soft: #6E6459;
+    --white: #FFFFFF; --border: rgba(53,48,42,0.12);
+    --shadow: 0 16px 40px rgba(53,40,24,0.10);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--cream); color: var(--text);
+    font-family: 'Figtree', sans-serif; display: flex; align-items: center; justify-content: center; padding: 24px;
+  }
+  .card { background: var(--white); border-radius: 24px; box-shadow: var(--shadow); padding: 44px; width: 100%; max-width: 420px; }
+  .logo { display: flex; align-items: center; gap: 8px; font-family: 'Fraunces', serif; font-weight: 700; font-size: 20px; margin-bottom: 28px; text-decoration: none; color: var(--text); }
+  .logo-mark { width: 26px; height: 26px; border-radius: 8px; background: linear-gradient(135deg, var(--terracotta), var(--sauge)); }
+  h1 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 24px; margin: 0 0 6px; }
+  .sub { color: var(--text-soft); font-size: 14.5px; margin: 0 0 28px; }
+  label { display: block; font-size: 13.5px; font-weight: 600; margin-bottom: 6px; margin-top: 16px; }
+  label:first-of-type { margin-top: 0; }
+  input {
+    width: 100%; padding: 12px 14px; border-radius: 12px; border: 1.5px solid var(--border);
+    font-family: 'Figtree', sans-serif; font-size: 15px; background: var(--cream); color: var(--text);
+  }
+  input:focus { outline: none; border-color: var(--terracotta); }
+  .hint { font-size: 12px; color: var(--text-soft); margin-top: 5px; }
+  .btn { width: 100%; margin-top: 26px; padding: 13px; border-radius: 999px; border: none; background: var(--terracotta); color: var(--white); font-weight: 600; font-size: 15px; cursor: pointer; font-family: 'Figtree', sans-serif; }
+  .btn:hover { background: var(--terracotta-deep); }
+  .btn:disabled { opacity: 0.6; cursor: default; }
+  .error { background: #F8E6E0; color: #A2502E; border-radius: 10px; padding: 11px 14px; font-size: 13.5px; margin-top: 18px; display: none; }
+  .footer-link { text-align: center; margin-top: 22px; font-size: 14px; color: var(--text-soft); }
+  .footer-link a { color: var(--terracotta); font-weight: 600; text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="card">
+  <a href="/" class="logo"><span class="logo-mark"></span>ClickProspect</a>
+  <h1>Créez votre espace de travail</h1>
+  <p class="sub">Gratuit pour commencer, aucune carte bancaire requise.</p>
+
+  <form id="signup-form">
+    <label for="workspace_name">Nom de votre entreprise</label>
+    <input id="workspace_name" name="workspace_name" required placeholder="Ex : Atelier Martin">
+
+    <label for="email">Votre e-mail</label>
+    <input id="email" name="email" type="email" required placeholder="vous@entreprise.fr">
+
+    <label for="password">Mot de passe</label>
+    <input id="password" name="password" type="password" required minlength="8" placeholder="8 caractères minimum">
+    <div class="hint">Vous serez administrateur de cet espace de travail.</div>
+
+    <button class="btn" type="submit">Créer mon espace</button>
+    <div class="error" id="error-box"></div>
+  </form>
+
+  <div class="footer-link">Déjà un compte ? <a href="/login">Se connecter</a></div>
+</div>
+
+<script>
+const form = document.getElementById('signup-form');
+const errorBox = document.getElementById('error-box');
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  errorBox.style.display = 'none';
+  const btn = form.querySelector('button');
+  btn.disabled = true;
+  btn.textContent = 'Création en cours…';
+
+  try {
+    const res = await fetch('/api/auth/signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workspace_name: document.getElementById('workspace_name').value.trim(),
+        email: document.getElementById('email').value.trim(),
+        password: document.getElementById('password').value,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Une erreur est survenue.');
+    window.location.href = '/dashboard';
+  } catch (err) {
+    errorBox.textContent = err.message;
+    errorBox.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = 'Créer mon espace';
+  }
+});
+</script>
+</body>
+</html>

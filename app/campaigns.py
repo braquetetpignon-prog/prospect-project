@@ -59,6 +59,18 @@ def _count_active(workspace_id):
         conn.close()
 
 
+def campaign_workspace_id(campaign_id):
+    """Retourne le workspace_id de la campagne, ou None si elle n'existe pas."""
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT workspace_id FROM campaigns WHERE id = %s", (campaign_id,))
+            row = cur.fetchone()
+        return row[0] if row else None
+    finally:
+        conn.close()
+
+
 def list_campaigns(workspace_id):
     conn = get_db()
     try:
