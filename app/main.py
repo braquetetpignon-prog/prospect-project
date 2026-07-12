@@ -1,7 +1,7 @@
 import os
 from datetime import timedelta
 
-from flask import Flask, jsonify, request, session, render_template as flask_render_template
+from flask import Flask, jsonify, request, session, redirect, render_template as flask_render_template
 
 from app.db import get_db
 from app import csv_import
@@ -15,6 +15,7 @@ from app import scheduler
 from app import auth
 from app.auth import login_required, require_own_workspace, require_role, WRITE_ROLES
 from app import prospects
+from app import text_parser
 
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "schema.sql")
 
@@ -79,7 +80,7 @@ def campagnes_page():
 
 @app.route("/recherche-ia")
 def recherche_ia_page():
-    return flask_render_template("recherche_ia.html")
+    return redirect("/import", code=301)
 
 
 @app.route("/import")
@@ -351,6 +352,81 @@ def ia_search_start():
         return jsonify(error=str(exc)), 502
 
     return jsonify(result)
+
+
+# --- Recherches IA planifiées ------------------------------------------
+
+@app.route("/api/workspaces/<int:workspace_id>/scheduled-searches", methods=["GET", "POST"])
+@login_required
+@require_own_workspace
+def scheduled_searches_collection(workspace_id):
+    if request.method == "GET":
+        return jsonify(scheduled_searches=ia_search.list_scheduled_searches(workspace_id))
+
+    if session.get("role") not in WRITE_ROLES:
+        return jsonify(error="Permission insuffisante pour cette action."), 403
+
+    body = request.get_json(silent=True) or {}
+    lieu = (body.get("lieu") or "").strip()
+    type_entreprise = (body.get("type_entreprise") or "").strip()
+    heure = body.get("heure")
+    if not lieu or not type_entreprise or not heure:
+        return jsonify(error="lieu, type_entreprise et heure sont requis"), 400
+
+    search_id = ia_search.create_scheduled_search(
+        workspace_id, lieu, type_entreprise,
+        (body.get("criteres_additionnels") or "").strip() or None, heure,
+    )
+    return jsonify(id=search_id, status="created"), 201
+
+
+@app.route("/api/workspaces/<int:workspace_id>/scheduled-searches/<int:search_id>", methods=["PUT", "DELETE"])
+@login_required
+@require_own_workspace
+@require_role(*WRITE_ROLES)
+def scheduled_search_item(workspace_id, search_id):
+    try:
+        if request.method == "DELETE":
+            ia_search.delete_scheduled_search(workspace_id, search_id)
+            return jsonify(status="deleted")
+
+        body = request.get_json(silent=True) or {}
+        if "actif" in body:
+            ia_search.set_scheduled_search_active(workspace_id, search_id, bool(body["actif"]))
+        return jsonify(status="updated")
+    except ia_search.GeminiError as exc:
+        return jsonify(error=str(exc)), 404
+
+
+@app.route("/api/workspaces/<int:workspace_id>/scheduled-search-results")
+@login_required
+@require_own_workspace
+def scheduled_search_results(workspace_id):
+    return jsonify(results=ia_search.list_pending_scheduled_results(workspace_id))
+
+
+@app.route("/api/scheduled-search-results/<int:result_id>/dismiss", methods=["POST"])
+@login_required
+def dismiss_scheduled_result(result_id):
+    try:
+        ia_search.dismiss_scheduled_result(session.get("workspace_id"), result_id)
+    except ia_search.GeminiError as exc:
+        return jsonify(error=str(exc)), 404
+    return jsonify(status="ok")
+
+
+# --- Coller une réponse IA externe (sans clé API, sans coût) -----------
+
+@app.route("/api/text-parse", methods=["POST"])
+@login_required
+@require_role(*WRITE_ROLES)
+def text_parse():
+    body = request.get_json(silent=True) or {}
+    text = body.get("text") or ""
+    results = text_parser.parse_pasted_text(text)
+    if not results:
+        return jsonify(error="Aucune entreprise reconnue dans ce texte. Vérifie le format (liste à puces)."), 400
+    return jsonify(prospects=results)
 
 
 # --- Option 3 : Configuration (paramètres réservés à l'administrateur) ----

@@ -162,3 +162,166 @@ def perform_search(workspace_id, lieu, type_entreprise, criteres_additionnels=No
         "prospects": prospects,
         "quota": get_quota_status(workspace_id),
     }
+
+
+# --- Recherches planifiées (relance automatique quotidienne, fiable côté serveur) ---
+
+def create_scheduled_search(workspace_id, lieu, type_entreprise, criteres_additionnels, heure):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO scheduled_searches (workspace_id, lieu, type_entreprise, criteres_additionnels, heure)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (workspace_id, lieu, type_entreprise, criteres_additionnels, heure),
+            )
+            search_id = cur.fetchone()[0]
+        conn.commit()
+        return search_id
+    finally:
+        conn.close()
+
+
+def list_scheduled_searches(workspace_id):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, lieu, type_entreprise, criteres_additionnels, heure, actif, derniere_execution
+                FROM scheduled_searches WHERE workspace_id = %s ORDER BY created_at DESC
+                """,
+                (workspace_id,),
+            )
+            rows = cur.fetchall()
+        cols = ["id", "lieu", "type_entreprise", "criteres_additionnels", "heure", "actif", "derniere_execution"]
+        results = [dict(zip(cols, r)) for r in rows]
+        for r in results:
+            if r["heure"] is not None:
+                r["heure"] = r["heure"].strftime("%H:%M")
+            if r["derniere_execution"] is not None:
+                r["derniere_execution"] = r["derniere_execution"].isoformat()
+        return results
+    finally:
+        conn.close()
+
+
+def set_scheduled_search_active(workspace_id, search_id, actif):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE scheduled_searches SET actif = %s WHERE id = %s AND workspace_id = %s RETURNING id",
+                (actif, search_id, workspace_id),
+            )
+            updated = cur.fetchone()
+        conn.commit()
+        if not updated:
+            raise GeminiError("Recherche planifiée introuvable.")
+    finally:
+        conn.close()
+
+
+def delete_scheduled_search(workspace_id, search_id):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM scheduled_searches WHERE id = %s AND workspace_id = %s RETURNING id",
+                (search_id, workspace_id),
+            )
+            deleted = cur.fetchone()
+        conn.commit()
+        if not deleted:
+            raise GeminiError("Recherche planifiée introuvable.")
+    finally:
+        conn.close()
+
+
+def run_due_scheduled_searches():
+    """Exécute les recherches planifiées dont l'heure est passée aujourd'hui et qui n'ont
+    pas encore tourné aujourd'hui. Les résultats sont stockés pour vérification manuelle,
+    jamais insérés directement en base — même principe que la recherche interactive."""
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, workspace_id, lieu, type_entreprise, criteres_additionnels
+                FROM scheduled_searches
+                WHERE actif = TRUE
+                  AND heure <= CURRENT_TIME
+                  AND (derniere_execution IS NULL OR derniere_execution < CURRENT_DATE)
+                """
+            )
+            due = cur.fetchall()
+    finally:
+        conn.close()
+
+    executed = 0
+    for search_id, workspace_id, lieu, type_entreprise, criteres in due:
+        try:
+            result = perform_search(workspace_id, lieu, type_entreprise, criteres)
+        except (QuotaExceeded, GeminiError):
+            # Quota atteint ou erreur Gemini : on retentera au prochain cycle du planificateur
+            # tant que derniere_execution n'est pas mise à jour.
+            continue
+
+        conn = get_db()
+        try:
+            with conn.cursor() as cur:
+                for prospect in result["prospects"]:
+                    cur.execute(
+                        """
+                        INSERT INTO scheduled_search_results (scheduled_search_id, workspace_id, fields)
+                        VALUES (%s, %s, %s)
+                        """,
+                        (search_id, workspace_id, json.dumps(prospect)),
+                    )
+                cur.execute(
+                    "UPDATE scheduled_searches SET derniere_execution = CURRENT_DATE WHERE id = %s",
+                    (search_id,),
+                )
+            conn.commit()
+            executed += 1
+        finally:
+            conn.close()
+
+    return executed
+
+
+def list_pending_scheduled_results(workspace_id):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, fields, created_at FROM scheduled_search_results
+                WHERE workspace_id = %s AND statut = 'a_verifier'
+                ORDER BY created_at DESC
+                """,
+                (workspace_id,),
+            )
+            rows = cur.fetchall()
+        return [{"id": r[0], **r[1], "found_at": r[2]} for r in rows]
+    finally:
+        conn.close()
+
+
+def dismiss_scheduled_result(workspace_id, result_id):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE scheduled_search_results SET statut = 'traite' WHERE id = %s AND workspace_id = %s RETURNING id",
+                (result_id, workspace_id),
+            )
+            updated = cur.fetchone()
+        conn.commit()
+        if not updated:
+            raise GeminiError("Résultat introuvable.")
+    finally:
+        conn.close()

@@ -1,58 +1,86 @@
 {% extends "base.html" %}
 {% set active_page = 'import' %}
-{% block title %}Import CSV{% endblock %}
+{% block title %}Prospection{% endblock %}
 
 {% block extra_css %}
-  .dropzone { border: 2px dashed var(--border); border-radius: 16px; padding: 48px 24px; text-align: center; cursor: pointer; transition: border-color .15s, background .15s; }
+  .source-tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+  .source-tab { padding: 10px 18px; border-radius: 999px; font-size: 13.5px; font-weight: 600; border: 1.5px solid var(--border); background: var(--white); cursor: pointer; }
+  .source-tab.active { background: var(--text); color: var(--white); border-color: var(--text); }
+  .steps-indicator { display: flex; gap: 6px; align-items: center; margin-bottom: 20px; font-size: 12.5px; font-weight: 600; color: var(--text-soft); flex-wrap: wrap; }
+  .step-pill { padding: 5px 12px; border-radius: 999px; background: var(--cream); }
+  .step-pill.current { background: var(--text); color: var(--white); }
+  .step-sep { color: var(--border); }
+
+  .dropzone { border: 2px dashed var(--border); border-radius: 16px; padding: 40px 24px; text-align: center; cursor: pointer; }
   .dropzone:hover, .dropzone.dragover { border-color: var(--terracotta); background: var(--cream); }
-  .dropzone svg { width: 34px; height: 34px; color: var(--text-soft); margin-bottom: 12px; }
+  .dropzone svg { width: 30px; height: 30px; color: var(--text-soft); margin-bottom: 10px; }
+
   .mapping-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: center; padding: 10px 0; border-top: 1px solid var(--border); }
   .mapping-row:first-child { border-top: none; }
   .mapping-col-name { font-size: 13.5px; font-weight: 600; }
   .mapping-sample { font-size: 12px; color: var(--text-soft); margin-top: 2px; }
+
   .progress-bar-track { background: var(--cream); border-radius: 999px; height: 10px; overflow: hidden; margin: 14px 0; }
   .progress-bar-fill { background: var(--terracotta); height: 100%; border-radius: 999px; transition: width .3s; }
   .error-severity-error { background: #F3E3E3; color: #9B4646; }
   .error-severity-warning { background: #FDECE3; color: var(--terracotta-deep); }
+
+  .review-card { border-top: 1px solid var(--border); padding: 16px 24px; display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: start; }
+  .review-card:first-child { border-top: none; }
+  .review-card input { margin-bottom: 6px; }
+  .review-field-label { font-size: 11px; font-weight: 600; color: var(--text-soft); text-transform: uppercase; letter-spacing: .03em; margin-bottom: 3px; }
+  .review-fields-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  .quick-links { display: flex; gap: 10px; flex-wrap: wrap; }
+  .quick-link-btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 12px; border: 1.5px solid var(--border); background: var(--white); font-size: 13.5px; font-weight: 600; cursor: pointer; }
+  .quick-link-btn:hover { border-color: var(--text); }
+
+  .scheduled-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-top: 1px solid var(--border); font-size: 13.5px; }
+  .scheduled-row:first-child { border-top: none; }
+
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 700px) { .field-row, .review-fields-grid { grid-template-columns: 1fr; } .review-card { grid-template-columns: 1fr; } }
 {% endblock %}
 
 {% block content %}
 <div class="topbar">
   <div>
-    <h1>Import CSV</h1>
-    <p>Importe une liste de contacts existante en quelques clics.</p>
+    <h1>Prospection</h1>
+    <p>Importe un fichier, lance une recherche IA, ou colle une réponse trouvée ailleurs.</p>
   </div>
 </div>
 
-<div id="import-root">
-  <div class="panel"><div class="panel-body"><div class="skeleton" style="height:120px;"></div></div></div>
+<div id="pending-scheduled-panel"></div>
+
+<div class="source-tabs" id="source-tabs">
+  <button class="source-tab active" data-tab="fichier">📄 Fichier</button>
+  <button class="source-tab" data-tab="ia">🔍 Recherche IA</button>
+  <button class="source-tab" data-tab="texte">📋 Coller une réponse IA</button>
 </div>
+
+<div id="tab-root"></div>
 {% endblock %}
 
 {% block extra_js %}
 let workspaceId = null;
-let currentJob = null;
-let pollTimer = null;
+let canWrite = false;
+let activeTab = 'fichier';
 
 const FIELD_LABELS = {
   nom_entreprise: "Nom de l'entreprise", contact_prenom: 'Prénom du contact', contact_nom: 'Nom du contact',
   siren: 'SIREN', siret: 'SIRET', naf_code: 'Code NAF', adresse: 'Adresse', code_postal: 'Code postal',
-  ville: 'Ville', telephone: 'Téléphone', email: 'E-mail', site_web: 'Site web',
+  ville: 'Ville', telephone: 'Téléphone', email: 'E-mail', site_web: 'Site web', description: 'Description',
 };
+const REVIEW_FIELDS = ['adresse', 'ville', 'telephone', 'email', 'site_web'];
 const AUTO_MATCH = {
   nom_entreprise: ['nom', 'entreprise', 'societe', 'société', 'company'],
-  contact_prenom: ['prenom', 'prénom', 'firstname'],
-  contact_nom: ['nomcontact', 'lastname'],
+  contact_prenom: ['prenom', 'prénom', 'firstname'], contact_nom: ['nomcontact', 'lastname'],
   siren: ['siren'], siret: ['siret'], naf_code: ['naf', 'ape'],
   adresse: ['adresse', 'address'], code_postal: ['codepostal', 'cp', 'zip'],
   ville: ['ville', 'city'], telephone: ['telephone', 'tel', 'phone'],
   email: ['email', 'mail'], site_web: ['site', 'web', 'url'],
 };
-
-function normalize(s) {
-  return (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
-}
-
+function normalize(s) { return (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, ''); }
 function guessField(columnName) {
   const norm = normalize(columnName);
   for (const [field, keywords] of Object.entries(AUTO_MATCH)) {
@@ -63,19 +91,49 @@ function guessField(columnName) {
 
 function onAuthReady(me) {
   workspaceId = me.workspace_id;
-  if (me.role === 'lecture_seule') {
-    document.getElementById('import-root').innerHTML = `
+  canWrite = me.role !== 'lecture_seule';
+
+  if (!canWrite) {
+    document.getElementById('source-tabs').style.display = 'none';
+    document.getElementById('tab-root').innerHTML = `
       <div class="panel"><div class="admin-lock">
         <h3>Réservé aux rôles administrateur et commercial</h3>
-        <p>Ton rôle actuel ne permet pas d'importer de fichier.</p>
+        <p>Ton rôle actuel permet uniquement la consultation.</p>
       </div></div>`;
     return;
   }
-  renderUploadStep();
+
+  document.querySelectorAll('.source-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      activeTab = tab.dataset.tab;
+      document.querySelectorAll('.source-tab').forEach(t => t.classList.toggle('active', t === tab));
+      renderTab();
+    });
+  });
+
+  loadPendingScheduled();
+  renderTab();
 }
 
-function renderUploadStep() {
-  document.getElementById('import-root').innerHTML = `
+function renderTab() {
+  if (activeTab === 'fichier') renderFileStep1();
+  if (activeTab === 'ia') renderIaTab();
+  if (activeTab === 'texte') renderTexteTab();
+}
+
+function stepsHtml(labels, currentIndex) {
+  return `<div class="steps-indicator">${labels.map((l, i) => `
+    <span class="step-pill ${i === currentIndex ? 'current' : ''}">${i + 1}. ${l}</span>${i < labels.length - 1 ? '<span class="step-sep">→</span>' : ''}
+  `).join('')}</div>`;
+}
+
+/* ============================= FICHIER ============================= */
+
+let fileJob = null;
+
+function renderFileStep1() {
+  document.getElementById('tab-root').innerHTML = `
+    ${stepsHtml(['Fichier', 'Correspondance', 'Vérification', 'Résumé'], 0)}
     <div class="panel">
       <div class="panel-body">
         <div class="dropzone" id="dropzone">
@@ -85,8 +143,7 @@ function renderUploadStep() {
         </div>
         <input type="file" id="file-input" accept=".csv" style="display:none;">
       </div>
-    </div>
-  `;
+    </div>`;
 
   const dropzone = document.getElementById('dropzone');
   const fileInput = document.getElementById('file-input');
@@ -94,137 +151,130 @@ function renderUploadStep() {
   dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
   dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
   dropzone.addEventListener('drop', (e) => {
-    e.preventDefault();
-    dropzone.classList.remove('dragover');
+    e.preventDefault(); dropzone.classList.remove('dragover');
     if (e.dataTransfer.files.length) uploadFile(e.dataTransfer.files[0]);
   });
-  fileInput.addEventListener('change', () => {
-    if (fileInput.files.length) uploadFile(fileInput.files[0]);
-  });
+  fileInput.addEventListener('change', () => { if (fileInput.files.length) uploadFile(fileInput.files[0]); });
 }
 
 async function uploadFile(file) {
-  if (!file.name.toLowerCase().endsWith('.csv')) {
-    showToast('Le fichier doit être un .csv', true);
-    return;
-  }
+  if (!file.name.toLowerCase().endsWith('.csv')) { showToast('Le fichier doit être un .csv', true); return; }
   const formData = new FormData();
   formData.append('file', file);
   formData.append('workspace_id', workspaceId);
-
-  document.getElementById('import-root').innerHTML = `<div class="panel"><div class="panel-body"><div class="skeleton" style="height:160px;"></div></div></div>`;
-
+  document.getElementById('tab-root').innerHTML = `<div class="panel"><div class="panel-body"><div class="skeleton" style="height:160px;"></div></div></div>`;
   try {
-    const preview = await fetchJSON('/api/imports/preview', { method: 'POST', body: formData });
-    currentJob = preview;
-    renderMappingStep(preview);
+    fileJob = await fetchJSON('/api/imports/preview', { method: 'POST', body: formData });
+    renderFileStep2();
   } catch (err) {
     showToast(err.message, true);
-    renderUploadStep();
+    renderFileStep1();
   }
 }
 
-function renderMappingStep(preview) {
+function renderFileStep2() {
   const options = ['<option value="">— Ignorer cette colonne —</option>']
-    .concat(Object.entries(FIELD_LABELS).map(([v, l]) => `<option value="${v}">${l}</option>`))
-    .join('');
+    .concat(Object.entries(FIELD_LABELS).map(([v, l]) => `<option value="${v}">${l}</option>`)).join('');
 
-  document.getElementById('import-root').innerHTML = `
+  document.getElementById('tab-root').innerHTML = `
+    ${stepsHtml(['Fichier', 'Correspondance', 'Vérification', 'Résumé'], 1)}
     <div class="panel">
-      <div class="panel-head">
-        <h2>Associer les colonnes</h2>
-        <p style="margin:0;">${preview.total_rows} ligne${preview.total_rows > 1 ? 's' : ''} détectée${preview.total_rows > 1 ? 's' : ''} — vérifie les correspondances avant de lancer.</p>
-      </div>
-      <div class="panel-body">
-        <div id="mapping-rows"></div>
+      <div class="panel-head"><h2>Associer les colonnes</h2><p style="margin:0;">${fileJob.total_rows} ligne(s) détectée(s).</p></div>
+      <div class="panel-body"><div id="mapping-rows"></div>
         <div style="margin-top:20px; display:flex; gap:10px;">
-          <button class="btn btn-ghost btn-sm" id="cancel-import-btn">Annuler</button>
-          <button class="btn btn-primary btn-sm" id="start-import-btn">Lancer l'import</button>
+          <button class="btn btn-ghost btn-sm" id="cancel-file-btn">Annuler</button>
+          <button class="btn btn-primary btn-sm" id="to-verif-btn">Continuer</button>
         </div>
       </div>
-    </div>
-  `;
+    </div>`;
 
-  document.getElementById('mapping-rows').innerHTML = preview.columns.map((col, i) => `
+  document.getElementById('mapping-rows').innerHTML = fileJob.columns.map((col, i) => `
     <div class="mapping-row">
-      <div>
-        <div class="mapping-col-name">${escapeHtml(col)}</div>
-        <div class="mapping-sample">Ex : ${escapeHtml((preview.sample_rows[0] && preview.sample_rows[0][i]) || '—')}</div>
-      </div>
+      <div><div class="mapping-col-name">${escapeHtml(col)}</div><div class="mapping-sample">Ex : ${escapeHtml((fileJob.sample_rows[0] && fileJob.sample_rows[0][i]) || '—')}</div></div>
       <select class="mapping-select" data-column="${escapeHtml(col)}">${options}</select>
-    </div>
-  `).join('');
+    </div>`).join('');
 
-  preview.columns.forEach(col => {
+  fileJob.columns.forEach(col => {
     const select = document.querySelector(`.mapping-select[data-column="${CSS.escape(col)}"]`);
     const guess = guessField(col);
     if (guess) select.value = guess;
   });
 
-  document.getElementById('cancel-import-btn').addEventListener('click', renderUploadStep);
-  document.getElementById('start-import-btn').addEventListener('click', startImport);
+  document.getElementById('cancel-file-btn').addEventListener('click', renderFileStep1);
+  document.getElementById('to-verif-btn').addEventListener('click', renderFileStep3);
 }
 
-async function startImport() {
+function renderFileStep3() {
   const mapping = {};
-  document.querySelectorAll('.mapping-select').forEach(sel => {
-    if (sel.value) mapping[sel.dataset.column] = sel.value;
-  });
+  document.querySelectorAll('.mapping-select').forEach(sel => { if (sel.value) mapping[sel.dataset.column] = sel.value; });
   if (!Object.values(mapping).includes('nom_entreprise')) {
     showToast("Associe au moins une colonne au champ « Nom de l'entreprise ».", true);
     return;
   }
+  fileJob.mapping = mapping;
 
+  document.getElementById('tab-root').innerHTML = `
+    ${stepsHtml(['Fichier', 'Correspondance', 'Vérification', 'Résumé'], 2)}
+    <div class="panel">
+      <div class="panel-head"><h2>Vérification</h2></div>
+      <div class="panel-body">
+        <p>${fileJob.total_rows} ligne(s) seront traitées avec cette correspondance :</p>
+        <ul style="font-size:13.5px; color:var(--text-soft); line-height:1.9;">
+          ${Object.entries(mapping).map(([col, field]) => `<li>${escapeHtml(col)} → <strong>${FIELD_LABELS[field]}</strong></li>`).join('')}
+        </ul>
+        <div style="display:flex; gap:10px; margin-top:16px;">
+          <button class="btn btn-ghost btn-sm" id="back-mapping-btn">Retour</button>
+          <button class="btn btn-primary btn-sm" id="launch-import-btn">Lancer l'import</button>
+        </div>
+      </div>
+    </div>`;
+
+  document.getElementById('back-mapping-btn').addEventListener('click', renderFileStep2);
+  document.getElementById('launch-import-btn').addEventListener('click', launchFileImport);
+}
+
+async function launchFileImport() {
   try {
-    await fetchJSON(`/api/imports/${currentJob.job_id}/start`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mapping }),
+    await fetchJSON(`/api/imports/${fileJob.job_id}/start`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mapping: fileJob.mapping }),
     });
-    renderProgressStep();
-    pollStatus();
+    renderFileProgress();
+    pollFileStatus();
   } catch (err) {
     showToast(err.message, true);
   }
 }
 
-function renderProgressStep() {
-  document.getElementById('import-root').innerHTML = `
-    <div class="panel">
-      <div class="panel-head"><h2>Import en cours</h2></div>
+function renderFileProgress() {
+  document.getElementById('tab-root').innerHTML = `
+    ${stepsHtml(['Fichier', 'Correspondance', 'Vérification', 'Résumé'], 3)}
+    <div class="panel"><div class="panel-head"><h2>Import en cours</h2></div>
       <div class="panel-body">
         <div id="progress-text">Démarrage…</div>
         <div class="progress-bar-track"><div class="progress-bar-fill" id="progress-fill" style="width:0%"></div></div>
       </div>
-    </div>
-  `;
+    </div>`;
 }
 
-async function pollStatus() {
+async function pollFileStatus() {
   try {
-    const job = await fetchJSON(`/api/imports/${currentJob.job_id}/status`);
+    const job = await fetchJSON(`/api/imports/${fileJob.job_id}/status`);
     const pct = job.total_rows ? Math.round((job.processed_rows / job.total_rows) * 100) : 0;
     const fill = document.getElementById('progress-fill');
     const text = document.getElementById('progress-text');
     if (fill) fill.style.width = pct + '%';
     if (text) text.textContent = `${job.processed_rows} / ${job.total_rows} lignes traitées`;
-
-    if (job.status === 'done' || job.status === 'failed') {
-      renderResultStep(job);
-      return;
-    }
-    pollTimer = setTimeout(pollStatus, 800);
-  } catch (err) {
-    showToast(err.message, true);
-  }
+    if (job.status === 'done' || job.status === 'failed') { renderFileResult(job); return; }
+    setTimeout(pollFileStatus, 800);
+  } catch (err) { showToast(err.message, true); }
 }
 
-async function renderResultStep(job) {
-  document.getElementById('import-root').innerHTML = `
-    <div class="panel">
-      <div class="panel-head"><h2>Import terminé</h2></div>
+function renderFileResult(job) {
+  document.getElementById('tab-root').innerHTML = `
+    ${stepsHtml(['Fichier', 'Correspondance', 'Vérification', 'Résumé'], 3)}
+    <div class="panel"><div class="panel-head"><h2>Import terminé</h2></div>
       <div class="panel-body">
-        <p><strong>${job.imported_count}</strong> prospect${job.imported_count > 1 ? 's' : ''} importé${job.imported_count > 1 ? 's' : ''} sur ${job.total_rows}.
-        ${job.error_count ? `${job.error_count} ligne${job.error_count > 1 ? 's' : ''} avec un avertissement ou une erreur.` : 'Aucune erreur.'}</p>
+        <p><strong>${job.imported_count}</strong> prospect(s) importé(s) sur ${job.total_rows}. ${job.error_count ? `${job.error_count} ligne(s) avec avertissement ou erreur.` : 'Aucune erreur.'}</p>
         <div style="display:flex; gap:10px; margin-top:16px;">
           <a href="/prospects" class="btn btn-primary btn-sm">Voir les prospects</a>
           ${job.error_count ? '<button class="btn btn-ghost btn-sm" id="view-errors-btn">Voir le détail</button>' : ''}
@@ -232,38 +282,286 @@ async function renderResultStep(job) {
         </div>
         <div id="errors-container" style="margin-top:20px;"></div>
       </div>
-    </div>
-  `;
-  document.getElementById('new-import-btn').addEventListener('click', renderUploadStep);
-  const viewErrorsBtn = document.getElementById('view-errors-btn');
-  if (viewErrorsBtn) viewErrorsBtn.addEventListener('click', () => loadErrors(job.id));
+    </div>`;
+  document.getElementById('new-import-btn').addEventListener('click', renderFileStep1);
+  const btn = document.getElementById('view-errors-btn');
+  if (btn) btn.addEventListener('click', async () => {
+    const data = await fetchJSON(`/api/imports/${job.id}/errors`);
+    document.getElementById('errors-container').innerHTML = `
+      <table><thead><tr><th>Ligne</th><th>Type</th><th>Message</th></tr></thead>
+        <tbody>${data.errors.map(e => `<tr><td>${e.row_number}</td><td><span class="badge error-severity-${e.severity}">${e.severity === 'error' ? 'Rejetée' : 'Avertissement'}</span></td><td>${escapeHtml(e.message)}</td></tr>`).join('')}</tbody>
+      </table>`;
+  });
 }
 
-async function loadErrors(jobId) {
-  const container = document.getElementById('errors-container');
-  container.innerHTML = `<div class="skeleton" style="height:100px;"></div>`;
+/* ============================= RECHERCHE IA ============================= */
+
+function renderIaTab() {
+  document.getElementById('tab-root').innerHTML = `
+    <div class="panel">
+      <div class="panel-body">
+        <div id="quota-line" style="font-size:13.5px; color:var(--text-soft); margin-bottom:18px;">Chargement du quota…</div>
+        <form id="search-form">
+          <div class="field-row">
+            <div class="field"><label for="ia-lieu">Lieu</label><input id="ia-lieu" required placeholder="Ex : Niort"></div>
+            <div class="field"><label for="ia-type">Type d'entreprise</label><input id="ia-type" required placeholder="Ex : boulangerie artisanale"></div>
+          </div>
+          <div class="field"><label for="ia-criteres">Autre critère (optionnel)</label><input id="ia-criteres" placeholder="Ex : moins de 10 salariés"></div>
+          <button class="btn btn-primary" type="submit" id="search-submit-btn">Lancer la recherche</button>
+        </form>
+        <div style="border-top:1px solid var(--border); margin-top:20px; padding-top:16px;">
+          <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; cursor:pointer;">
+            <input type="checkbox" id="schedule-toggle" style="width:auto;"> Relancer automatiquement chaque jour à
+            <input type="time" id="schedule-time" value="08:00" style="width:auto; padding:6px 10px;">
+          </label>
+          <div style="font-size:12px; color:var(--text-soft); margin-top:6px;">Fonctionne même si tu fermes cette page — la recherche tourne sur le serveur. Les résultats attendront ta vérification ici.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Recherche manuelle complémentaire</h2></div>
+      <div class="panel-body">
+        <p style="font-size:13px; color:var(--text-soft); margin-top:0;">Aucun coût, aucune clé requise : ouvre ces recherches (avec tes critères ci-dessus) dans un nouvel onglet.</p>
+        <div class="quick-links">
+          <button class="quick-link-btn" data-engine="google">🔎 Google</button>
+          <button class="quick-link-btn" data-engine="pagesjaunes">📒 Pages Jaunes</button>
+          <button class="quick-link-btn" data-engine="linkedin">💼 LinkedIn</button>
+          <button class="quick-link-btn" data-engine="societe">🏢 Societe.com</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" id="scheduled-panel">
+      <div class="panel-head"><h2>Recherches planifiées</h2></div>
+      <div id="scheduled-list"><div class="panel-body"><div class="skeleton" style="height:60px;"></div></div></div>
+    </div>
+
+    <div class="panel" id="results-panel" style="display:none;">
+      <div class="panel-head"><h2>Résultats à vérifier</h2><span id="results-count" style="font-size:13px; color:var(--text-soft);"></span></div>
+      <div id="results-container"></div>
+    </div>
+  `;
+
+  loadQuota();
+  loadScheduledSearches();
+
+  document.getElementById('search-form').addEventListener('submit', runSearch);
+  document.querySelectorAll('.quick-link-btn').forEach(btn => btn.addEventListener('click', () => openQuickLink(btn.dataset.engine)));
+}
+
+async function loadQuota() {
+  const el = document.getElementById('quota-line');
   try {
-    const data = await fetchJSON(`/api/imports/${jobId}/errors`);
-    if (!data.errors.length) {
-      container.innerHTML = `<p style="color:var(--text-soft); font-size:14px;">Aucun détail à afficher.</p>`;
+    const q = await fetchJSON(`/api/ia-search/quota?workspace_id=${workspaceId}`);
+    el.innerHTML = `<strong>${q.remaining}</strong> lancement(s) restant(s) aujourd'hui sur ${q.limit}.`;
+    if (q.remaining <= 0) document.getElementById('search-submit-btn').disabled = true;
+  } catch (e) { el.textContent = ''; }
+}
+
+function openQuickLink(engine) {
+  const lieu = document.getElementById('ia-lieu').value.trim();
+  const type = document.getElementById('ia-type').value.trim();
+  const q = encodeURIComponent(`${type} ${lieu}`.trim());
+  const urls = {
+    google: `https://www.google.com/search?q=${q}`,
+    pagesjaunes: `https://www.pagesjaunes.fr/recherche/${q}`,
+    linkedin: `https://www.linkedin.com/search/results/companies/?keywords=${q}`,
+    societe: `https://www.societe.com/cgi-bin/search?champs=${q}`,
+  };
+  if (!lieu && !type) { showToast("Renseigne au moins le lieu ou le type d'entreprise.", true); return; }
+  window.open(urls[engine], '_blank', 'noopener');
+}
+
+async function runSearch(e) {
+  e.preventDefault();
+  const btn = document.getElementById('search-submit-btn');
+  const scheduleOn = document.getElementById('schedule-toggle').checked;
+  const lieu = document.getElementById('ia-lieu').value.trim();
+  const type = document.getElementById('ia-type').value.trim();
+  const criteres = document.getElementById('ia-criteres').value.trim();
+
+  if (scheduleOn) {
+    try {
+      await fetchJSON(`/api/workspaces/${workspaceId}/scheduled-searches`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lieu, type_entreprise: type, criteres_additionnels: criteres, heure: document.getElementById('schedule-time').value }),
+      });
+      showToast('Recherche planifiée créée.');
+      loadScheduledSearches();
+    } catch (err) { showToast(err.message, true); }
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Recherche en cours…';
+  const resultsPanel = document.getElementById('results-panel');
+  resultsPanel.style.display = 'block';
+  document.getElementById('results-container').innerHTML = `<div class="panel-body"><div class="skeleton" style="height:120px;"></div></div>`;
+
+  try {
+    const result = await fetchJSON('/api/ia-search', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspace_id: workspaceId, lieu, type_entreprise: type, criteres_additionnels: criteres }),
+    });
+    renderReviewQueue(result.prospects, 'results-container', 'results-count');
+    loadQuota();
+  } catch (err) {
+    document.getElementById('results-container').innerHTML = `<div class="empty-state"><h3>La recherche a échoué</h3><p>${escapeHtml(err.message)}</p></div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Lancer la recherche';
+  }
+}
+
+async function loadScheduledSearches() {
+  const container = document.getElementById('scheduled-list');
+  try {
+    const data = await fetchJSON(`/api/workspaces/${workspaceId}/scheduled-searches`);
+    if (!data.scheduled_searches.length) {
+      container.innerHTML = `<div class="panel-body" style="font-size:13.5px; color:var(--text-soft);">Aucune recherche planifiée pour l'instant.</div>`;
       return;
     }
-    container.innerHTML = `
-      <table>
-        <thead><tr><th>Ligne</th><th>Type</th><th>Message</th></tr></thead>
-        <tbody>
-          ${data.errors.map(e => `
-            <tr>
-              <td>${e.row_number}</td>
-              <td><span class="badge error-severity-${e.severity}">${e.severity === 'error' ? 'Rejetée' : 'Avertissement'}</span></td>
-              <td>${escapeHtml(e.message)}</td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
-    `;
-  } catch (err) {
-    container.innerHTML = `<p style="color:var(--text-soft); font-size:14px;">Impossible de charger le détail.</p>`;
+    container.innerHTML = `<div class="panel-body">` + data.scheduled_searches.map(s => `
+      <div class="scheduled-row" data-id="${s.id}">
+        <span><strong>${escapeHtml(s.type_entreprise)}</strong> à ${escapeHtml(s.lieu)} — tous les jours à ${s.heure}</span>
+        <span style="display:flex; gap:8px;">
+          <span class="badge badge-${s.actif ? 'active' : 'inactive'}">${s.actif ? 'Active' : 'Pausée'}</span>
+          <button class="btn btn-ghost btn-sm toggle-sched-btn" data-active="${s.actif}">${s.actif ? 'Pause' : 'Reprendre'}</button>
+          <button class="btn btn-ghost btn-sm delete-sched-btn">Supprimer</button>
+        </span>
+      </div>`).join('') + `</div>`;
+
+    container.querySelectorAll('.toggle-sched-btn').forEach(btn => btn.addEventListener('click', async () => {
+      const row = btn.closest('.scheduled-row');
+      const active = btn.dataset.active === 'true';
+      await fetchJSON(`/api/workspaces/${workspaceId}/scheduled-searches/${row.dataset.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ actif: !active }),
+      });
+      loadScheduledSearches();
+    }));
+    container.querySelectorAll('.delete-sched-btn').forEach(btn => btn.addEventListener('click', async () => {
+      const row = btn.closest('.scheduled-row');
+      await fetchJSON(`/api/workspaces/${workspaceId}/scheduled-searches/${row.dataset.id}`, { method: 'DELETE' });
+      loadScheduledSearches();
+    }));
+  } catch (e) {
+    container.innerHTML = `<div class="panel-body">Impossible de charger.</div>`;
   }
+}
+
+/* ============================= COLLER TEXTE ============================= */
+
+function renderTexteTab() {
+  document.getElementById('tab-root').innerHTML = `
+    <div class="panel">
+      <div class="panel-head"><h2>Coller une réponse IA (Gemini, ChatGPT, Copilot…)</h2></div>
+      <div class="panel-body">
+        <p style="font-size:13.5px; color:var(--text-soft); margin-top:0;">
+          Pose ta question gratuitement sur le site de ton choix, copie la réponse complète, colle-la ci-dessous.
+          Aucune clé API, aucun coût. Format attendu : une liste à puces, une entreprise par puce.
+        </p>
+        <textarea id="paste-text" rows="10" placeholder="Collez ici la RÉPONSE de l'IA (pas votre question), par exemple :
+* Nom de l'entreprise
+  * Adresse : ...
+  * Téléphone : ...
+  * Site internet : ..."></textarea>
+        <button class="btn btn-primary btn-sm" id="analyze-btn" style="margin-top:14px;">Analyser le texte collé</button>
+      </div>
+    </div>
+    <div class="panel" id="texte-results-panel" style="display:none;">
+      <div class="panel-head"><h2>Résultats à vérifier</h2><span id="texte-results-count" style="font-size:13px; color:var(--text-soft);"></span></div>
+      <div id="texte-results-container"></div>
+    </div>
+  `;
+
+  document.getElementById('analyze-btn').addEventListener('click', async () => {
+    const text = document.getElementById('paste-text').value;
+    const btn = document.getElementById('analyze-btn');
+    btn.disabled = true;
+    try {
+      const result = await fetchJSON('/api/text-parse', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
+      });
+      document.getElementById('texte-results-panel').style.display = 'block';
+      renderReviewQueue(result.prospects, 'texte-results-container', 'texte-results-count');
+    } catch (err) {
+      showToast(err.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
+/* ============================= VÉRIFICATION PARTAGÉE ============================= */
+
+function renderReviewQueue(list, containerId, countId) {
+  const countEl = countId ? document.getElementById(countId) : null;
+  const container = document.getElementById(containerId);
+  if (countEl) countEl.textContent = `${list.length} proposition(s) — à relire avant tout ajout`;
+  if (!list.length) {
+    container.innerHTML = `<div class="empty-state"><h3>Aucun résultat</h3><p>Essaie avec des critères différents.</p></div>`;
+    return;
+  }
+  container.innerHTML = list.map((p, i) => `
+    <div class="review-card" data-index="${i}" data-source-id="${p.id || ''}">
+      <div>
+        <input type="text" class="review-nom" value="${escapeHtml(p.nom_entreprise || '')}" placeholder="Nom de l'entreprise" style="font-weight:600; margin-bottom:8px;">
+        <div class="review-fields-grid">
+          ${REVIEW_FIELDS.map(f => `
+            <div>
+              <div class="review-field-label">${FIELD_LABELS[f]}</div>
+              <input type="text" class="review-field" data-field="${f}" value="${escapeHtml(p[f] || '')}">
+            </div>`).join('')}
+        </div>
+        ${p.description ? `<div style="font-size:12.5px; color:var(--text-soft); margin-top:8px;">${escapeHtml(p.description)}</div>` : ''}
+      </div>
+      <button class="btn btn-ghost btn-sm remove-review-btn">Retirer</button>
+    </div>
+  `).join('') + `
+    <div class="panel-body" style="border-top:1px solid var(--border);">
+      <button class="btn btn-primary btn-sm" id="confirm-review-btn-${containerId}">Ajouter les prospects retenus</button>
+    </div>`;
+
+  container.querySelectorAll('.remove-review-btn').forEach(btn => btn.addEventListener('click', () => {
+    btn.closest('.review-card').remove();
+  }));
+
+  document.getElementById(`confirm-review-btn-${containerId}`).addEventListener('click', async () => {
+    const cards = container.querySelectorAll('.review-card');
+    const confirmBtn = document.getElementById(`confirm-review-btn-${containerId}`);
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Ajout en cours…';
+
+    let added = 0, failed = 0;
+    for (const card of cards) {
+      const fields = { workspace_id: workspaceId, nom_entreprise: card.querySelector('.review-nom').value.trim() };
+      card.querySelectorAll('.review-field').forEach(inp => { if (inp.value.trim()) fields[inp.dataset.field] = inp.value.trim(); });
+      const sourceId = card.dataset.sourceId;
+      if (!fields.nom_entreprise) { failed++; continue; }
+      try {
+        await fetchJSON('/api/prospects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fields) });
+        added++;
+        if (sourceId) fetchJSON(`/api/scheduled-search-results/${sourceId}/dismiss`, { method: 'POST' }).catch(() => {});
+      } catch (e) { failed++; }
+    }
+    container.innerHTML = `<div class="empty-state"><h3>${added} prospect(s) ajouté(s)</h3>${failed ? `<p>${failed} n'ont pas pu être ajoutés.</p>` : ''}<a href="/prospects" class="btn btn-primary btn-sm">Voir les prospects</a></div>`;
+    showToast(`${added} prospect(s) ajouté(s).`);
+  });
+}
+
+/* ============================= RÉSULTATS DE RECHERCHES PLANIFIÉES ============================= */
+
+async function loadPendingScheduled() {
+  const panel = document.getElementById('pending-scheduled-panel');
+  try {
+    const data = await fetchJSON(`/api/workspaces/${workspaceId}/scheduled-search-results`);
+    if (!data.results.length) { panel.innerHTML = ''; return; }
+    panel.innerHTML = `
+      <div class="panel" style="border:1.5px solid var(--terracotta);">
+        <div class="panel-head"><h2>🔔 ${data.results.length} résultat(s) de recherche planifiée à vérifier</h2></div>
+        <div id="pending-scheduled-list"></div>
+      </div>`;
+    renderReviewQueue(data.results, 'pending-scheduled-list', null);
+  } catch (e) { panel.innerHTML = ''; }
 }
 {% endblock %}
