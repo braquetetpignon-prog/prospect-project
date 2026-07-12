@@ -8,6 +8,10 @@
   .members-table td { vertical-align: middle; }
   .member-email { font-weight: 600; }
   .role-select { width: auto; padding: 6px 10px; font-size: 13px; }
+  .type-tag { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; border: 1.5px solid var(--border); background: var(--white); font-size: 13.5px; font-weight: 600; }
+  .type-tag button { border: none; background: none; cursor: pointer; color: var(--text-soft); font-size: 15px; line-height: 1; padding: 0; }
+  .type-tag button:hover { color: #A2502E; }
+  .quick-links { display: flex; gap: 10px; flex-wrap: wrap; }
   @media (max-width: 700px) { .field-row { grid-template-columns: 1fr; } }
 {% endblock %}
 
@@ -46,6 +50,7 @@ function onAuthReady(me) {
   loadGoogleProfile(me.workspace_id);
   loadSmtpConfig(me.workspace_id);
   loadMembers(me.workspace_id);
+  loadProspectTypes(me.workspace_id);
 }
 
 function renderSettingsShell(workspaceId) {
@@ -88,6 +93,23 @@ function renderSettingsShell(workspaceId) {
 
     <div class="panel">
       <div class="panel-head">
+        <h2>Types de statut</h2>
+      </div>
+      <div class="panel-body">
+        <p style="font-size:13.5px; color:var(--text-soft); margin-top:0;">
+          Classe tes prospects par forme juridique ou catégorie, pour leur envoyer des e-mails ciblés par type.
+          <span id="unclassified-note"></span>
+        </p>
+        <div class="quick-links" id="types-list" style="margin-bottom:14px;"></div>
+        <div style="display:flex; gap:8px; max-width:360px;">
+          <input id="new-type-input" placeholder="Nouveau type…" style="margin-bottom:0;">
+          <button class="btn btn-ghost btn-sm" id="add-type-btn" type="button">+ Ajouter</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
         <h2>Membres de l'équipe</h2>
         <button class="btn btn-ghost btn-sm" id="add-member-btn" type="button">+ Ajouter un membre</button>
       </div>
@@ -117,6 +139,10 @@ function renderSettingsShell(workspaceId) {
 
   document.getElementById('gbp-form').addEventListener('submit', (e) => saveGbp(e, workspaceId));
   document.getElementById('smtp-form').addEventListener('submit', (e) => saveSmtp(e, workspaceId));
+  document.getElementById('add-type-btn').addEventListener('click', () => addType(workspaceId));
+  document.getElementById('new-type-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); addType(workspaceId); }
+  });
   document.getElementById('add-member-btn').addEventListener('click', () => {
     document.getElementById('member-modal-overlay').classList.add('show');
   });
@@ -258,6 +284,54 @@ async function createMember(e, workspaceId) {
     showToast(err.message, true);
   } finally {
     btn.disabled = false;
+  }
+}
+
+async function loadProspectTypes(workspaceId) {
+  try {
+    const data = await fetchJSON(`/api/workspaces/${workspaceId}/prospect-types`);
+    renderTypesList(data.types, workspaceId);
+    const note = document.getElementById('unclassified-note');
+    note.textContent = data.unclassified_count
+      ? `${data.unclassified_count} prospect(s) n'ont pas encore de type assigné (à faire depuis leur fiche).`
+      : '';
+    note.style.fontWeight = '600';
+  } catch (e) {
+    document.getElementById('types-list').innerHTML = '';
+  }
+}
+
+function renderTypesList(types, workspaceId) {
+  document.getElementById('types-list').innerHTML = types.map(t => `
+    <span class="type-tag" data-id="${t.id}">${escapeHtml(t.nom)} <button type="button" class="delete-type-btn" data-id="${t.id}">×</button></span>
+  `).join('') || '<span style="color:var(--text-soft); font-size:13.5px;">Aucun type pour l\'instant.</span>';
+
+  document.querySelectorAll('.delete-type-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try {
+        await fetchJSON(`/api/workspaces/${workspaceId}/prospect-types/${btn.dataset.id}`, { method: 'DELETE' });
+        showToast('Type supprimé.');
+        loadProspectTypes(workspaceId);
+      } catch (err) {
+        showToast(err.message, true);
+      }
+    });
+  });
+}
+
+async function addType(workspaceId) {
+  const input = document.getElementById('new-type-input');
+  const nom = input.value.trim();
+  if (!nom) return;
+  try {
+    await fetchJSON(`/api/workspaces/${workspaceId}/prospect-types`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nom }),
+    });
+    input.value = '';
+    showToast('Type ajouté.');
+    loadProspectTypes(workspaceId);
+  } catch (err) {
+    showToast(err.message, true);
   }
 }
 {% endblock %}

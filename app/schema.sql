@@ -67,6 +67,39 @@ CREATE INDEX IF NOT EXISTS idx_prospects_siren ON prospects(siren);
 ALTER TABLE prospects ADD COLUMN IF NOT EXISTS contact_prenom TEXT;
 ALTER TABLE prospects ADD COLUMN IF NOT EXISTS contact_nom TEXT;
 
+-- Types de statut personnalisables (forme juridique / catégorie), pour classer
+-- les prospects et cibler des campagnes par type.
+CREATE TABLE IF NOT EXISTS prospect_types (
+    id SERIAL PRIMARY KEY,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    nom TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (workspace_id, nom)
+);
+CREATE INDEX IF NOT EXISTS idx_prospect_types_workspace ON prospect_types(workspace_id);
+
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS prospect_type_id INTEGER REFERENCES prospect_types(id) ON DELETE SET NULL;
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS prochaine_action TEXT;
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS notes TEXT;
+CREATE INDEX IF NOT EXISTS idx_prospects_type ON prospects(prospect_type_id);
+
+-- Rendez-vous : calendrier partagé au niveau de l'espace de travail. Chaque
+-- utilisateur ne modifie que les siens ; un administrateur peut modifier ceux
+-- des autres (avec notification par e-mail au propriétaire d'origine).
+CREATE TABLE IF NOT EXISTS rendez_vous (
+    id SERIAL PRIMARY KEY,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    prospect_id INTEGER REFERENCES prospects(id) ON DELETE SET NULL,
+    titre TEXT NOT NULL,
+    date_heure TIMESTAMPTZ NOT NULL,
+    duree_minutes INTEGER NOT NULL DEFAULT 30,
+    notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_rendez_vous_workspace_date ON rendez_vous(workspace_id, date_heure);
+
 -- Historique des lancements de recherche IA (pour appliquer le quota de 3/jour/espace)
 CREATE TABLE IF NOT EXISTS ia_search_log (
     id SERIAL PRIMARY KEY,

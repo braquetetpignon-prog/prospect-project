@@ -3,6 +3,13 @@
 {% block title %}Campagnes{% endblock %}
 
 {% block extra_css %}
+  .type-cards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; padding: 20px 24px; }
+  .type-card { border: 1.5px solid var(--border); border-radius: 16px; padding: 18px; background: var(--white); }
+  .type-card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .type-card-head strong { font-size: 15px; }
+  .type-card-count { background: var(--cream); color: var(--text-soft); font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; }
+  .type-card-empty { font-size: 13px; color: var(--text-soft); margin: 10px 0; }
+  .type-card-coverage { font-size: 12.5px; color: var(--text-soft); margin-bottom: 12px; }
   .campaign-row { cursor: pointer; }
   .campaign-row:hover td { background: var(--cream); }
   .type-badge-avis { background: var(--sauge-light); color: #4F6647; }
@@ -30,9 +37,29 @@
     </div>
     <button class="btn btn-primary" id="new-campaign-btn">+ Nouvelle campagne</button>
   </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>Envoyer par type de statut</h2></div>
+    <div id="type-cards-container"><div class="panel-body"><div class="skeleton" style="height:100px;"></div></div></div>
+  </div>
+
   <div class="panel">
     <div class="panel-head"><h2>Toutes les campagnes</h2><span id="campaign-count" style="font-size:13px; color:var(--text-soft);"></span></div>
     <div id="campaigns-container"><div class="panel-body"><div class="skeleton" style="height:160px;"></div></div></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="type-send-modal-overlay">
+  <div class="modal">
+    <h3 id="type-send-title">Configurer & envoyer</h3>
+    <div class="field">
+      <label for="type-send-campaign">Campagne à utiliser</label>
+      <select id="type-send-campaign"></select>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost btn-sm" id="type-send-cancel-btn">Annuler</button>
+      <button type="button" class="btn btn-primary btn-sm" id="type-send-confirm-btn">Envoyer</button>
+    </div>
   </div>
 </div>
 
@@ -117,10 +144,12 @@ function onAuthReady(me) {
   if (!canWrite) document.getElementById('new-campaign-btn').style.display = 'none';
 
   loadCampaigns();
+  loadTypeCards();
 
   document.getElementById('new-campaign-btn').addEventListener('click', () => document.getElementById('campaign-modal-overlay').classList.add('show'));
   document.getElementById('campaign-cancel-btn').addEventListener('click', () => document.getElementById('campaign-modal-overlay').classList.remove('show'));
   document.getElementById('campaign-form').addEventListener('submit', createCampaign);
+  document.getElementById('type-send-cancel-btn').addEventListener('click', () => document.getElementById('type-send-modal-overlay').classList.remove('show'));
   document.getElementById('back-to-list').addEventListener('click', showListView);
   document.getElementById('edit-form').addEventListener('submit', saveCampaignEdits);
   document.getElementById('trigger-send-btn').addEventListener('click', triggerSend);
@@ -301,4 +330,60 @@ async function loadSends(campaignId) {
     container.innerHTML = `<div class="empty-state"><p>Impossible de charger l'historique.</p></div>`;
   }
 }
+
+let currentTypeSendId = null;
+
+async function loadTypeCards() {
+  const container = document.getElementById('type-cards-container');
+  try {
+    const data = await fetchJSON(`/api/workspaces/${workspaceId}/prospect-types-stats`);
+    if (!data.types.length) {
+      container.innerHTML = `<div class="empty-state"><p>Crée des types de statut dans les Paramètres pour les utiliser ici.</p></div>`;
+      return;
+    }
+    container.innerHTML = `<div class="type-cards-grid">` + data.types.map(t => `
+      <div class="type-card">
+        <div class="type-card-head"><strong>${escapeHtml(t.nom)}</strong><span class="type-card-count">${t.total}</span></div>
+        ${t.total === 0 ? '<div class="type-card-empty">Aucun prospect avec ce statut.</div>' : ''}
+        <div class="type-card-coverage">${t.avec_email} avec e-mail sur ${t.total}</div>
+        ${canWrite ? `<button class="btn btn-ghost btn-sm open-type-send-btn" data-id="${t.id}" data-nom="${escapeHtml(t.nom)}" ${t.avec_email === 0 ? 'disabled' : ''}>Configurer & envoyer</button>` : ''}
+      </div>
+    `).join('') + `</div>`;
+
+    container.querySelectorAll('.open-type-send-btn').forEach(btn => {
+      btn.addEventListener('click', () => openTypeSendModal(btn.dataset.id, btn.dataset.nom));
+    });
+  } catch (e) {
+    container.innerHTML = `<div class="empty-state"><p>Impossible de charger les types.</p></div>`;
+  }
+}
+
+async function openTypeSendModal(typeId, typeNom) {
+  currentTypeSendId = typeId;
+  document.getElementById('type-send-title').textContent = `Envoyer à « ${typeNom} »`;
+  const data = await fetchJSON(`/api/campaigns?workspace_id=${workspaceId}`);
+  const active = data.campaigns.filter(c => c.statut === 'active');
+  const select = document.getElementById('type-send-campaign');
+  if (!active.length) {
+    select.innerHTML = '<option value="">Aucune campagne active — crée-en une d\'abord</option>';
+  } else {
+    select.innerHTML = active.map(c => `<option value="${c.id}">${escapeHtml(c.nom)} (${typeLabels[c.type]})</option>`).join('');
+  }
+  document.getElementById('type-send-modal-overlay').classList.add('show');
+}
+
+document.getElementById('type-send-confirm-btn')?.addEventListener('click', async () => {
+  const campaignId = document.getElementById('type-send-campaign').value;
+  if (!campaignId) { showToast('Aucune campagne sélectionnée.', true); return; }
+  try {
+    const result = await fetchJSON(`/api/campaigns/${campaignId}/send-by-type`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prospect_type_id: currentTypeSendId }),
+    });
+    document.getElementById('type-send-modal-overlay').classList.remove('show');
+    showToast(`${result.queued.length} envoi(s) mis en file.`);
+  } catch (err) {
+    showToast(err.message, true);
+  }
+});
 {% endblock %}

@@ -16,6 +16,9 @@ from app import auth
 from app.auth import login_required, require_own_workspace, require_role, WRITE_ROLES
 from app import prospects
 from app import text_parser
+from app import prospect_types
+from app import rendez_vous
+from flask import Response
 
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "schema.sql")
 
@@ -86,6 +89,11 @@ def recherche_ia_page():
 @app.route("/import")
 def import_page():
     return flask_render_template("import.html")
+
+
+@app.route("/calendrier")
+def calendrier_page():
+    return flask_render_template("calendrier.html")
 
 
 @app.route("/api/status")
@@ -613,6 +621,31 @@ def campaign_send(campaign_id):
     return jsonify(result), 202
 
 
+@app.route("/api/campaigns/<int:campaign_id>/send-by-type", methods=["POST"])
+@login_required
+@require_role(*WRITE_ROLES)
+def campaign_send_by_type(campaign_id):
+    error = _check_campaign_access(campaign_id)
+    if error:
+        return error
+
+    body = request.get_json(silent=True) or {}
+    prospect_type_id = body.get("prospect_type_id")
+    if not prospect_type_id:
+        return jsonify(error="prospect_type_id requis"), 400
+
+    targets = prospects.search_prospects(session["workspace_id"], prospect_type_id=prospect_type_id, limit=10000)
+    prospect_ids = [p["id"] for p in targets if p.get("email")]
+    if not prospect_ids:
+        return jsonify(error="Aucun prospect avec e-mail pour ce type."), 400
+
+    try:
+        result = sending.queue_send(campaign_id, prospect_ids, body.get("planifie_pour"))
+    except sending.SendError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(result), 202
+
+
 @app.route("/api/campaigns/<int:campaign_id>/sends")
 @login_required
 def campaign_sends_list(campaign_id):
@@ -664,12 +697,58 @@ def prospects_collection():
             return jsonify(error=str(exc)), 400
         return jsonify(id=prospect_id, warnings=warnings, status="created"), 201
 
-    return prospects_list()
+    workspace_id = request.args.get("workspace_id", type=int)
+    if not workspace_id:
+        return jsonify(error="workspace_id requis"), 400
+    results = prospects.search_prospects(
+        workspace_id,
+        query=request.args.get("q"),
+        statut=request.args.get("statut"),
+        prospect_type_id=request.args.get("prospect_type_id", type=int),
+    )
+    return jsonify(prospects=results)
 
 
-@app.route("/api/prospects/<int:prospect_id>")
+@app.route("/api/prospects/export.csv")
+@login_required
+@require_own_workspace
+def prospects_export_csv():
+    workspace_id = request.args.get("workspace_id", type=int)
+    if not workspace_id:
+        return jsonify(error="workspace_id requis"), 400
+    csv_content = prospects.export_csv(workspace_id)
+    return Response(
+        csv_content,
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=prospects.csv"},
+    )
+
+
+@app.route("/api/prospects/verify-siret", methods=["POST"])
+@login_required
+@require_role(*WRITE_ROLES)
+def prospects_verify_siret():
+    body = request.get_json(silent=True) or {}
+    try:
+        result = prospects.verify_siret(body.get("siret"))
+    except prospects.ProspectError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(result)
+
+
+@app.route("/api/prospects/<int:prospect_id>", methods=["GET", "PUT"])
 @login_required
 def prospect_detail(prospect_id):
+    if request.method == "PUT":
+        if session.get("role") not in WRITE_ROLES:
+            return jsonify(error="Permission insuffisante pour cette action."), 403
+        body = request.get_json(silent=True) or {}
+        try:
+            prospects.update_prospect(prospect_id, session.get("workspace_id"), body)
+        except prospects.ProspectError as exc:
+            return jsonify(error=str(exc)), 400
+        return jsonify(status="updated")
+
     prospect = prospects.get_prospect(prospect_id, session.get("workspace_id"))
     if not prospect:
         return jsonify(error="Prospect introuvable"), 404
@@ -692,41 +771,142 @@ def prospect_update_statut(prospect_id):
     return jsonify(status="updated")
 
 
-def prospects_list():
-    workspace_id = request.args.get("workspace_id", type=int)
-    if not workspace_id:
-        return jsonify(error="workspace_id requis"), 400
-    statut = request.args.get("statut")
+# --- Types de statut (forme juridique / catégorie) --------------------
+
+@app.route("/api/workspaces/<int:workspace_id>/prospect-types", methods=["GET", "POST"])
+@login_required
+@require_own_workspace
+def prospect_types_collection(workspace_id):
+    if request.method == "GET":
+        return jsonify(
+            types=prospect_types.list_types(workspace_id),
+            unclassified_count=prospect_types.count_unclassified(workspace_id),
+        )
+    if session.get("role") != "admin":
+        return jsonify(error="Réservé aux administrateurs."), 403
+    body = request.get_json(silent=True) or {}
+    try:
+        type_id = prospect_types.create_type(workspace_id, body.get("nom"))
+    except prospect_types.ProspectTypeError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(id=type_id, status="created"), 201
+
+
+@app.route("/api/workspaces/<int:workspace_id>/prospect-types/<int:type_id>", methods=["DELETE"])
+@login_required
+@require_own_workspace
+@require_role("admin")
+def prospect_types_item(workspace_id, type_id):
+    try:
+        prospect_types.delete_type(workspace_id, type_id)
+    except prospect_types.ProspectTypeError as exc:
+        return jsonify(error=str(exc)), 404
+    return jsonify(status="deleted")
+
+
+@app.route("/api/workspaces/<int:workspace_id>/prospect-types-stats")
+@login_required
+@require_own_workspace
+def prospect_types_stats(workspace_id):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT pt.id, pt.nom, count(p.id) AS total,
+                       count(p.id) FILTER (WHERE p.email IS NOT NULL AND p.email != '') AS avec_email
+                FROM prospect_types pt
+                LEFT JOIN prospects p ON p.prospect_type_id = pt.id AND p.workspace_id = pt.workspace_id
+                WHERE pt.workspace_id = %s
+                GROUP BY pt.id, pt.nom
+                ORDER BY pt.nom
+                """,
+                (workspace_id,),
+            )
+            rows = cur.fetchall()
+        return jsonify(types=[{"id": r[0], "nom": r[1], "total": r[2], "avec_email": r[3]} for r in rows])
+    finally:
+        conn.close()
+
+
+# --- Rendez-vous (calendrier partagé) -----------------------------------
+
+@app.route("/api/workspaces/<int:workspace_id>/rendez-vous", methods=["GET", "POST"])
+@login_required
+@require_own_workspace
+def rendez_vous_collection(workspace_id):
+    if request.method == "GET":
+        return jsonify(rendez_vous=rendez_vous.list_rendez_vous(
+            workspace_id, start=request.args.get("start"), end=request.args.get("end")
+        ))
+
+    body = request.get_json(silent=True) or {}
+    try:
+        rdv_id = rendez_vous.create_rendez_vous(
+            workspace_id, session["user_id"], body.get("titre"), body.get("date_heure"),
+            duree_minutes=body.get("duree_minutes", 30), prospect_id=body.get("prospect_id"),
+            notes=body.get("notes"),
+        )
+    except rendez_vous.RdvError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(id=rdv_id, status="created"), 201
+
+
+@app.route("/api/rendez-vous/<int:rdv_id>", methods=["PUT", "DELETE"])
+@login_required
+def rendez_vous_item(rdv_id):
+    workspace_id = session.get("workspace_id")
+    try:
+        if request.method == "DELETE":
+            rendez_vous.delete_rendez_vous(rdv_id, workspace_id, session["user_id"], session.get("role"))
+            return jsonify(status="deleted")
+
+        body = request.get_json(silent=True) or {}
+        rendez_vous.update_rendez_vous(rdv_id, workspace_id, session["user_id"], session.get("role"), body)
+        return jsonify(status="updated")
+    except rendez_vous.RdvPermissionError as exc:
+        return jsonify(error=str(exc)), 403
+    except rendez_vous.RdvError as exc:
+        return jsonify(error=str(exc)), 404
+
+
+@app.route("/api/rendez-vous/<int:rdv_id>/ics")
+@login_required
+def rendez_vous_ics(rdv_id):
+    rdv = rendez_vous.get_rendez_vous(rdv_id, session.get("workspace_id"))
+    if not rdv:
+        return jsonify(error="Rendez-vous introuvable"), 404
+    ics_content = rendez_vous.generate_ics(rdv)
+    return Response(
+        ics_content,
+        mimetype="text/calendar",
+        headers={"Content-Disposition": "attachment; filename=rendez-vous.ics"},
+    )
+
+
+@app.route("/api/rendez-vous/<int:rdv_id>/send-ics", methods=["POST"])
+@login_required
+def rendez_vous_send_ics(rdv_id):
+    rdv = rendez_vous.get_rendez_vous(rdv_id, session.get("workspace_id"))
+    if not rdv:
+        return jsonify(error="Rendez-vous introuvable"), 404
 
     conn = get_db()
     try:
         with conn.cursor() as cur:
-            if statut:
-                cur.execute(
-                    """
-                    SELECT id, nom_entreprise, contact_prenom, contact_nom, ville, email,
-                           telephone, statut, source, created_at
-                    FROM prospects WHERE workspace_id = %s AND statut = %s
-                    ORDER BY created_at DESC LIMIT 500
-                    """,
-                    (workspace_id, statut),
-                )
-            else:
-                cur.execute(
-                    """
-                    SELECT id, nom_entreprise, contact_prenom, contact_nom, ville, email,
-                           telephone, statut, source, created_at
-                    FROM prospects WHERE workspace_id = %s
-                    ORDER BY created_at DESC LIMIT 500
-                    """,
-                    (workspace_id,),
-                )
-            rows = cur.fetchall()
-        cols = ["id", "nom_entreprise", "contact_prenom", "contact_nom", "ville", "email",
-                "telephone", "statut", "source", "created_at"]
-        return jsonify(prospects=[dict(zip(cols, r)) for r in rows])
+            cur.execute("SELECT email FROM users WHERE id = %s", (session["user_id"],))
+            to_email = cur.fetchone()[0]
     finally:
         conn.close()
+
+    try:
+        rendez_vous.send_ics_by_email(session.get("workspace_id"), rdv, to_email)
+    except sending.EmailSendError as exc:
+        return jsonify(error=str(exc)), 503
+    return jsonify(status="sent", to=to_email)
+
+
+
 
 
 @app.route("/api/workspaces/<int:workspace_id>/dashboard-stats")

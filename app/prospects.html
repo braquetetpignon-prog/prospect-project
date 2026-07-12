@@ -3,14 +3,25 @@
 {% block title %}Prospects{% endblock %}
 
 {% block extra_css %}
-  .filters { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
-  .filter-chip { padding: 8px 16px; border-radius: 999px; font-size: 13.5px; font-weight: 600; border: 1.5px solid var(--border); background: var(--white); cursor: pointer; }
-  .filter-chip.active { background: var(--text); color: var(--white); border-color: var(--text); }
+  .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
+  .toolbar input[type="text"] { max-width: 260px; }
+  .toolbar select { width: auto; max-width: 180px; }
+  .toolbar .spacer { flex: 1; }
+  .prospect-row { cursor: pointer; }
+  .prospect-row:hover td { background: var(--cream); }
   .prospect-name { font-weight: 600; }
   .prospect-meta { font-size: 12.5px; color: var(--text-soft); margin-top: 2px; }
-  .statut-select { width: auto; padding: 6px 10px; font-size: 13px; }
   .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-  @media (max-width: 700px) { .field-row { grid-template-columns: 1fr; } }
+  .siret-row { display: flex; gap: 8px; align-items: flex-end; }
+  .siret-row .field { flex: 1; margin-bottom: 0; }
+  .siret-status { font-size: 12.5px; margin-top: 6px; }
+  .siret-status.ok { color: #4F6647; }
+  .siret-status.warn { color: #A2502E; }
+  .modal-wide { max-width: 560px; }
+  .rdv-inline { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 16px; display: none; }
+  .rdv-inline.show { display: block; }
+  .readonly-field { background: var(--cream); color: var(--text-soft); }
+  @media (max-width: 700px) { .field-row { grid-template-columns: 1fr; } .toolbar input[type="text"] { max-width: none; } }
 {% endblock %}
 
 {% block content %}
@@ -19,10 +30,16 @@
     <h1>Prospects</h1>
     <p>Toutes les entreprises repérées, quel que soit leur statut.</p>
   </div>
-  <button class="btn btn-primary" id="add-prospect-btn">+ Ajouter un prospect</button>
 </div>
 
-<div class="filters" id="filters"></div>
+<div class="toolbar">
+  <input type="text" id="search-input" placeholder="Rechercher (entreprise, contact...)">
+  <select id="statut-filter"><option value="">Tous les statuts</option></select>
+  <select id="type-filter"><option value="">Tous les types</option></select>
+  <span class="spacer"></span>
+  <a id="export-csv-link" class="btn btn-ghost btn-sm" href="#">⬇ Exporter tout (CSV)</a>
+  <button class="btn btn-primary" id="add-prospect-btn">+ Ajouter un prospect</button>
+</div>
 
 <div class="panel">
   <div class="panel-head">
@@ -35,21 +52,56 @@
 </div>
 
 <div class="modal-overlay" id="prospect-modal-overlay">
-  <div class="modal">
-    <h3>Ajouter un prospect</h3>
+  <div class="modal modal-wide">
+    <h3 id="modal-title">Fiche prospect</h3>
     <form id="prospect-form">
-      <div class="field"><label for="p-nom">Nom de l'entreprise *</label><input id="p-nom" required></div>
       <div class="field-row">
-        <div class="field"><label for="p-prenom">Prénom du contact</label><input id="p-prenom"></div>
+        <div class="field"><label for="p-nom">Entreprise *</label><input id="p-nom" required></div>
+        <div class="field">
+          <label for="p-siret">SIRET</label>
+          <div class="siret-row">
+            <input id="p-siret" placeholder="14 chiffres" style="margin-bottom:0;">
+            <button type="button" class="btn btn-ghost btn-sm" id="verify-siret-btn">Vérifier</button>
+          </div>
+          <div id="siret-status" class="siret-status"></div>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label for="p-contact">Nom du contact</label><input id="p-contact"></div>
+        <div class="field">
+          <label for="p-statut">Statut de prospection</label>
+          <select id="p-statut"></select>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="p-type">Type de statut</label>
+          <select id="p-type"><option value="">— Non classé —</option></select>
+        </div>
         <div class="field"><label for="p-ville">Ville</label><input id="p-ville"></div>
       </div>
       <div class="field-row">
-        <div class="field"><label for="p-email">E-mail</label><input id="p-email" type="email"></div>
         <div class="field"><label for="p-tel">Téléphone</label><input id="p-tel"></div>
+        <div class="field"><label for="p-email">E-mail</label><input id="p-email" type="email"></div>
       </div>
+      <div class="field-row">
+        <div class="field"><label for="p-source">Source</label><input id="p-source" class="readonly-field" readonly></div>
+        <div class="field"><label for="p-action">Prochaine action</label><input id="p-action" placeholder="Ex : Relancer le 12/07..."></div>
+      </div>
+      <div class="field"><label for="p-notes">Notes</label><textarea id="p-notes" rows="3"></textarea></div>
+
+      <button type="button" class="btn btn-ghost btn-sm" id="toggle-rdv-btn" style="margin-top:6px;">📅 Fixer un rendez-vous</button>
+      <div class="rdv-inline" id="rdv-inline">
+        <div class="field-row">
+          <div class="field"><label for="rdv-titre">Titre du rendez-vous</label><input id="rdv-titre"></div>
+          <div class="field"><label for="rdv-date">Date et heure</label><input id="rdv-date" type="datetime-local"></div>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" id="create-rdv-btn">Créer le rendez-vous</button>
+      </div>
+
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost btn-sm" id="prospect-cancel-btn">Annuler</button>
-        <button type="submit" class="btn btn-primary btn-sm">Ajouter</button>
+        <button type="submit" class="btn btn-primary btn-sm">Enregistrer</button>
       </div>
     </form>
   </div>
@@ -58,50 +110,69 @@
 
 {% block extra_js %}
 const statusLabels = { nouveau: 'Nouveau', qualifie: 'Qualifié', client: 'Client', recale: 'Recalé' };
-let currentFilter = null;
+let workspaceId = null;
 let canWrite = false;
+let currentProspectId = null;
+let prospectTypesCache = [];
+let searchDebounce = null;
 
 function onAuthReady(me) {
+  workspaceId = me.workspace_id;
   canWrite = me.role !== 'lecture_seule';
   if (!canWrite) document.getElementById('add-prospect-btn').style.display = 'none';
 
-  renderFilters();
-  loadProspects(me.workspace_id);
+  document.getElementById('statut-filter').innerHTML = '<option value="">Tous les statuts</option>' +
+    Object.entries(statusLabels).map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+  document.getElementById('p-statut').innerHTML =
+    Object.entries(statusLabels).map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
 
-  document.getElementById('add-prospect-btn').addEventListener('click', () => {
-    document.getElementById('prospect-modal-overlay').classList.add('show');
+  loadProspectTypes();
+  loadProspects();
+  updateExportLink();
+
+  document.getElementById('search-input').addEventListener('input', () => {
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(loadProspects, 300);
   });
-  document.getElementById('prospect-cancel-btn').addEventListener('click', () => {
-    document.getElementById('prospect-modal-overlay').classList.remove('show');
+  document.getElementById('statut-filter').addEventListener('change', loadProspects);
+  document.getElementById('type-filter').addEventListener('change', loadProspects);
+
+  document.getElementById('add-prospect-btn').addEventListener('click', () => openModal(null));
+  document.getElementById('prospect-cancel-btn').addEventListener('click', closeModal);
+  document.getElementById('prospect-form').addEventListener('submit', saveProspect);
+  document.getElementById('verify-siret-btn').addEventListener('click', verifySiret);
+  document.getElementById('toggle-rdv-btn').addEventListener('click', () => {
+    document.getElementById('rdv-inline').classList.toggle('show');
   });
-  document.getElementById('prospect-form').addEventListener('submit', (e) => createProspect(e, me.workspace_id));
+  document.getElementById('create-rdv-btn').addEventListener('click', createInlineRdv);
 }
 
-function renderFilters() {
-  const options = [
-    { value: null, label: 'Tous' },
-    { value: 'nouveau', label: 'Nouveaux' },
-    { value: 'qualifie', label: 'Qualifiés' },
-    { value: 'client', label: 'Clients' },
-    { value: 'recale', label: 'Recalés' },
-  ];
-  document.getElementById('filters').innerHTML = options.map(o => `
-    <button class="filter-chip ${currentFilter === o.value ? 'active' : ''}" data-value="${o.value || ''}">${o.label}</button>
-  `).join('');
-  document.querySelectorAll('.filter-chip').forEach(chip => {
-    chip.addEventListener('click', () => {
-      currentFilter = chip.dataset.value || null;
-      renderFilters();
-      loadProspects(currentUser.workspace_id);
-    });
-  });
+function updateExportLink() {
+  document.getElementById('export-csv-link').href = `/api/prospects/export.csv?workspace_id=${workspaceId}`;
 }
 
-async function loadProspects(workspaceId) {
-  const container = document.getElementById('prospects-container');
+async function loadProspectTypes() {
   try {
-    const url = `/api/prospects?workspace_id=${workspaceId}` + (currentFilter ? `&statut=${currentFilter}` : '');
-    const data = await fetchJSON(url);
+    const data = await fetchJSON(`/api/workspaces/${workspaceId}/prospect-types`);
+    prospectTypesCache = data.types;
+    const options = data.types.map(t => `<option value="${t.id}">${escapeHtml(t.nom)}</option>`).join('');
+    document.getElementById('type-filter').innerHTML = '<option value="">Tous les types</option>' + options;
+    document.getElementById('p-type').innerHTML = '<option value="">— Non classé —</option>' + options;
+  } catch (e) { /* silencieux */ }
+}
+
+async function loadProspects() {
+  const container = document.getElementById('prospects-container');
+  const q = document.getElementById('search-input').value.trim();
+  const statut = document.getElementById('statut-filter').value;
+  const typeId = document.getElementById('type-filter').value;
+  const params = new URLSearchParams({ workspace_id: workspaceId });
+  if (q) params.set('q', q);
+  if (statut) params.set('statut', statut);
+  if (typeId) params.set('prospect_type_id', typeId);
+
+  try {
+    const data = await fetchJSON(`/api/prospects?${params}`);
     renderProspects(data.prospects);
   } catch (e) {
     container.innerHTML = `<div class="empty-state"><p>Impossible de charger les prospects.</p></div>`;
@@ -121,73 +192,148 @@ function renderProspects(list) {
   }
   container.innerHTML = `
     <table>
-      <thead><tr><th>Entreprise</th><th>Ville</th><th>Contact</th><th>Statut</th></tr></thead>
+      <thead><tr><th>Entreprise</th><th>Ville</th><th>Contact</th><th>Type</th><th>Statut</th></tr></thead>
       <tbody>
         ${list.map(p => `
-          <tr data-id="${p.id}">
+          <tr class="prospect-row" data-id="${p.id}">
             <td>
               <div class="prospect-name">${escapeHtml(p.nom_entreprise)}</div>
               <div class="prospect-meta">${escapeHtml(p.email || "Pas d'e-mail")}</div>
             </td>
             <td>${escapeHtml(p.ville || '—')}</td>
             <td>${escapeHtml([p.contact_prenom, p.contact_nom].filter(Boolean).join(' ') || '—')}</td>
-            <td>${statutCellHtml(p)}</td>
+            <td>${escapeHtml(p.type_nom || '—')}</td>
+            <td><span class="badge badge-${p.statut}">${statusLabels[p.statut] || p.statut}</span></td>
           </tr>
         `).join('')}
       </tbody>
     </table>
   `;
+  container.querySelectorAll('.prospect-row').forEach(row => {
+    row.addEventListener('click', () => openModal(parseInt(row.dataset.id, 10)));
+  });
+}
 
-  if (canWrite) {
-    container.querySelectorAll('.statut-select').forEach(sel => {
-      sel.addEventListener('change', async () => {
-        const id = sel.closest('tr').dataset.id;
-        try {
-          await fetchJSON(`/api/prospects/${id}/statut`, {
-            method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ statut: sel.value }),
-          });
-          showToast('Statut mis à jour.');
-        } catch (err) {
-          showToast(err.message, true);
-        }
-      });
+async function openModal(prospectId) {
+  currentProspectId = prospectId;
+  document.getElementById('prospect-form').reset();
+  document.getElementById('siret-status').textContent = '';
+  document.getElementById('rdv-inline').classList.remove('show');
+  document.getElementById('toggle-rdv-btn').style.display = prospectId ? 'inline-flex' : 'none';
+
+  if (prospectId) {
+    document.getElementById('modal-title').textContent = 'Fiche prospect';
+    const p = await fetchJSON(`/api/prospects/${prospectId}`);
+    document.getElementById('p-nom').value = p.nom_entreprise || '';
+    document.getElementById('p-siret').value = p.siret || '';
+    document.getElementById('p-contact').value = [p.contact_prenom, p.contact_nom].filter(Boolean).join(' ');
+    document.getElementById('p-statut').value = p.statut;
+    document.getElementById('p-type').value = p.prospect_type_id || '';
+    document.getElementById('p-ville').value = p.ville || '';
+    document.getElementById('p-tel').value = p.telephone || '';
+    document.getElementById('p-email').value = p.email || '';
+    document.getElementById('p-source').value = sourceLabel(p.source);
+    document.getElementById('p-action').value = p.prochaine_action || '';
+    document.getElementById('p-notes').value = p.notes || '';
+  } else {
+    document.getElementById('modal-title').textContent = 'Ajouter un prospect';
+    document.getElementById('p-statut').value = 'nouveau';
+    document.getElementById('p-source').value = 'Manuel';
+  }
+
+  document.getElementById('prospect-form').querySelectorAll('input,select,textarea,button').forEach(el => {
+    if (el.id !== 'p-source') el.disabled = !canWrite;
+  });
+
+  document.getElementById('prospect-modal-overlay').classList.add('show');
+}
+
+function sourceLabel(source) {
+  const labels = { manuel: 'Manuel', import_csv: 'Import CSV', recherche_ia: 'Recherche IA (collée)' };
+  return labels[source] || source || 'Manuel';
+}
+
+function closeModal() {
+  document.getElementById('prospect-modal-overlay').classList.remove('show');
+}
+
+async function verifySiret() {
+  const siret = document.getElementById('p-siret').value.trim();
+  const statusEl = document.getElementById('siret-status');
+  statusEl.textContent = 'Vérification…';
+  statusEl.className = 'siret-status';
+  try {
+    const result = await fetchJSON('/api/prospects/verify-siret', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ siret }),
     });
+    if (!result.found) {
+      statusEl.textContent = "SIRET introuvable dans le registre officiel.";
+      statusEl.className = 'siret-status warn';
+      return;
+    }
+    statusEl.textContent = `✓ ${result.nom_entreprise} — ${result.actif ? 'établissement actif' : 'établissement fermé'}`;
+    statusEl.className = result.actif ? 'siret-status ok' : 'siret-status warn';
+    if (!document.getElementById('p-nom').value.trim()) document.getElementById('p-nom').value = result.nom_entreprise || '';
+    if (!document.getElementById('p-ville').value.trim()) document.getElementById('p-ville').value = result.ville || '';
+  } catch (err) {
+    statusEl.textContent = err.message;
+    statusEl.className = 'siret-status warn';
   }
 }
 
-function statutCellHtml(p) {
-  if (!canWrite) return `<span class="badge badge-${p.statut}">${statusLabels[p.statut] || p.statut}</span>`;
-  return `
-    <select class="statut-select">
-      ${Object.entries(statusLabels).map(([v, l]) => `<option value="${v}" ${p.statut === v ? 'selected' : ''}>${l}</option>`).join('')}
-    </select>`;
-}
-
-async function createProspect(e, workspaceId) {
+async function saveProspect(e) {
   e.preventDefault();
-  const btn = e.target.querySelector('button[type="submit"]');
-  btn.disabled = true;
+  const contactParts = document.getElementById('p-contact').value.trim().split(/\s+/);
+  const fields = {
+    nom_entreprise: document.getElementById('p-nom').value.trim(),
+    siret: document.getElementById('p-siret').value.trim(),
+    contact_prenom: contactParts[0] || '',
+    contact_nom: contactParts.slice(1).join(' '),
+    prospect_type_id: document.getElementById('p-type').value || null,
+    ville: document.getElementById('p-ville').value.trim(),
+    telephone: document.getElementById('p-tel').value.trim(),
+    email: document.getElementById('p-email').value.trim(),
+    prochaine_action: document.getElementById('p-action').value.trim(),
+    notes: document.getElementById('p-notes').value.trim(),
+  };
+
   try {
-    const result = await fetchJSON('/api/prospects', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        workspace_id: workspaceId,
-        nom_entreprise: document.getElementById('p-nom').value.trim(),
-        contact_prenom: document.getElementById('p-prenom').value.trim(),
-        ville: document.getElementById('p-ville').value.trim(),
-        email: document.getElementById('p-email').value.trim(),
-        telephone: document.getElementById('p-tel').value.trim(),
-      }),
-    });
-    document.getElementById('prospect-modal-overlay').classList.remove('show');
-    document.getElementById('prospect-form').reset();
-    showToast(result.warnings && result.warnings.length ? `Ajouté avec avertissement : ${result.warnings[0]}` : 'Prospect ajouté.');
-    loadProspects(workspaceId);
+    if (currentProspectId) {
+      await fetchJSON(`/api/prospects/${currentProspectId}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fields),
+      });
+      const statut = document.getElementById('p-statut').value;
+      await fetchJSON(`/api/prospects/${currentProspectId}/statut`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ statut }),
+      });
+      showToast('Fiche mise à jour.');
+    } else {
+      fields.workspace_id = workspaceId;
+      await fetchJSON('/api/prospects', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fields),
+      });
+      showToast('Prospect ajouté.');
+    }
+    closeModal();
+    loadProspects();
   } catch (err) {
     showToast(err.message, true);
-  } finally {
-    btn.disabled = false;
+  }
+}
+
+async function createInlineRdv() {
+  const titre = document.getElementById('rdv-titre').value.trim();
+  const dateVal = document.getElementById('rdv-date').value;
+  if (!titre || !dateVal) { showToast('Titre et date requis.', true); return; }
+  try {
+    await fetchJSON(`/api/workspaces/${workspaceId}/rendez-vous`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ titre, date_heure: new Date(dateVal).toISOString(), prospect_id: currentProspectId }),
+    });
+    showToast('Rendez-vous créé — consulte-le dans le calendrier.');
+    document.getElementById('rdv-inline').classList.remove('show');
+  } catch (err) {
+    showToast(err.message, true);
   }
 }
 {% endblock %}

@@ -22,6 +22,7 @@ from flask import session, jsonify, request
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from app.db import get_db
+from app import prospect_types
 
 ROLES = ("admin", "commercial", "lecture_seule")
 WRITE_ROLES = ("admin", "commercial")  # rôles autorisés à créer/modifier/envoyer
@@ -55,6 +56,7 @@ def create_workspace_with_admin(workspace_name, admin_email, admin_password):
                 (workspace_id, admin_email.lower().strip(), hash_password(admin_password)),
             )
             user_id = cur.fetchone()[0]
+        prospect_types.seed_default_types(workspace_id, conn=conn)
         conn.commit()
         return workspace_id, user_id
     except Exception as exc:

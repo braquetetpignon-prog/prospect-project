@@ -11,7 +11,10 @@ Envoi des campagnes (Option 3, onglet Envoi).
 """
 import smtplib
 from datetime import datetime, timezone
+from email.mime.base import MIMEBase
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email import encoders
 
 from app.db import get_db
 from app import consent as consent_module
@@ -134,8 +137,18 @@ def queue_send(campaign_id, prospect_ids, planifie_pour=None):
     return {"queued": queued, "skipped": skipped}
 
 
-def _send_via_smtp(smtp_creds, to_email, subject, body):
-    msg = MIMEText(body, "plain", "utf-8")
+def _send_via_smtp(smtp_creds, to_email, subject, body, attachments=None):
+    if attachments:
+        msg = MIMEMultipart()
+        msg.attach(MIMEText(body, "plain", "utf-8"))
+        for filename, content, mimetype in attachments:
+            part = MIMEBase(*mimetype.split("/"))
+            part.set_payload(content)
+            encoders.encode_base64(part)
+            part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
+            msg.attach(part)
+    else:
+        msg = MIMEText(body, "plain", "utf-8")
     msg["Subject"] = subject
     msg["From"] = smtp_creds["from_email"]
     msg["To"] = to_email
@@ -254,3 +267,18 @@ def process_due_sends(batch_size=20, stale_after_minutes=5):
         conn.close()
 
     return processed
+
+
+class EmailSendError(Exception):
+    pass
+
+
+def send_email(workspace_id, to_email, subject, body, attachments=None):
+    """Fonction publique réutilisable pour tout envoi ponctuel via le SMTP de
+    l'espace de travail (notifications de rendez-vous, export .ics, etc.) —
+    distinct du pipeline de campagnes (pas de vérification de consentement ni
+    de quota ici, ce n'est pas une communication commerciale)."""
+    smtp_creds = workspace_settings.get_smtp_credentials_for_sending(workspace_id)
+    if not smtp_creds:
+        raise EmailSendError("Aucune configuration SMTP pour cet espace de travail.")
+    _send_via_smtp(smtp_creds, to_email, subject, body, attachments=attachments)

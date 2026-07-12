@@ -1,0 +1,275 @@
+{% extends "base.html" %}
+{% set active_page = 'calendrier' %}
+{% block title %}Calendrier{% endblock %}
+
+{% block extra_css %}
+  .view-tabs { display: flex; gap: 8px; }
+  .view-tab { padding: 9px 16px; border-radius: 999px; font-size: 13.5px; font-weight: 600; border: 1.5px solid var(--border); background: var(--white); cursor: pointer; }
+  .view-tab.active { background: var(--text); color: var(--white); border-color: var(--text); }
+  .nav-row { display: flex; align-items: center; gap: 14px; margin: 18px 0; }
+  .nav-row .period-label { font-family: 'Fraunces', serif; font-weight: 600; font-size: 17px; min-width: 220px; }
+  .day-group { border-top: 1px solid var(--border); }
+  .day-group:first-child { border-top: none; }
+  .day-group-head { padding: 12px 24px; background: var(--cream); font-size: 12.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-soft); }
+  .rdv-row { display: flex; align-items: center; gap: 14px; padding: 14px 24px; border-top: 1px solid var(--border); cursor: pointer; }
+  .rdv-row:first-child { border-top: none; }
+  .rdv-row:hover { background: var(--cream); }
+  .rdv-time { font-weight: 700; font-size: 14px; min-width: 56px; }
+  .rdv-info { flex: 1; }
+  .rdv-titre { font-weight: 600; font-size: 14.5px; }
+  .rdv-meta { font-size: 12.5px; color: var(--text-soft); margin-top: 2px; }
+  .rdv-owner-badge { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: var(--sauge-light); color: #4F6647; }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .ics-actions { display: flex; gap: 8px; margin-top: 6px; }
+  @media (max-width: 700px) { .field-row { grid-template-columns: 1fr; } .nav-row .period-label { min-width: 0; } }
+{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div>
+    <h1>Calendrier</h1>
+    <p>Rendez-vous de toute l'équipe — chacun modifie les siens, l'administrateur peut tout ajuster.</p>
+  </div>
+  <button class="btn btn-primary" id="new-rdv-btn">+ Nouveau rendez-vous</button>
+</div>
+
+<div class="view-tabs" id="view-tabs">
+  <button class="view-tab" data-view="day">Jour</button>
+  <button class="view-tab active" data-view="week">Semaine</button>
+  <button class="view-tab" data-view="month">Mois</button>
+</div>
+
+<div class="nav-row">
+  <button class="btn btn-ghost btn-sm" id="prev-btn">←</button>
+  <span class="period-label" id="period-label"></span>
+  <button class="btn btn-ghost btn-sm" id="next-btn">→</button>
+  <button class="btn btn-ghost btn-sm" id="today-btn">Aujourd'hui</button>
+</div>
+
+<div class="panel">
+  <div id="rdv-list-container"><div class="panel-body"><div class="skeleton" style="height:200px;"></div></div></div>
+</div>
+
+<div class="modal-overlay" id="rdv-modal-overlay">
+  <div class="modal">
+    <h3 id="rdv-modal-title">Nouveau rendez-vous</h3>
+    <form id="rdv-form">
+      <div class="field"><label for="rdv-titre-input">Titre</label><input id="rdv-titre-input" required></div>
+      <div class="field-row">
+        <div class="field"><label for="rdv-date-input">Date et heure</label><input id="rdv-date-input" type="datetime-local" required></div>
+        <div class="field"><label for="rdv-duree-input">Durée (minutes)</label><input id="rdv-duree-input" type="number" value="30" min="5"></div>
+      </div>
+      <div class="field"><label for="rdv-notes-input">Notes</label><textarea id="rdv-notes-input" rows="2"></textarea></div>
+      <div id="rdv-owner-line" style="font-size:12.5px; color:var(--text-soft); margin-bottom:10px;"></div>
+      <div class="ics-actions" id="ics-actions" style="display:none;">
+        <button type="button" class="btn btn-ghost btn-sm" id="download-ics-btn">⬇ Télécharger le .ics</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="email-ics-btn">✉ M'envoyer par e-mail</button>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost btn-sm" id="delete-rdv-btn" style="display:none; margin-right:auto; color:#A2502E;">Supprimer</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="rdv-cancel-btn">Annuler</button>
+        <button type="submit" class="btn btn-primary btn-sm" id="rdv-save-btn">Enregistrer</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+let workspaceId = null;
+let currentUserId = null;
+let currentUserRole = null;
+let currentView = 'week';
+let anchorDate = new Date();
+let currentRdvId = null;
+let allRdvCache = [];
+
+function onAuthReady(me) {
+  workspaceId = me.workspace_id;
+  currentUserId = me.user_id;
+  currentUserRole = me.role;
+
+  document.querySelectorAll('.view-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      currentView = tab.dataset.view;
+      document.querySelectorAll('.view-tab').forEach(t => t.classList.toggle('active', t === tab));
+      loadPeriod();
+    });
+  });
+  document.getElementById('prev-btn').addEventListener('click', () => shiftPeriod(-1));
+  document.getElementById('next-btn').addEventListener('click', () => shiftPeriod(1));
+  document.getElementById('today-btn').addEventListener('click', () => { anchorDate = new Date(); loadPeriod(); });
+  document.getElementById('new-rdv-btn').addEventListener('click', () => openRdvModal(null));
+  document.getElementById('rdv-cancel-btn').addEventListener('click', closeRdvModal);
+  document.getElementById('rdv-form').addEventListener('submit', saveRdv);
+  document.getElementById('delete-rdv-btn').addEventListener('click', deleteRdv);
+  document.getElementById('download-ics-btn').addEventListener('click', () => {
+    window.open(`/api/rendez-vous/${currentRdvId}/ics`, '_blank');
+  });
+  document.getElementById('email-ics-btn').addEventListener('click', sendIcsEmail);
+
+  loadPeriod();
+}
+
+function getPeriodRange() {
+  const d = new Date(anchorDate);
+  if (currentView === 'day') {
+    const start = new Date(d); start.setHours(0, 0, 0, 0);
+    const end = new Date(d); end.setHours(23, 59, 59, 999);
+    return { start, end, label: start.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }) };
+  }
+  if (currentView === 'week') {
+    const day = d.getDay() || 7;
+    const start = new Date(d); start.setDate(d.getDate() - day + 1); start.setHours(0, 0, 0, 0);
+    const end = new Date(start); end.setDate(start.getDate() + 6); end.setHours(23, 59, 59, 999);
+    return { start, end, label: `Semaine du ${start.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} au ${end.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}` };
+  }
+  const start = new Date(d.getFullYear(), d.getMonth(), 1);
+  const end = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
+  return { start, end, label: start.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }) };
+}
+
+function shiftPeriod(dir) {
+  const d = new Date(anchorDate);
+  if (currentView === 'day') d.setDate(d.getDate() + dir);
+  else if (currentView === 'week') d.setDate(d.getDate() + dir * 7);
+  else d.setMonth(d.getMonth() + dir);
+  anchorDate = d;
+  loadPeriod();
+}
+
+async function loadPeriod() {
+  const { start, end, label } = getPeriodRange();
+  document.getElementById('period-label').textContent = label.charAt(0).toUpperCase() + label.slice(1);
+  const container = document.getElementById('rdv-list-container');
+  try {
+    const data = await fetchJSON(`/api/workspaces/${workspaceId}/rendez-vous?start=${start.toISOString()}&end=${end.toISOString()}`);
+    allRdvCache = data.rendez_vous;
+    renderRdvList(data.rendez_vous);
+  } catch (e) {
+    container.innerHTML = `<div class="empty-state"><p>Impossible de charger le calendrier.</p></div>`;
+  }
+}
+
+function renderRdvList(list) {
+  const container = document.getElementById('rdv-list-container');
+  if (!list.length) {
+    container.innerHTML = `<div class="empty-state"><h3>Aucun rendez-vous</h3><p>Ajoute-en un avec le bouton ci-dessus, ou depuis une fiche prospect.</p></div>`;
+    return;
+  }
+  const groups = {};
+  list.forEach(r => {
+    const d = new Date(r.date_heure);
+    const key = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+    (groups[key] = groups[key] || []).push(r);
+  });
+
+  container.innerHTML = Object.entries(groups).map(([day, rdvs]) => `
+    <div class="day-group">
+      <div class="day-group-head">${day}</div>
+      ${rdvs.map(r => {
+        const d = new Date(r.date_heure);
+        const time = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+        return `
+          <div class="rdv-row" data-id="${r.id}">
+            <div class="rdv-time">${time}</div>
+            <div class="rdv-info">
+              <div class="rdv-titre">${escapeHtml(r.titre)}</div>
+              <div class="rdv-meta">${r.duree_minutes} min${r.prospect_nom ? ' · ' + escapeHtml(r.prospect_nom) : ''}</div>
+            </div>
+            <span class="rdv-owner-badge">${escapeHtml(r.user_email.split('@')[0])}</span>
+          </div>`;
+      }).join('')}
+    </div>
+  `).join('');
+
+  container.querySelectorAll('.rdv-row').forEach(row => {
+    row.addEventListener('click', () => openRdvModal(parseInt(row.dataset.id, 10)));
+  });
+}
+
+function toLocalInputValue(date) {
+  const pad = n => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function openRdvModal(rdvId) {
+  currentRdvId = rdvId;
+  document.getElementById('rdv-form').reset();
+  document.getElementById('rdv-owner-line').textContent = '';
+  document.getElementById('ics-actions').style.display = rdvId ? 'flex' : 'none';
+  document.getElementById('delete-rdv-btn').style.display = 'none';
+
+  if (rdvId) {
+    const rdv = allRdvCache.find(r => r.id === rdvId);
+    const canEdit = rdv.user_id === currentUserId || currentUserRole === 'admin';
+    document.getElementById('rdv-modal-title').textContent = 'Rendez-vous';
+    document.getElementById('rdv-titre-input').value = rdv.titre;
+    document.getElementById('rdv-date-input').value = toLocalInputValue(new Date(rdv.date_heure));
+    document.getElementById('rdv-duree-input').value = rdv.duree_minutes;
+    document.getElementById('rdv-notes-input').value = rdv.notes || '';
+    document.getElementById('rdv-owner-line').textContent = `Créé par ${rdv.user_email}`;
+    document.getElementById('rdv-form').querySelectorAll('input,textarea,button[type=submit]').forEach(el => el.disabled = !canEdit);
+    document.getElementById('delete-rdv-btn').style.display = canEdit ? 'inline-flex' : 'none';
+  } else {
+    document.getElementById('rdv-modal-title').textContent = 'Nouveau rendez-vous';
+    document.getElementById('rdv-form').querySelectorAll('input,textarea,button[type=submit]').forEach(el => el.disabled = false);
+    const now = new Date();
+    document.getElementById('rdv-date-input').value = toLocalInputValue(now);
+  }
+
+  document.getElementById('rdv-modal-overlay').classList.add('show');
+}
+
+function closeRdvModal() {
+  document.getElementById('rdv-modal-overlay').classList.remove('show');
+}
+
+async function saveRdv(e) {
+  e.preventDefault();
+  const payload = {
+    titre: document.getElementById('rdv-titre-input').value.trim(),
+    date_heure: new Date(document.getElementById('rdv-date-input').value).toISOString(),
+    duree_minutes: parseInt(document.getElementById('rdv-duree-input').value, 10) || 30,
+    notes: document.getElementById('rdv-notes-input').value.trim(),
+  };
+  try {
+    if (currentRdvId) {
+      await fetchJSON(`/api/rendez-vous/${currentRdvId}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+      });
+      showToast('Rendez-vous mis à jour.');
+    } else {
+      await fetchJSON(`/api/workspaces/${workspaceId}/rendez-vous`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+      });
+      showToast('Rendez-vous créé.');
+    }
+    closeRdvModal();
+    loadPeriod();
+  } catch (err) {
+    showToast(err.message, true);
+  }
+}
+
+async function deleteRdv() {
+  if (!currentRdvId) return;
+  try {
+    await fetchJSON(`/api/rendez-vous/${currentRdvId}`, { method: 'DELETE' });
+    showToast('Rendez-vous supprimé.');
+    closeRdvModal();
+    loadPeriod();
+  } catch (err) {
+    showToast(err.message, true);
+  }
+}
+
+async function sendIcsEmail() {
+  try {
+    const result = await fetchJSON(`/api/rendez-vous/${currentRdvId}/send-ics`, { method: 'POST' });
+    showToast(`Envoyé à ${result.to}.`);
+  } catch (err) {
+    showToast(err.message, true);
+  }
+}
+{% endblock %}
