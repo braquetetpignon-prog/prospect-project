@@ -1,0 +1,304 @@
+{% extends "base.html" %}
+{% set active_page = 'campagnes' %}
+{% block title %}Campagnes{% endblock %}
+
+{% block extra_css %}
+  .campaign-row { cursor: pointer; }
+  .campaign-row:hover td { background: var(--cream); }
+  .type-badge-avis { background: var(--sauge-light); color: #4F6647; }
+  .type-badge-publicitaire { background: #FDECE3; color: var(--terracotta-deep); }
+  .type-badge-newsletter { background: #EAF0FF; color: #3454A8; }
+  .detail-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 20px; align-items: start; }
+  .send-status-envoye { background: var(--sauge-light); color: #4F6647; }
+  .send-status-planifie { background: #EAF0FF; color: #3454A8; }
+  .send-status-echec { background: #F3E3E3; color: #9B4646; }
+  .send-status-en_cours { background: var(--cream-warm); color: var(--text-soft); }
+  .prospect-check-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+  .prospect-check-row:last-child { border-bottom: none; }
+  .checklist { max-height: 260px; overflow-y: auto; padding: 4px 24px; }
+  .back-link { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; font-weight: 600; color: var(--text-soft); margin-bottom: 16px; cursor: pointer; }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 900px) { .detail-grid { grid-template-columns: 1fr; } .field-row { grid-template-columns: 1fr; } }
+{% endblock %}
+
+{% block content %}
+<div id="list-view">
+  <div class="topbar">
+    <div>
+      <h1>Campagnes</h1>
+      <p>Avis, publicité, newsletter — jusqu'à 10 campagnes actives.</p>
+    </div>
+    <button class="btn btn-primary" id="new-campaign-btn">+ Nouvelle campagne</button>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h2>Toutes les campagnes</h2><span id="campaign-count" style="font-size:13px; color:var(--text-soft);"></span></div>
+    <div id="campaigns-container"><div class="panel-body"><div class="skeleton" style="height:160px;"></div></div></div>
+  </div>
+</div>
+
+<div id="detail-view" style="display:none;">
+  <span class="back-link" id="back-to-list">← Toutes les campagnes</span>
+  <div class="topbar">
+    <div>
+      <h1 id="detail-title">Campagne</h1>
+      <p id="detail-sub"></p>
+    </div>
+    <div style="display:flex; gap:10px;">
+      <button class="btn btn-ghost" id="toggle-active-btn"></button>
+    </div>
+  </div>
+
+  <div class="detail-grid">
+    <div>
+      <div class="panel">
+        <div class="panel-head"><h2>Contenu</h2></div>
+        <div class="panel-body">
+          <form id="edit-form">
+            <div class="field"><label for="edit-sujet">Sujet</label><input id="edit-sujet"></div>
+            <div class="field"><label for="edit-contenu">Message</label><textarea id="edit-contenu" rows="8"></textarea></div>
+            <div class="field-row">
+              <div class="field"><label for="edit-quota">Quota d'envois/jour</label><input id="edit-quota" type="number" min="1"></div>
+            </div>
+            <button class="btn btn-primary btn-sm" type="submit">Enregistrer les modifications</button>
+          </form>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>Envoyer</h2><p style="margin:0;">Sélectionne les destinataires puis lance l'envoi.</p></div>
+        <div class="checklist" id="recipient-checklist"></div>
+        <div class="panel-body" style="padding-top:12px; border-top:1px solid var(--border);">
+          <div class="field"><label for="send-date">Planifier pour (optionnel)</label><input id="send-date" type="datetime-local"></div>
+          <button class="btn btn-primary btn-sm" id="trigger-send-btn">Envoyer</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Historique des envois</h2></div>
+      <div id="sends-container"></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="campaign-modal-overlay">
+  <div class="modal">
+    <h3>Nouvelle campagne</h3>
+    <form id="campaign-form">
+      <div class="field">
+        <label for="c-type">Type</label>
+        <select id="c-type">
+          <option value="avis">Demande d'avis Google</option>
+          <option value="publicitaire">Publicitaire</option>
+          <option value="newsletter">Newsletter</option>
+        </select>
+      </div>
+      <div class="field"><label for="c-nom">Nom de la campagne</label><input id="c-nom" required placeholder="Ex : Avis clients été 2026"></div>
+      <p style="font-size:13px; color:var(--text-soft); margin-top:-4px;">Un modèle de message prérempli sera utilisé — modifiable ensuite.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost btn-sm" id="campaign-cancel-btn">Annuler</button>
+        <button type="submit" class="btn btn-primary btn-sm">Créer</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+const typeLabels = { avis: "Demande d'avis", publicitaire: 'Publicitaire', newsletter: 'Newsletter' };
+const sendStatusLabels = { envoye: 'Envoyé', planifie: 'Planifié', echec: 'Échec', en_cours: 'En cours' };
+let workspaceId = null;
+let canWrite = false;
+let currentCampaign = null;
+
+function onAuthReady(me) {
+  workspaceId = me.workspace_id;
+  canWrite = me.role !== 'lecture_seule';
+  if (!canWrite) document.getElementById('new-campaign-btn').style.display = 'none';
+
+  loadCampaigns();
+
+  document.getElementById('new-campaign-btn').addEventListener('click', () => document.getElementById('campaign-modal-overlay').classList.add('show'));
+  document.getElementById('campaign-cancel-btn').addEventListener('click', () => document.getElementById('campaign-modal-overlay').classList.remove('show'));
+  document.getElementById('campaign-form').addEventListener('submit', createCampaign);
+  document.getElementById('back-to-list').addEventListener('click', showListView);
+  document.getElementById('edit-form').addEventListener('submit', saveCampaignEdits);
+  document.getElementById('trigger-send-btn').addEventListener('click', triggerSend);
+}
+
+async function loadCampaigns() {
+  const container = document.getElementById('campaigns-container');
+  try {
+    const data = await fetchJSON(`/api/campaigns?workspace_id=${workspaceId}`);
+    document.getElementById('campaign-count').textContent = `${data.campaigns.length} campagne${data.campaigns.length > 1 ? 's' : ''}`;
+    if (!data.campaigns.length) {
+      container.innerHTML = `<div class="empty-state"><h3>Aucune campagne</h3><p>Crée ta première campagne pour commencer à recontacter tes prospects.</p></div>`;
+      return;
+    }
+    container.innerHTML = `
+      <table>
+        <thead><tr><th>Nom</th><th>Type</th><th>Statut</th><th>Quota/jour</th></tr></thead>
+        <tbody>
+          ${data.campaigns.map(c => `
+            <tr class="campaign-row" data-id="${c.id}">
+              <td style="font-weight:600;">${escapeHtml(c.nom)}</td>
+              <td><span class="badge type-badge-${c.type}">${typeLabels[c.type] || c.type}</span></td>
+              <td><span class="badge badge-${c.statut === 'active' ? 'active' : 'inactive'}">${c.statut === 'active' ? 'Active' : 'Inactive'}</span></td>
+              <td>${c.quota_par_jour}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>`;
+    container.querySelectorAll('.campaign-row').forEach(row => {
+      row.addEventListener('click', () => openCampaign(parseInt(row.dataset.id, 10)));
+    });
+  } catch (e) {
+    container.innerHTML = `<div class="empty-state"><p>Impossible de charger les campagnes.</p></div>`;
+  }
+}
+
+async function createCampaign(e) {
+  e.preventDefault();
+  const btn = e.target.querySelector('button[type="submit"]');
+  btn.disabled = true;
+  try {
+    await fetchJSON('/api/campaigns', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workspace_id: workspaceId,
+        type: document.getElementById('c-type').value,
+        nom: document.getElementById('c-nom').value.trim(),
+      }),
+    });
+    document.getElementById('campaign-modal-overlay').classList.remove('show');
+    document.getElementById('campaign-form').reset();
+    showToast('Campagne créée.');
+    loadCampaigns();
+  } catch (err) {
+    showToast(err.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function showListView() {
+  document.getElementById('detail-view').style.display = 'none';
+  document.getElementById('list-view').style.display = 'block';
+  currentCampaign = null;
+}
+
+async function openCampaign(id) {
+  const data = await fetchJSON(`/api/campaigns?workspace_id=${workspaceId}`);
+  currentCampaign = data.campaigns.find(c => c.id === id);
+  if (!currentCampaign) return;
+
+  document.getElementById('list-view').style.display = 'none';
+  document.getElementById('detail-view').style.display = 'block';
+
+  document.getElementById('detail-title').textContent = currentCampaign.nom;
+  document.getElementById('detail-sub').textContent = `${typeLabels[currentCampaign.type]} · ${currentCampaign.statut === 'active' ? 'Active' : 'Inactive'}`;
+  document.getElementById('edit-sujet').value = currentCampaign.sujet || '';
+  document.getElementById('edit-contenu').value = currentCampaign.contenu || '';
+  document.getElementById('edit-quota').value = currentCampaign.quota_par_jour;
+
+  const toggleBtn = document.getElementById('toggle-active-btn');
+  toggleBtn.textContent = currentCampaign.statut === 'active' ? 'Désactiver' : 'Réactiver';
+  toggleBtn.style.display = canWrite ? 'inline-flex' : 'none';
+  toggleBtn.onclick = () => toggleCampaignActive(currentCampaign);
+
+  document.getElementById('edit-form').querySelectorAll('input,textarea,button').forEach(el => el.disabled = !canWrite);
+  document.getElementById('trigger-send-btn').style.display = canWrite ? 'inline-flex' : 'none';
+
+  loadRecipientChecklist();
+  loadSends(id);
+}
+
+async function toggleCampaignActive(campaign) {
+  try {
+    await fetchJSON(`/api/campaigns/${campaign.id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ statut: campaign.statut === 'active' ? 'inactive' : 'active' }),
+    });
+    showToast('Statut mis à jour.');
+    openCampaign(campaign.id);
+  } catch (err) {
+    showToast(err.message, true);
+  }
+}
+
+async function saveCampaignEdits(e) {
+  e.preventDefault();
+  try {
+    await fetchJSON(`/api/campaigns/${currentCampaign.id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sujet: document.getElementById('edit-sujet').value,
+        contenu: document.getElementById('edit-contenu').value,
+        quota_par_jour: parseInt(document.getElementById('edit-quota').value, 10) || undefined,
+      }),
+    });
+    showToast('Contenu enregistré.');
+  } catch (err) {
+    showToast(err.message, true);
+  }
+}
+
+async function loadRecipientChecklist() {
+  const container = document.getElementById('recipient-checklist');
+  try {
+    const data = await fetchJSON(`/api/prospects?workspace_id=${workspaceId}`);
+    if (!data.prospects.length) {
+      container.innerHTML = `<div class="empty-state"><p>Aucun prospect à qui envoyer pour le moment.</p></div>`;
+      return;
+    }
+    container.innerHTML = data.prospects.filter(p => p.email).map(p => `
+      <label class="prospect-check-row">
+        <input type="checkbox" value="${p.id}" class="recipient-check">
+        <span>${escapeHtml(p.nom_entreprise)} <span style="color:var(--text-soft); font-size:12.5px;">(${escapeHtml(p.email)})</span></span>
+      </label>
+    `).join('') || `<div class="empty-state"><p>Aucun prospect avec e-mail.</p></div>`;
+  } catch (e) {
+    container.innerHTML = `<div class="empty-state"><p>Impossible de charger les prospects.</p></div>`;
+  }
+}
+
+async function triggerSend() {
+  const ids = Array.from(document.querySelectorAll('.recipient-check:checked')).map(c => parseInt(c.value, 10));
+  if (!ids.length) { showToast('Sélectionne au moins un destinataire.', true); return; }
+
+  const dateVal = document.getElementById('send-date').value;
+  const body = { prospect_ids: ids };
+  if (dateVal) body.planifie_pour = new Date(dateVal).toISOString();
+
+  try {
+    const result = await fetchJSON(`/api/campaigns/${currentCampaign.id}/send`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const skipped = result.skipped || [];
+    showToast(`${result.queued.length} mis en file${skipped.length ? `, ${skipped.length} ignoré(s)` : ''}.`, skipped.length > 0 && result.queued.length === 0);
+    loadSends(currentCampaign.id);
+  } catch (err) {
+    showToast(err.message, true);
+  }
+}
+
+async function loadSends(campaignId) {
+  const container = document.getElementById('sends-container');
+  try {
+    const data = await fetchJSON(`/api/campaigns/${campaignId}/sends`);
+    if (!data.sends.length) {
+      container.innerHTML = `<div class="empty-state"><p>Aucun envoi pour l'instant.</p></div>`;
+      return;
+    }
+    container.innerHTML = data.sends.slice(0, 30).map(s => `
+      <div class="activity-item" style="padding:14px 24px; border-top:1px solid var(--border);">
+        <span class="badge send-status-${s.statut}">${sendStatusLabels[s.statut] || s.statut}</span>
+        <span style="font-size:12.5px; color:var(--text-soft); margin-left:8px;">prospect #${s.prospect_id}</span>
+      </div>
+    `).join('');
+  } catch (e) {
+    container.innerHTML = `<div class="empty-state"><p>Impossible de charger l'historique.</p></div>`;
+  }
+}
+{% endblock %}

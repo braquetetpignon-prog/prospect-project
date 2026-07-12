@@ -14,6 +14,7 @@ from app import sending
 from app import scheduler
 from app import auth
 from app.auth import login_required, require_own_workspace, require_role, WRITE_ROLES
+from app import prospects
 
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "schema.sql")
 
@@ -64,6 +65,26 @@ def dashboard():
 @app.route("/parametres")
 def parametres_page():
     return flask_render_template("settings.html")
+
+
+@app.route("/prospects")
+def prospects_page():
+    return flask_render_template("prospects.html")
+
+
+@app.route("/campagnes")
+def campagnes_page():
+    return flask_render_template("campagnes.html")
+
+
+@app.route("/recherche-ia")
+def recherche_ia_page():
+    return flask_render_template("recherche_ia.html")
+
+
+@app.route("/import")
+def import_page():
+    return flask_render_template("import.html")
 
 
 @app.route("/api/status")
@@ -550,9 +571,51 @@ def admin_process_due_sends():
 
 # --- Données pour le dashboard ---------------------------------------------
 
-@app.route("/api/prospects")
+@app.route("/api/prospects", methods=["GET", "POST"])
 @login_required
 @require_own_workspace
+def prospects_collection():
+    if request.method == "POST":
+        if session.get("role") not in WRITE_ROLES:
+            return jsonify(error="Permission insuffisante pour cette action."), 403
+
+        body = request.get_json(silent=True) or {}
+        workspace_id = body.get("workspace_id")
+        fields = {k: v for k, v in body.items() if k != "workspace_id"}
+        try:
+            prospect_id, warnings = prospects.create_prospect(workspace_id, fields, source="manuel")
+        except prospects.ProspectError as exc:
+            return jsonify(error=str(exc)), 400
+        return jsonify(id=prospect_id, warnings=warnings, status="created"), 201
+
+    return prospects_list()
+
+
+@app.route("/api/prospects/<int:prospect_id>")
+@login_required
+def prospect_detail(prospect_id):
+    prospect = prospects.get_prospect(prospect_id, session.get("workspace_id"))
+    if not prospect:
+        return jsonify(error="Prospect introuvable"), 404
+    return jsonify(prospect)
+
+
+@app.route("/api/prospects/<int:prospect_id>/statut", methods=["PUT"])
+@login_required
+@require_role(*WRITE_ROLES)
+def prospect_update_statut(prospect_id):
+    body = request.get_json(silent=True) or {}
+    statut = body.get("statut")
+    motif = body.get("motif")
+    if not statut:
+        return jsonify(error="statut requis"), 400
+    try:
+        prospects.update_statut(prospect_id, session.get("workspace_id"), statut, motif)
+    except prospects.ProspectError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(status="updated")
+
+
 def prospects_list():
     workspace_id = request.args.get("workspace_id", type=int)
     if not workspace_id:
@@ -565,23 +628,26 @@ def prospects_list():
             if statut:
                 cur.execute(
                     """
-                    SELECT id, nom_entreprise, ville, email, telephone, statut, source, created_at
+                    SELECT id, nom_entreprise, contact_prenom, contact_nom, ville, email,
+                           telephone, statut, source, created_at
                     FROM prospects WHERE workspace_id = %s AND statut = %s
-                    ORDER BY created_at DESC LIMIT 200
+                    ORDER BY created_at DESC LIMIT 500
                     """,
                     (workspace_id, statut),
                 )
             else:
                 cur.execute(
                     """
-                    SELECT id, nom_entreprise, ville, email, telephone, statut, source, created_at
+                    SELECT id, nom_entreprise, contact_prenom, contact_nom, ville, email,
+                           telephone, statut, source, created_at
                     FROM prospects WHERE workspace_id = %s
-                    ORDER BY created_at DESC LIMIT 200
+                    ORDER BY created_at DESC LIMIT 500
                     """,
                     (workspace_id,),
                 )
             rows = cur.fetchall()
-        cols = ["id", "nom_entreprise", "ville", "email", "telephone", "statut", "source", "created_at"]
+        cols = ["id", "nom_entreprise", "contact_prenom", "contact_nom", "ville", "email",
+                "telephone", "statut", "source", "created_at"]
         return jsonify(prospects=[dict(zip(cols, r)) for r in rows])
     finally:
         conn.close()

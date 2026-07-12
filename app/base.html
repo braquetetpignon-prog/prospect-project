@@ -97,6 +97,11 @@
   .empty-state h3 { font-size: 16px; margin-bottom: 8px; }
   .empty-state p { color: var(--text-soft); font-size: 14px; margin: 0 0 18px; }
 
+  .activity-item { padding: 16px 24px; border-top: 1px solid var(--border); font-size: 14px; }
+  .activity-item:first-child { border-top: none; }
+  .activity-item .who { font-weight: 600; }
+  .activity-item .what { color: var(--text-soft); font-size: 13px; margin-top: 2px; }
+
   .skeleton { background: linear-gradient(90deg, var(--cream) 25%, var(--cream-warm) 37%, var(--cream) 63%); background-size: 400% 100%; animation: shimmer 1.4s ease infinite; border-radius: 10px; }
   @keyframes shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
 

@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+{% set active_page = 'prospects' %}
+{% block title %}Prospects{% endblock %}
+
+{% block extra_css %}
+  .filters { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+  .filter-chip { padding: 8px 16px; border-radius: 999px; font-size: 13.5px; font-weight: 600; border: 1.5px solid var(--border); background: var(--white); cursor: pointer; }
+  .filter-chip.active { background: var(--text); color: var(--white); border-color: var(--text); }
+  .prospect-name { font-weight: 600; }
+  .prospect-meta { font-size: 12.5px; color: var(--text-soft); margin-top: 2px; }
+  .statut-select { width: auto; padding: 6px 10px; font-size: 13px; }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 700px) { .field-row { grid-template-columns: 1fr; } }
+{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div>
+    <h1>Prospects</h1>
+    <p>Toutes les entreprises repérées, quel que soit leur statut.</p>
+  </div>
+  <button class="btn btn-primary" id="add-prospect-btn">+ Ajouter un prospect</button>
+</div>
+
+<div class="filters" id="filters"></div>
+
+<div class="panel">
+  <div class="panel-head">
+    <h2>Liste</h2>
+    <span id="prospect-count" style="font-size:13px; color:var(--text-soft);"></span>
+  </div>
+  <div id="prospects-container">
+    <div class="panel-body"><div class="skeleton" style="height:200px;"></div></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="prospect-modal-overlay">
+  <div class="modal">
+    <h3>Ajouter un prospect</h3>
+    <form id="prospect-form">
+      <div class="field"><label for="p-nom">Nom de l'entreprise *</label><input id="p-nom" required></div>
+      <div class="field-row">
+        <div class="field"><label for="p-prenom">Prénom du contact</label><input id="p-prenom"></div>
+        <div class="field"><label for="p-ville">Ville</label><input id="p-ville"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label for="p-email">E-mail</label><input id="p-email" type="email"></div>
+        <div class="field"><label for="p-tel">Téléphone</label><input id="p-tel"></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost btn-sm" id="prospect-cancel-btn">Annuler</button>
+        <button type="submit" class="btn btn-primary btn-sm">Ajouter</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+const statusLabels = { nouveau: 'Nouveau', qualifie: 'Qualifié', client: 'Client', recale: 'Recalé' };
+let currentFilter = null;
+let canWrite = false;
+
+function onAuthReady(me) {
+  canWrite = me.role !== 'lecture_seule';
+  if (!canWrite) document.getElementById('add-prospect-btn').style.display = 'none';
+
+  renderFilters();
+  loadProspects(me.workspace_id);
+
+  document.getElementById('add-prospect-btn').addEventListener('click', () => {
+    document.getElementById('prospect-modal-overlay').classList.add('show');
+  });
+  document.getElementById('prospect-cancel-btn').addEventListener('click', () => {
+    document.getElementById('prospect-modal-overlay').classList.remove('show');
+  });
+  document.getElementById('prospect-form').addEventListener('submit', (e) => createProspect(e, me.workspace_id));
+}
+
+function renderFilters() {
+  const options = [
+    { value: null, label: 'Tous' },
+    { value: 'nouveau', label: 'Nouveaux' },
+    { value: 'qualifie', label: 'Qualifiés' },
+    { value: 'client', label: 'Clients' },
+    { value: 'recale', label: 'Recalés' },
+  ];
+  document.getElementById('filters').innerHTML = options.map(o => `
+    <button class="filter-chip ${currentFilter === o.value ? 'active' : ''}" data-value="${o.value || ''}">${o.label}</button>
+  `).join('');
+  document.querySelectorAll('.filter-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      currentFilter = chip.dataset.value || null;
+      renderFilters();
+      loadProspects(currentUser.workspace_id);
+    });
+  });
+}
+
+async function loadProspects(workspaceId) {
+  const container = document.getElementById('prospects-container');
+  try {
+    const url = `/api/prospects?workspace_id=${workspaceId}` + (currentFilter ? `&statut=${currentFilter}` : '');
+    const data = await fetchJSON(url);
+    renderProspects(data.prospects);
+  } catch (e) {
+    container.innerHTML = `<div class="empty-state"><p>Impossible de charger les prospects.</p></div>`;
+  }
+}
+
+function renderProspects(list) {
+  document.getElementById('prospect-count').textContent = `${list.length} prospect${list.length > 1 ? 's' : ''}`;
+  const container = document.getElementById('prospects-container');
+  if (!list.length) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <h3>Aucun prospect</h3>
+        <p>Ajoute une fiche manuellement, importe un fichier, ou lance une recherche IA.</p>
+      </div>`;
+    return;
+  }
+  container.innerHTML = `
+    <table>
+      <thead><tr><th>Entreprise</th><th>Ville</th><th>Contact</th><th>Statut</th></tr></thead>
+      <tbody>
+        ${list.map(p => `
+          <tr data-id="${p.id}">
+            <td>
+              <div class="prospect-name">${escapeHtml(p.nom_entreprise)}</div>
+              <div class="prospect-meta">${escapeHtml(p.email || "Pas d'e-mail")}</div>
+            </td>
+            <td>${escapeHtml(p.ville || '—')}</td>
+            <td>${escapeHtml([p.contact_prenom, p.contact_nom].filter(Boolean).join(' ') || '—')}</td>
+            <td>${statutCellHtml(p)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+
+  if (canWrite) {
+    container.querySelectorAll('.statut-select').forEach(sel => {
+      sel.addEventListener('change', async () => {
+        const id = sel.closest('tr').dataset.id;
+        try {
+          await fetchJSON(`/api/prospects/${id}/statut`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ statut: sel.value }),
+          });
+          showToast('Statut mis à jour.');
+        } catch (err) {
+          showToast(err.message, true);
+        }
+      });
+    });
+  }
+}
+
+function statutCellHtml(p) {
+  if (!canWrite) return `<span class="badge badge-${p.statut}">${statusLabels[p.statut] || p.statut}</span>`;
+  return `
+    <select class="statut-select">
+      ${Object.entries(statusLabels).map(([v, l]) => `<option value="${v}" ${p.statut === v ? 'selected' : ''}>${l}</option>`).join('')}
+    </select>`;
+}
+
+async function createProspect(e, workspaceId) {
+  e.preventDefault();
+  const btn = e.target.querySelector('button[type="submit"]');
+  btn.disabled = true;
+  try {
+    const result = await fetchJSON('/api/prospects', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workspace_id: workspaceId,
+        nom_entreprise: document.getElementById('p-nom').value.trim(),
+        contact_prenom: document.getElementById('p-prenom').value.trim(),
+        ville: document.getElementById('p-ville').value.trim(),
+        email: document.getElementById('p-email').value.trim(),
+        telephone: document.getElementById('p-tel').value.trim(),
+      }),
+    });
+    document.getElementById('prospect-modal-overlay').classList.remove('show');
+    document.getElementById('prospect-form').reset();
+    showToast(result.warnings && result.warnings.length ? `Ajouté avec avertissement : ${result.warnings[0]}` : 'Prospect ajouté.');
+    loadProspects(workspaceId);
+  } catch (err) {
+    showToast(err.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+{% endblock %}

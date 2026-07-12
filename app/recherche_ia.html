@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% set active_page = 'recherche-ia' %}
+{% block title %}Recherche IA{% endblock %}
+
+{% block extra_css %}
+  .quota-line { font-size: 13.5px; color: var(--text-soft); margin-bottom: 20px; }
+  .quota-line strong { color: var(--text); }
+  .result-card { border-top: 1px solid var(--border); padding: 18px 24px; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+  .result-card:first-child { border-top: none; }
+  .result-name { font-weight: 600; font-size: 15px; }
+  .result-meta { font-size: 13px; color: var(--text-soft); margin-top: 4px; line-height: 1.5; }
+  .result-added { font-size: 12.5px; font-weight: 600; color: #4F6647; white-space: nowrap; }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 700px) { .field-row { grid-template-columns: 1fr; } }
+{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div>
+    <h1>Recherche IA</h1>
+    <p>Précise le lieu et le métier recherché, l'assistant propose une liste à valider toi-même.</p>
+  </div>
+</div>
+
+<div id="ia-root">
+  <div class="panel"><div class="panel-body"><div class="skeleton" style="height:120px;"></div></div></div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+function onAuthReady(me) {
+  if (me.role === 'lecture_seule') {
+    document.getElementById('ia-root').innerHTML = `
+      <div class="panel"><div class="admin-lock">
+        <h3>Réservé aux rôles administrateur et commercial</h3>
+        <p>Ton rôle actuel ne permet pas de lancer de recherche.</p>
+      </div></div>`;
+    return;
+  }
+  renderShell(me.workspace_id);
+  loadQuota(me.workspace_id);
+}
+
+function renderShell(workspaceId) {
+  document.getElementById('ia-root').innerHTML = `
+    <div class="panel">
+      <div class="panel-body">
+        <div class="quota-line" id="quota-line">Chargement du quota…</div>
+        <form id="search-form">
+          <div class="field-row">
+            <div class="field"><label for="ia-lieu">Lieu</label><input id="ia-lieu" required placeholder="Ex : Niort"></div>
+            <div class="field"><label for="ia-type">Type d'entreprise</label><input id="ia-type" required placeholder="Ex : boulangerie artisanale"></div>
+          </div>
+          <div class="field"><label for="ia-criteres">Autre critère (optionnel)</label><input id="ia-criteres" placeholder="Ex : moins de 10 salariés"></div>
+          <button class="btn btn-primary" type="submit" id="search-submit-btn">Lancer la recherche</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="panel" id="results-panel" style="display:none;">
+      <div class="panel-head"><h2>Résultats</h2><span id="results-count" style="font-size:13px; color:var(--text-soft);"></span></div>
+      <div id="results-container"></div>
+    </div>
+  `;
+
+  document.getElementById('search-form').addEventListener('submit', (e) => runSearch(e, workspaceId));
+}
+
+async function loadQuota(workspaceId) {
+  const el = document.getElementById('quota-line');
+  try {
+    const q = await fetchJSON(`/api/ia-search/quota?workspace_id=${workspaceId}`);
+    el.innerHTML = `<strong>${q.remaining}</strong> lancement${q.remaining > 1 ? 's' : ''} restant${q.remaining > 1 ? 's' : ''} aujourd'hui sur ${q.limit}.`;
+    if (q.remaining <= 0) document.getElementById('search-submit-btn').disabled = true;
+  } catch (e) {
+    el.textContent = '';
+  }
+}
+
+async function runSearch(e, workspaceId) {
+  e.preventDefault();
+  const btn = document.getElementById('search-submit-btn');
+  const resultsPanel = document.getElementById('results-panel');
+  const container = document.getElementById('results-container');
+  btn.disabled = true;
+  btn.textContent = 'Recherche en cours…';
+  resultsPanel.style.display = 'block';
+  container.innerHTML = `<div class="panel-body"><div class="skeleton" style="height:120px;"></div></div>`;
+
+  try {
+    const result = await fetchJSON('/api/ia-search', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workspace_id: workspaceId,
+        lieu: document.getElementById('ia-lieu').value.trim(),
+        type_entreprise: document.getElementById('ia-type').value.trim(),
+        criteres_additionnels: document.getElementById('ia-criteres').value.trim(),
+      }),
+    });
+    renderResults(result.prospects, workspaceId);
+    loadQuota(workspaceId);
+  } catch (err) {
+    container.innerHTML = `<div class="empty-state"><h3>La recherche a échoué</h3><p>${escapeHtml(err.message)}</p></div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Lancer la recherche';
+  }
+}
+
+function renderResults(list, workspaceId) {
+  document.getElementById('results-count').textContent = `${list.length} proposition${list.length > 1 ? 's' : ''} — à relire avant tout usage`;
+  const container = document.getElementById('results-container');
+  if (!list.length) {
+    container.innerHTML = `<div class="empty-state"><h3>Aucun résultat</h3><p>Essaie avec des critères un peu différents.</p></div>`;
+    return;
+  }
+  container.innerHTML = list.map((p, i) => `
+    <div class="result-card" data-index="${i}">
+      <div>
+        <div class="result-name">${escapeHtml(p.nom_entreprise || 'Entreprise sans nom')}</div>
+        <div class="result-meta">
+          ${[p.adresse, p.ville].filter(Boolean).map(escapeHtml).join(', ') || 'Adresse non précisée'}<br>
+          ${[p.telephone, p.site_web].filter(Boolean).map(escapeHtml).join(' · ')}
+          ${p.description ? `<br>${escapeHtml(p.description)}` : ''}
+        </div>
+      </div>
+      <button class="btn btn-ghost btn-sm add-result-btn" data-index="${i}">Ajouter comme prospect</button>
+    </div>
+  `).join('');
+
+  container.querySelectorAll('.add-result-btn').forEach(btn => {
+    btn.addEventListener('click', () => addResultAsProspect(list[parseInt(btn.dataset.index, 10)], btn, workspaceId));
+  });
+}
+
+async function addResultAsProspect(result, btn, workspaceId) {
+  btn.disabled = true;
+  btn.textContent = 'Ajout…';
+  try {
+    await fetchJSON('/api/prospects', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workspace_id: workspaceId,
+        nom_entreprise: result.nom_entreprise,
+        adresse: result.adresse,
+        ville: result.ville,
+        telephone: result.telephone,
+        site_web: result.site_web,
+      }),
+    });
+    btn.outerHTML = `<span class="result-added">✓ Ajouté</span>`;
+    showToast('Prospect ajouté.');
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = 'Ajouter comme prospect';
+    showToast(err.message, true);
+  }
+}
+{% endblock %}

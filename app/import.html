@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+{% set active_page = 'import' %}
+{% block title %}Import CSV{% endblock %}
+
+{% block extra_css %}
+  .dropzone { border: 2px dashed var(--border); border-radius: 16px; padding: 48px 24px; text-align: center; cursor: pointer; transition: border-color .15s, background .15s; }
+  .dropzone:hover, .dropzone.dragover { border-color: var(--terracotta); background: var(--cream); }
+  .dropzone svg { width: 34px; height: 34px; color: var(--text-soft); margin-bottom: 12px; }
+  .mapping-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: center; padding: 10px 0; border-top: 1px solid var(--border); }
+  .mapping-row:first-child { border-top: none; }
+  .mapping-col-name { font-size: 13.5px; font-weight: 600; }
+  .mapping-sample { font-size: 12px; color: var(--text-soft); margin-top: 2px; }
+  .progress-bar-track { background: var(--cream); border-radius: 999px; height: 10px; overflow: hidden; margin: 14px 0; }
+  .progress-bar-fill { background: var(--terracotta); height: 100%; border-radius: 999px; transition: width .3s; }
+  .error-severity-error { background: #F3E3E3; color: #9B4646; }
+  .error-severity-warning { background: #FDECE3; color: var(--terracotta-deep); }
+{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div>
+    <h1>Import CSV</h1>
+    <p>Importe une liste de contacts existante en quelques clics.</p>
+  </div>
+</div>
+
+<div id="import-root">
+  <div class="panel"><div class="panel-body"><div class="skeleton" style="height:120px;"></div></div></div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+let workspaceId = null;
+let currentJob = null;
+let pollTimer = null;
+
+const FIELD_LABELS = {
+  nom_entreprise: "Nom de l'entreprise", contact_prenom: 'Prénom du contact', contact_nom: 'Nom du contact',
+  siren: 'SIREN', siret: 'SIRET', naf_code: 'Code NAF', adresse: 'Adresse', code_postal: 'Code postal',
+  ville: 'Ville', telephone: 'Téléphone', email: 'E-mail', site_web: 'Site web',
+};
+const AUTO_MATCH = {
+  nom_entreprise: ['nom', 'entreprise', 'societe', 'société', 'company'],
+  contact_prenom: ['prenom', 'prénom', 'firstname'],
+  contact_nom: ['nomcontact', 'lastname'],
+  siren: ['siren'], siret: ['siret'], naf_code: ['naf', 'ape'],
+  adresse: ['adresse', 'address'], code_postal: ['codepostal', 'cp', 'zip'],
+  ville: ['ville', 'city'], telephone: ['telephone', 'tel', 'phone'],
+  email: ['email', 'mail'], site_web: ['site', 'web', 'url'],
+};
+
+function normalize(s) {
+  return (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+}
+
+function guessField(columnName) {
+  const norm = normalize(columnName);
+  for (const [field, keywords] of Object.entries(AUTO_MATCH)) {
+    if (keywords.some(k => norm.includes(k))) return field;
+  }
+  return '';
+}
+
+function onAuthReady(me) {
+  workspaceId = me.workspace_id;
+  if (me.role === 'lecture_seule') {
+    document.getElementById('import-root').innerHTML = `
+      <div class="panel"><div class="admin-lock">
+        <h3>Réservé aux rôles administrateur et commercial</h3>
+        <p>Ton rôle actuel ne permet pas d'importer de fichier.</p>
+      </div></div>`;
+    return;
+  }
+  renderUploadStep();
+}
+
+function renderUploadStep() {
+  document.getElementById('import-root').innerHTML = `
+    <div class="panel">
+      <div class="panel-body">
+        <div class="dropzone" id="dropzone">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin:0 auto;display:block;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <div style="font-weight:600;">Glisse ton fichier .csv ici</div>
+          <div style="font-size:13px; color:var(--text-soft); margin-top:4px;">ou clique pour choisir un fichier</div>
+        </div>
+        <input type="file" id="file-input" accept=".csv" style="display:none;">
+      </div>
+    </div>
+  `;
+
+  const dropzone = document.getElementById('dropzone');
+  const fileInput = document.getElementById('file-input');
+  dropzone.addEventListener('click', () => fileInput.click());
+  dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+  dropzone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropzone.classList.remove('dragover');
+    if (e.dataTransfer.files.length) uploadFile(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length) uploadFile(fileInput.files[0]);
+  });
+}
+
+async function uploadFile(file) {
+  if (!file.name.toLowerCase().endsWith('.csv')) {
+    showToast('Le fichier doit être un .csv', true);
+    return;
+  }
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('workspace_id', workspaceId);
+
+  document.getElementById('import-root').innerHTML = `<div class="panel"><div class="panel-body"><div class="skeleton" style="height:160px;"></div></div></div>`;
+
+  try {
+    const preview = await fetchJSON('/api/imports/preview', { method: 'POST', body: formData });
+    currentJob = preview;
+    renderMappingStep(preview);
+  } catch (err) {
+    showToast(err.message, true);
+    renderUploadStep();
+  }
+}
+
+function renderMappingStep(preview) {
+  const options = ['<option value="">— Ignorer cette colonne —</option>']
+    .concat(Object.entries(FIELD_LABELS).map(([v, l]) => `<option value="${v}">${l}</option>`))
+    .join('');
+
+  document.getElementById('import-root').innerHTML = `
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Associer les colonnes</h2>
+        <p style="margin:0;">${preview.total_rows} ligne${preview.total_rows > 1 ? 's' : ''} détectée${preview.total_rows > 1 ? 's' : ''} — vérifie les correspondances avant de lancer.</p>
+      </div>
+      <div class="panel-body">
+        <div id="mapping-rows"></div>
+        <div style="margin-top:20px; display:flex; gap:10px;">
+          <button class="btn btn-ghost btn-sm" id="cancel-import-btn">Annuler</button>
+          <button class="btn btn-primary btn-sm" id="start-import-btn">Lancer l'import</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('mapping-rows').innerHTML = preview.columns.map((col, i) => `
+    <div class="mapping-row">
+      <div>
+        <div class="mapping-col-name">${escapeHtml(col)}</div>
+        <div class="mapping-sample">Ex : ${escapeHtml((preview.sample_rows[0] && preview.sample_rows[0][i]) || '—')}</div>
+      </div>
+      <select class="mapping-select" data-column="${escapeHtml(col)}">${options}</select>
+    </div>
+  `).join('');
+
+  preview.columns.forEach(col => {
+    const select = document.querySelector(`.mapping-select[data-column="${CSS.escape(col)}"]`);
+    const guess = guessField(col);
+    if (guess) select.value = guess;
+  });
+
+  document.getElementById('cancel-import-btn').addEventListener('click', renderUploadStep);
+  document.getElementById('start-import-btn').addEventListener('click', startImport);
+}
+
+async function startImport() {
+  const mapping = {};
+  document.querySelectorAll('.mapping-select').forEach(sel => {
+    if (sel.value) mapping[sel.dataset.column] = sel.value;
+  });
+  if (!Object.values(mapping).includes('nom_entreprise')) {
+    showToast("Associe au moins une colonne au champ « Nom de l'entreprise ».", true);
+    return;
+  }
+
+  try {
+    await fetchJSON(`/api/imports/${currentJob.job_id}/start`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mapping }),
+    });
+    renderProgressStep();
+    pollStatus();
+  } catch (err) {
+    showToast(err.message, true);
+  }
+}
+
+function renderProgressStep() {
+  document.getElementById('import-root').innerHTML = `
+    <div class="panel">
+      <div class="panel-head"><h2>Import en cours</h2></div>
+      <div class="panel-body">
+        <div id="progress-text">Démarrage…</div>
+        <div class="progress-bar-track"><div class="progress-bar-fill" id="progress-fill" style="width:0%"></div></div>
+      </div>
+    </div>
+  `;
+}
+
+async function pollStatus() {
+  try {
+    const job = await fetchJSON(`/api/imports/${currentJob.job_id}/status`);
+    const pct = job.total_rows ? Math.round((job.processed_rows / job.total_rows) * 100) : 0;
+    const fill = document.getElementById('progress-fill');
+    const text = document.getElementById('progress-text');
+    if (fill) fill.style.width = pct + '%';
+    if (text) text.textContent = `${job.processed_rows} / ${job.total_rows} lignes traitées`;
+
+    if (job.status === 'done' || job.status === 'failed') {
+      renderResultStep(job);
+      return;
+    }
+    pollTimer = setTimeout(pollStatus, 800);
+  } catch (err) {
+    showToast(err.message, true);
+  }
+}
+
+async function renderResultStep(job) {
+  document.getElementById('import-root').innerHTML = `
+    <div class="panel">
+      <div class="panel-head"><h2>Import terminé</h2></div>
+      <div class="panel-body">
+        <p><strong>${job.imported_count}</strong> prospect${job.imported_count > 1 ? 's' : ''} importé${job.imported_count > 1 ? 's' : ''} sur ${job.total_rows}.
+        ${job.error_count ? `${job.error_count} ligne${job.error_count > 1 ? 's' : ''} avec un avertissement ou une erreur.` : 'Aucune erreur.'}</p>
+        <div style="display:flex; gap:10px; margin-top:16px;">
+          <a href="/prospects" class="btn btn-primary btn-sm">Voir les prospects</a>
+          ${job.error_count ? '<button class="btn btn-ghost btn-sm" id="view-errors-btn">Voir le détail</button>' : ''}
+          <button class="btn btn-ghost btn-sm" id="new-import-btn">Nouvel import</button>
+        </div>
+        <div id="errors-container" style="margin-top:20px;"></div>
+      </div>
+    </div>
+  `;
+  document.getElementById('new-import-btn').addEventListener('click', renderUploadStep);
+  const viewErrorsBtn = document.getElementById('view-errors-btn');
+  if (viewErrorsBtn) viewErrorsBtn.addEventListener('click', () => loadErrors(job.id));
+}
+
+async function loadErrors(jobId) {
+  const container = document.getElementById('errors-container');
+  container.innerHTML = `<div class="skeleton" style="height:100px;"></div>`;
+  try {
+    const data = await fetchJSON(`/api/imports/${jobId}/errors`);
+    if (!data.errors.length) {
+      container.innerHTML = `<p style="color:var(--text-soft); font-size:14px;">Aucun détail à afficher.</p>`;
+      return;
+    }
+    container.innerHTML = `
+      <table>
+        <thead><tr><th>Ligne</th><th>Type</th><th>Message</th></tr></thead>
+        <tbody>
+          ${data.errors.map(e => `
+            <tr>
+              <td>${e.row_number}</td>
+              <td><span class="badge error-severity-${e.severity}">${e.severity === 'error' ? 'Rejetée' : 'Avertissement'}</span></td>
+              <td>${escapeHtml(e.message)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  } catch (err) {
+    container.innerHTML = `<p style="color:var(--text-soft); font-size:14px;">Impossible de charger le détail.</p>`;
+  }
+}
+{% endblock %}
