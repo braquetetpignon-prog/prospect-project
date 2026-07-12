@@ -1,6 +1,6 @@
 import os
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, render_template as flask_render_template
 
 from app.db import get_db
 from app import csv_import
@@ -34,6 +34,16 @@ def init_db():
 
 @app.route("/")
 def index():
+    return flask_render_template("landing.html")
+
+
+@app.route("/dashboard")
+def dashboard():
+    return flask_render_template("dashboard.html")
+
+
+@app.route("/api/status")
+def api_status():
     return jsonify(status="ok", env=os.environ.get("ENV", "dev"))
 
 
@@ -324,6 +334,125 @@ def campaign_sends_list(campaign_id):
 def admin_process_due_sends():
     processed = sending.process_due_sends()
     return jsonify(status="ok", processed=processed)
+
+
+# --- Données pour le dashboard ---------------------------------------------
+
+@app.route("/api/workspaces", methods=["GET", "POST"])
+def workspaces_list():
+    if request.method == "POST":
+        body = request.get_json(silent=True) or {}
+        name = (body.get("name") or "").strip()
+        if not name:
+            return jsonify(error="name requis"), 400
+        conn = get_db()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("INSERT INTO workspaces (name) VALUES (%s) RETURNING id", (name,))
+                workspace_id = cur.fetchone()[0]
+            conn.commit()
+        finally:
+            conn.close()
+        return jsonify(id=workspace_id, name=name), 201
+
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, name FROM workspaces ORDER BY name")
+            rows = cur.fetchall()
+        return jsonify(workspaces=[{"id": r[0], "name": r[1]} for r in rows])
+    finally:
+        conn.close()
+
+
+@app.route("/api/prospects")
+def prospects_list():
+    workspace_id = request.args.get("workspace_id", type=int)
+    if not workspace_id:
+        return jsonify(error="workspace_id requis"), 400
+    statut = request.args.get("statut")
+
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            if statut:
+                cur.execute(
+                    """
+                    SELECT id, nom_entreprise, ville, email, telephone, statut, source, created_at
+                    FROM prospects WHERE workspace_id = %s AND statut = %s
+                    ORDER BY created_at DESC LIMIT 200
+                    """,
+                    (workspace_id, statut),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT id, nom_entreprise, ville, email, telephone, statut, source, created_at
+                    FROM prospects WHERE workspace_id = %s
+                    ORDER BY created_at DESC LIMIT 200
+                    """,
+                    (workspace_id,),
+                )
+            rows = cur.fetchall()
+        cols = ["id", "nom_entreprise", "ville", "email", "telephone", "statut", "source", "created_at"]
+        return jsonify(prospects=[dict(zip(cols, r)) for r in rows])
+    finally:
+        conn.close()
+
+
+@app.route("/api/workspaces/<int:workspace_id>/dashboard-stats")
+def dashboard_stats(workspace_id):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT count(*) FROM prospects WHERE workspace_id = %s", (workspace_id,))
+            total_prospects = cur.fetchone()[0]
+
+            cur.execute(
+                "SELECT statut, count(*) FROM prospects WHERE workspace_id = %s GROUP BY statut",
+                (workspace_id,),
+            )
+            by_statut = {row[0]: row[1] for row in cur.fetchall()}
+
+            cur.execute(
+                "SELECT count(*) FROM campaigns WHERE workspace_id = %s AND statut = 'active'",
+                (workspace_id,),
+            )
+            active_campaigns = cur.fetchone()[0]
+
+            cur.execute(
+                """
+                SELECT count(*) FROM campaign_sends cs
+                JOIN campaigns c ON c.id = cs.campaign_id
+                WHERE c.workspace_id = %s AND cs.statut = 'envoye' AND cs.envoye_at > now() - interval '7 days'
+                """,
+                (workspace_id,),
+            )
+            emails_sent_7d = cur.fetchone()[0]
+
+            cur.execute(
+                """
+                SELECT cs.id, p.nom_entreprise, c.nom AS campaign_nom, cs.statut, cs.envoye_at, cs.created_at
+                FROM campaign_sends cs
+                JOIN campaigns c ON c.id = cs.campaign_id
+                JOIN prospects p ON p.id = cs.prospect_id
+                WHERE c.workspace_id = %s
+                ORDER BY cs.created_at DESC LIMIT 10
+                """,
+                (workspace_id,),
+            )
+            activity_cols = ["id", "prospect_nom", "campagne_nom", "statut", "envoye_at", "created_at"]
+            activity = [dict(zip(activity_cols, r)) for r in cur.fetchall()]
+
+        return jsonify(
+            total_prospects=total_prospects,
+            prospects_by_statut=by_statut,
+            active_campaigns=active_campaigns,
+            emails_sent_7d=emails_sent_7d,
+            recent_activity=activity,
+        )
+    finally:
+        conn.close()
 
 
 init_db()
