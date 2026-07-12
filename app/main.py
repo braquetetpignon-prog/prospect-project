@@ -14,7 +14,7 @@ from app import scheduler
 
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "schema.sql")
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder=os.path.dirname(os.path.abspath(__file__)))
 
 MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 Mo
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
