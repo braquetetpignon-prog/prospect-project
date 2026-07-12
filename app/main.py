@@ -61,6 +61,11 @@ def dashboard():
     return flask_render_template("dashboard.html")
 
 
+@app.route("/parametres")
+def parametres_page():
+    return flask_render_template("settings.html")
+
+
 @app.route("/api/status")
 def api_status():
     return jsonify(status="ok", env=os.environ.get("ENV", "dev"))

@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}Tableau de bord{% endblock %} — ClickProspect</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,500;0,600;0,700;1,500&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --cream: #FAF6F0;
+    --cream-warm: #F1E9DC;
+    --terracotta: #C1653D;
+    --terracotta-deep: #A2502E;
+    --sauge: #7A9471;
+    --sauge-light: #E7EDE3;
+    --text: #35302A;
+    --text-soft: #6E6459;
+    --white: #FFFFFF;
+    --border: rgba(53, 48, 42, 0.09);
+    --shadow-soft: 0 6px 18px rgba(53, 40, 24, 0.06);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--cream);
+    color: var(--text);
+    font-family: 'Figtree', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, .display { font-family: 'Fraunces', serif; font-weight: 600; margin: 0; color: var(--text); }
+  a { color: inherit; text-decoration: none; }
+
+  .shell { display: grid; grid-template-columns: 264px 1fr; min-height: 100vh; }
+
+  /* --- Sidebar --- */
+  .sidebar { background: var(--white); border-right: 1px solid var(--border); padding: 26px 20px; display: flex; flex-direction: column; gap: 28px; }
+  .logo { font-family: 'Fraunces', serif; font-weight: 700; font-size: 20px; display: flex; align-items: center; gap: 8px; padding: 0 6px; }
+  .logo-mark { width: 26px; height: 26px; border-radius: 8px; background: linear-gradient(135deg, var(--terracotta), var(--sauge)); }
+
+  .workspace-picker { background: var(--cream); border-radius: 14px; padding: 10px 12px; }
+  .workspace-picker label { display: block; font-size: 11.5px; font-weight: 600; color: var(--text-soft); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+
+  nav.side-nav { display: flex; flex-direction: column; gap: 3px; }
+  .side-link { display: flex; align-items: center; gap: 11px; padding: 10px 12px; border-radius: 12px; font-size: 14.5px; font-weight: 500; color: var(--text-soft); }
+  .side-link svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .side-link.active { background: var(--sauge-light); color: #3E5537; font-weight: 600; }
+  .side-link:not(.active):hover { background: var(--cream); color: var(--text); }
+  .soon-tag { margin-left: auto; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-soft); background: var(--cream-warm); padding: 2px 7px; border-radius: 999px; }
+
+  /* --- Main --- */
+  .main { padding: 32px 40px 60px; }
+  .topbar { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 32px; flex-wrap: wrap; gap: 16px; }
+  .topbar h1 { font-size: 27px; letter-spacing: -0.01em; }
+  .topbar p { color: var(--text-soft); margin-top: 6px; font-size: 14.5px; }
+
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 11px 20px; border-radius: 999px; font-weight: 600; font-size: 14px; border: none; cursor: pointer; font-family: 'Figtree', sans-serif; }
+  .btn-primary { background: var(--terracotta); color: var(--white); }
+  .btn-primary:hover { background: var(--terracotta-deep); }
+  .btn-primary:disabled { opacity: .6; cursor: default; }
+  .btn-ghost { background: var(--white); color: var(--text); border: 1.5px solid var(--border); }
+  .btn-ghost:hover { border-color: var(--text); }
+  .btn-sm { padding: 8px 16px; font-size: 13px; }
+  .btn-danger { background: #F8E6E0; color: #A2502E; }
+  .btn-danger:hover { background: #F3D9CF; }
+
+  input, select, textarea {
+    font-family: 'Figtree', sans-serif; font-size: 14.5px; color: var(--text);
+    border: 1.5px solid var(--border); border-radius: 12px; padding: 11px 14px; background: var(--white); width: 100%;
+  }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--terracotta); }
+  label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+
+  .panel { background: var(--white); border-radius: 20px; box-shadow: var(--shadow-soft); overflow: hidden; margin-bottom: 20px; }
+  .panel-head { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .panel-head h2 { font-size: 17px; }
+  .panel-head p { font-size: 13px; color: var(--text-soft); margin: 4px 0 0; }
+  .panel-body { padding: 24px; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-soft); font-weight: 600; padding: 12px 24px; background: var(--cream); }
+  td { padding: 14px 24px; border-top: 1px solid var(--border); font-size: 14.5px; }
+
+  .badge { font-size: 11.5px; font-weight: 700; padding: 4px 10px; border-radius: 999px; white-space: nowrap; }
+  .badge-nouveau { background: #EAF0FF; color: #3454A8; }
+  .badge-qualifie { background: var(--sauge-light); color: #4F6647; }
+  .badge-client { background: #FDECE3; color: var(--terracotta-deep); }
+  .badge-recale { background: #F3E3E3; color: #9B4646; }
+  .badge-admin { background: #FDECE3; color: var(--terracotta-deep); }
+  .badge-commercial { background: var(--sauge-light); color: #4F6647; }
+  .badge-lecture_seule { background: var(--cream-warm); color: var(--text-soft); }
+  .badge-active { background: var(--sauge-light); color: #4F6647; }
+  .badge-inactive { background: #F3E3E3; color: #9B4646; }
+
+  .empty-state { padding: 48px 24px; text-align: center; }
+  .empty-state h3 { font-size: 16px; margin-bottom: 8px; }
+  .empty-state p { color: var(--text-soft); font-size: 14px; margin: 0 0 18px; }
+
+  .skeleton { background: linear-gradient(90deg, var(--cream) 25%, var(--cream-warm) 37%, var(--cream) 63%); background-size: 400% 100%; animation: shimmer 1.4s ease infinite; border-radius: 10px; }
+  @keyframes shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+
+  .toast { position: fixed; bottom: 24px; right: 24px; background: var(--text); color: var(--white); padding: 13px 20px; border-radius: 12px; font-size: 14px; font-weight: 500; box-shadow: var(--shadow-soft); opacity: 0; transform: translateY(8px); transition: all .2s; pointer-events: none; z-index: 100; }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.error { background: #A2502E; }
+
+  .modal-overlay { position: fixed; inset: 0; background: rgba(53,48,42,0.35); display: none; align-items: center; justify-content: center; z-index: 90; padding: 24px; }
+  .modal-overlay.show { display: flex; }
+  .modal { background: var(--white); border-radius: 20px; padding: 28px; width: 100%; max-width: 420px; box-shadow: var(--shadow-soft); }
+  .modal h3 { font-size: 18px; margin-bottom: 18px; }
+  .modal .field { margin-bottom: 14px; }
+  .modal-actions { display: flex; gap: 10px; margin-top: 22px; justify-content: flex-end; }
+
+  .admin-lock { text-align: center; padding: 60px 24px; color: var(--text-soft); }
+
+  @media (max-width: 980px) {
+    .shell { grid-template-columns: 1fr; }
+    .sidebar { position: sticky; top: 0; flex-direction: row; align-items: center; overflow-x: auto; z-index: 20; }
+    .side-nav { flex-direction: row; }
+  }
+
+  {% block extra_css %}{% endblock %}
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <aside class="sidebar">
+    <a href="/" class="logo"><span class="logo-mark"></span>ClickProspect</a>
+
+    <div class="workspace-picker">
+      <label>Espace de travail</label>
+      <div id="workspace-name-display" style="font-weight:600; font-size:14.5px;">Chargement…</div>
+      <div id="user-role-display" style="font-size:12px; color:var(--text-soft); margin-top:2px;"></div>
+    </div>
+
+    <nav class="side-nav">
+      <a href="/dashboard" class="side-link {% if active_page == 'dashboard' %}active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+        Tableau de bord
+      </a>
+      <a href="/prospects" class="side-link {% if active_page == 'prospects' %}active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Prospects
+      </a>
+      <a href="/campagnes" class="side-link {% if active_page == 'campagnes' %}active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>
+        Campagnes
+      </a>
+      <a href="/recherche-ia" class="side-link {% if active_page == 'recherche-ia' %}active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        Recherche IA
+      </a>
+      <a href="/import" class="side-link {% if active_page == 'import' %}active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Import CSV
+      </a>
+      <a href="/parametres" class="side-link {% if active_page == 'parametres' %}active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Paramètres
+      </a>
+    </nav>
+
+    <button id="logout-btn" type="button" class="side-link" style="border:none; background:none; width:100%; text-align:left; cursor:pointer; margin-top:auto; font-family:'Figtree',sans-serif;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      Déconnexion
+    </button>
+  </aside>
+
+  <main class="main">
+    {% block content %}{% endblock %}
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const roleLabels = { admin: 'Administrateur', commercial: 'Commercial', lecture_seule: 'Lecture seule' };
+
+async function fetchJSON(url, options) {
+  const res = await fetch(url, options);
+  if (res.status === 401) {
+    window.location.href = '/login';
+    throw new Error('Non authentifié');
+  }
+  let data = null;
+  try { data = await res.json(); } catch (e) {}
+  if (!res.ok) throw new Error((data && data.error) || `Erreur ${res.status}`);
+  return data;
+}
+
+function showToast(message, isError) {
+  const t = document.getElementById('toast');
+  t.textContent = message;
+  t.className = 'toast show' + (isError ? ' error' : '');
+  setTimeout(() => { t.className = 'toast'; }, 3200);
+}
+
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+document.getElementById('logout-btn').addEventListener('click', async () => {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  window.location.href = '/login';
+});
+
+let currentUser = null;
+
+async function initAuth() {
+  let me;
+  try {
+    me = await fetchJSON('/api/auth/me');
+  } catch (e) {
+    return null;
+  }
+  currentUser = me;
+  document.getElementById('workspace-name-display').textContent = me.workspace_name;
+  document.getElementById('user-role-display').textContent = `${me.email} · ${roleLabels[me.role] || me.role}`;
+  if (typeof onAuthReady === 'function') onAuthReady(me);
+  return me;
+}
+
+initAuth();
+
+{% block extra_js %}{% endblock %}
+</script>
+
+</body>
+</html>

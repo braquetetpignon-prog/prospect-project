@@ -1,0 +1,263 @@
+{% extends "base.html" %}
+{% set active_page = 'parametres' %}
+{% block title %}Paramètres{% endblock %}
+
+{% block extra_css %}
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .field-row .field { margin-bottom: 14px; }
+  .members-table td { vertical-align: middle; }
+  .member-email { font-weight: 600; }
+  .role-select { width: auto; padding: 6px 10px; font-size: 13px; }
+  @media (max-width: 700px) { .field-row { grid-template-columns: 1fr; } }
+{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div>
+    <h1>Paramètres</h1>
+    <p>Fiche Google, envoi d'e-mails et membres de l'équipe.</p>
+  </div>
+</div>
+
+<div id="settings-root">
+  <div class="panel"><div class="panel-body"><div class="skeleton" style="height:120px;"></div></div></div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+const ROLE_OPTIONS = [
+  { value: 'admin', label: 'Administrateur' },
+  { value: 'commercial', label: 'Commercial' },
+  { value: 'lecture_seule', label: 'Lecture seule' },
+];
+
+function onAuthReady(me) {
+  if (me.role !== 'admin') {
+    document.getElementById('settings-root').innerHTML = `
+      <div class="panel">
+        <div class="admin-lock">
+          <h3>Réservé aux administrateurs</h3>
+          <p>Seul un administrateur de l'espace de travail peut modifier ces paramètres.<br>Ton rôle actuel : ${roleLabels[me.role] || me.role}.</p>
+        </div>
+      </div>`;
+    return;
+  }
+  renderSettingsShell(me.workspace_id);
+  loadGoogleProfile(me.workspace_id);
+  loadSmtpConfig(me.workspace_id);
+  loadMembers(me.workspace_id);
+}
+
+function renderSettingsShell(workspaceId) {
+  document.getElementById('settings-root').innerHTML = `
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Fiche Google Business Profile</h2>
+        <p>Le lien inséré dans les e-mails de demande d'avis.</p>
+      </div>
+      <div class="panel-body">
+        <form id="gbp-form">
+          <div class="field">
+            <label for="gbp-url">URL de la fiche</label>
+            <input id="gbp-url" type="url" placeholder="https://g.page/votre-entreprise">
+          </div>
+          <button class="btn btn-primary btn-sm" type="submit">Enregistrer</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Configuration SMTP</h2>
+        <p>Le compte d'envoi utilisé pour vos campagnes e-mail.</p>
+      </div>
+      <div class="panel-body">
+        <div id="smtp-status" style="font-size:13.5px; color:var(--text-soft); margin-bottom:16px;"></div>
+        <form id="smtp-form">
+          <div class="field-row">
+            <div class="field"><label for="smtp-host">Serveur (host)</label><input id="smtp-host" placeholder="smtp.exemple.fr" required></div>
+            <div class="field"><label for="smtp-port">Port</label><input id="smtp-port" type="number" placeholder="587" required></div>
+          </div>
+          <div class="field"><label for="smtp-username">Identifiant</label><input id="smtp-username" required></div>
+          <div class="field"><label for="smtp-password">Mot de passe</label><input id="smtp-password" type="password" placeholder="••••••••" required></div>
+          <div class="field"><label for="smtp-from">Adresse d'expédition</label><input id="smtp-from" type="email" placeholder="contact@votre-entreprise.fr" required></div>
+          <button class="btn btn-primary btn-sm" type="submit">Enregistrer</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Membres de l'équipe</h2>
+        <button class="btn btn-ghost btn-sm" id="add-member-btn" type="button">+ Ajouter un membre</button>
+      </div>
+      <div id="members-container"></div>
+    </div>
+
+    <div class="modal-overlay" id="member-modal-overlay">
+      <div class="modal">
+        <h3>Ajouter un membre</h3>
+        <form id="member-form">
+          <div class="field"><label for="member-email">E-mail</label><input id="member-email" type="email" required></div>
+          <div class="field"><label for="member-password">Mot de passe provisoire</label><input id="member-password" type="password" minlength="8" required></div>
+          <div class="field">
+            <label for="member-role">Rôle</label>
+            <select id="member-role">
+              ${ROLE_OPTIONS.map(r => `<option value="${r.value}">${r.label}</option>`).join('')}
+            </select>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn btn-ghost btn-sm" id="member-cancel-btn">Annuler</button>
+            <button type="submit" class="btn btn-primary btn-sm">Créer le compte</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('gbp-form').addEventListener('submit', (e) => saveGbp(e, workspaceId));
+  document.getElementById('smtp-form').addEventListener('submit', (e) => saveSmtp(e, workspaceId));
+  document.getElementById('add-member-btn').addEventListener('click', () => {
+    document.getElementById('member-modal-overlay').classList.add('show');
+  });
+  document.getElementById('member-cancel-btn').addEventListener('click', () => {
+    document.getElementById('member-modal-overlay').classList.remove('show');
+  });
+  document.getElementById('member-form').addEventListener('submit', (e) => createMember(e, workspaceId));
+}
+
+async function loadGoogleProfile(workspaceId) {
+  try {
+    const data = await fetchJSON(`/api/workspaces/${workspaceId}/google-business-profile`);
+    if (data.profile_url) document.getElementById('gbp-url').value = data.profile_url;
+  } catch (e) { /* pas encore configuré */ }
+}
+
+async function saveGbp(e, workspaceId) {
+  e.preventDefault();
+  const url = document.getElementById('gbp-url').value.trim();
+  if (!url) return;
+  try {
+    await fetchJSON(`/api/workspaces/${workspaceId}/google-business-profile`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile_url: url }),
+    });
+    showToast('Fiche Google enregistrée.');
+  } catch (err) {
+    showToast(err.message, true);
+  }
+}
+
+async function loadSmtpConfig(workspaceId) {
+  const statusEl = document.getElementById('smtp-status');
+  try {
+    const data = await fetchJSON(`/api/workspaces/${workspaceId}/smtp-config`);
+    if (data.configured) {
+      statusEl.innerHTML = `<span class="badge badge-active">Configuré</span> ${escapeHtml(data.host)}:${data.port} — expéditeur ${escapeHtml(data.from_email)}`;
+      document.getElementById('smtp-host').value = data.host;
+      document.getElementById('smtp-port').value = data.port;
+      document.getElementById('smtp-username').value = data.username;
+      document.getElementById('smtp-from').value = data.from_email;
+      document.getElementById('smtp-password').placeholder = 'Laisser le mot de passe actuel : le ressaisir pour le changer';
+    } else {
+      statusEl.innerHTML = `<span class="badge badge-inactive">Non configuré</span>`;
+    }
+  } catch (e) {
+    statusEl.textContent = '';
+  }
+}
+
+async function saveSmtp(e, workspaceId) {
+  e.preventDefault();
+  try {
+    await fetchJSON(`/api/workspaces/${workspaceId}/smtp-config`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        host: document.getElementById('smtp-host').value.trim(),
+        port: parseInt(document.getElementById('smtp-port').value, 10),
+        username: document.getElementById('smtp-username').value.trim(),
+        password: document.getElementById('smtp-password').value,
+        from_email: document.getElementById('smtp-from').value.trim(),
+      }),
+    });
+    showToast('Configuration SMTP enregistrée.');
+    loadSmtpConfig(workspaceId);
+  } catch (err) {
+    showToast(err.message, true);
+  }
+}
+
+async function loadMembers(workspaceId) {
+  const container = document.getElementById('members-container');
+  try {
+    const data = await fetchJSON(`/api/workspaces/${workspaceId}/users`);
+    renderMembers(data.users, workspaceId);
+  } catch (e) {
+    container.innerHTML = `<div class="empty-state"><p>Impossible de charger les membres.</p></div>`;
+  }
+}
+
+function renderMembers(users, workspaceId) {
+  const container = document.getElementById('members-container');
+  container.innerHTML = `
+    <table class="members-table">
+      <thead><tr><th>E-mail</th><th>Rôle</th><th>Statut</th><th></th></tr></thead>
+      <tbody>
+        ${users.map(u => `
+          <tr data-user-id="${u.id}">
+            <td class="member-email">${escapeHtml(u.email)}</td>
+            <td><span class="badge badge-${u.role}">${roleLabels[u.role] || u.role}</span></td>
+            <td><span class="badge badge-${u.is_active ? 'active' : 'inactive'}">${u.is_active ? 'Actif' : 'Désactivé'}</span></td>
+            <td style="text-align:right;">
+              <button class="btn btn-ghost btn-sm toggle-active-btn" data-user-id="${u.id}" data-active="${u.is_active}">
+                ${u.is_active ? 'Désactiver' : 'Réactiver'}
+              </button>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+
+  container.querySelectorAll('.toggle-active-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const userId = btn.dataset.userId;
+      const currentlyActive = btn.dataset.active === 'true';
+      try {
+        await fetchJSON(`/api/workspaces/${workspaceId}/users/${userId}`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ is_active: !currentlyActive }),
+        });
+        showToast(currentlyActive ? 'Membre désactivé.' : 'Membre réactivé.');
+        loadMembers(workspaceId);
+      } catch (err) {
+        showToast(err.message, true);
+      }
+    });
+  });
+}
+
+async function createMember(e, workspaceId) {
+  e.preventDefault();
+  const btn = e.target.querySelector('button[type="submit"]');
+  btn.disabled = true;
+  try {
+    await fetchJSON(`/api/workspaces/${workspaceId}/users`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: document.getElementById('member-email').value.trim(),
+        password: document.getElementById('member-password').value,
+        role: document.getElementById('member-role').value,
+      }),
+    });
+    document.getElementById('member-modal-overlay').classList.remove('show');
+    document.getElementById('member-form').reset();
+    showToast('Membre créé.');
+    loadMembers(workspaceId);
+  } catch (err) {
+    showToast(err.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+{% endblock %}
