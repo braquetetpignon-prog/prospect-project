@@ -15,6 +15,7 @@ import os
 import requests
 
 from app.db import get_db
+from app import official_search
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 DEFAULT_GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite")
@@ -185,6 +186,39 @@ def call_gemini(prompt):
     return parsed.get("prospects", [])
 
 
+def _enrich_with_official_registry(prospects):
+    """Pour chaque proposition de Gemini, tente de retrouver la fiche
+    officielle correspondante (SIRET, SIREN, code NAF, adresse) via le
+    registre Recherche d'Entreprises (data.gouv.fr), déjà utilisé ailleurs
+    dans l'app (onglet Recherche automatique, vérification SIRET manuelle).
+
+    Purement additif et jamais bloquant : si aucune correspondance fiable
+    n'est trouvée ou si le registre est indisponible, la proposition de
+    Gemini reste inchangée — on ne comble jamais un champ par une donnée
+    inventée ou incertaine.
+    """
+    enriched = []
+    for prospect in prospects:
+        match = official_search.enrich_by_name(prospect.get("nom_entreprise"), prospect.get("ville"))
+        if match:
+            prospect["siret"] = match.get("siret")
+            prospect["siren"] = match.get("siren")
+            prospect["naf_code"] = match.get("naf_code")
+            # L'adresse/ville officielle remplace celle de Gemini quand elle est
+            # connue : plus fiable qu'une estimation du modèle.
+            if match.get("adresse"):
+                prospect["adresse"] = match["adresse"]
+            if match.get("code_postal"):
+                prospect["code_postal"] = match["code_postal"]
+            if match.get("ville"):
+                prospect["ville"] = match["ville"]
+            prospect["verifie_registre_officiel"] = True
+        else:
+            prospect["verifie_registre_officiel"] = False
+        enriched.append(prospect)
+    return enriched
+
+
 def perform_search(workspace_id, lieu, type_entreprise, criteres_additionnels=None):
     quota = get_quota_status(workspace_id)
     if quota["remaining"] <= 0:
@@ -194,6 +228,7 @@ def perform_search(workspace_id, lieu, type_entreprise, criteres_additionnels=No
 
     prompt = build_prompt(lieu, type_entreprise, criteres_additionnels)
     prospects = call_gemini(prompt)
+    prospects = _enrich_with_official_registry(prospects)
 
     # Le lancement compte dans le quota même si l'utilisateur ne retient aucun résultat ensuite.
     _log_search(workspace_id)

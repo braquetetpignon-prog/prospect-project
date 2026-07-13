@@ -84,6 +84,67 @@ def _to_prospect_fields(result):
     }
 
 
+def _normalize_for_match(text):
+    """Réduit une chaîne à ses lettres/chiffres en minuscule pour comparer
+    deux noms d'entreprise ou deux communes sans se faire piéger par la
+    casse, les accents-espaces ou la ponctuation (SARL, tirets, points...)."""
+    return re.sub(r"[^a-z0-9]", "", (text or "").lower())
+
+
+def enrich_by_name(nom_entreprise, ville=None):
+    """Tente de retrouver, dans le registre officiel, la fiche correspondant
+    à une entreprise proposée par ailleurs (ex: par l'IA) en cherchant par
+    nom (et ville si connue). Sert à compléter SIRET/adresse sans jamais les
+    inventer : si aucune correspondance suffisamment fiable n'est trouvée
+    (nom proche + ville cohérente le cas échéant), retourne None. Ne lève
+    jamais d'exception : une indisponibilité de l'API ne doit pas faire
+    échouer la recherche IA elle-même, juste laisser ce champ vide.
+    """
+    nom_entreprise = (nom_entreprise or "").strip()
+    if not nom_entreprise:
+        return None
+
+    params = {"q": nom_entreprise, "etat_administratif": "A", "per_page": 5, "page": 1}
+    try:
+        resp = requests.get(SEARCH_URL, params=params, timeout=REQUEST_TIMEOUT)
+        if resp.status_code >= 400:
+            return None
+        data = resp.json()
+    except Exception:
+        return None
+
+    results = data.get("results") or []
+    if not results:
+        return None
+
+    target_name = _normalize_for_match(nom_entreprise)
+    target_ville = _normalize_for_match(ville) if ville else None
+    if not target_name:
+        return None
+
+    for result in results:
+        candidate_name = _normalize_for_match(result.get("nom_complet") or result.get("nom_raison_sociale"))
+        if not candidate_name:
+            continue
+        # Correspondance de nom seulement si l'un contient l'autre (évite les
+        # faux positifs du type "Martin" qui matcherait n'importe quel "Martin ...").
+        if target_name not in candidate_name and candidate_name not in target_name:
+            continue
+
+        siege = result.get("siege") or {}
+        if target_ville:
+            candidate_ville = _normalize_for_match(siege.get("libelle_commune"))
+            # Ville connue des deux côtés mais différente : trop risqué de
+            # retenir automatiquement (homonymes dans des villes différentes).
+            if candidate_ville and candidate_ville != target_ville:
+                continue
+
+        fields = _to_prospect_fields(result)
+        return fields
+
+    return None
+
+
 def search_by_legal_forms(zone, secteur, forms_with_quantities):
     """forms_with_quantities : dict {"sarl_eurl": 20, "sas_sasu": 20, ...}
     Retourne {"results": [...], "counts": {"sarl_eurl": 14, ...}} — le compte
