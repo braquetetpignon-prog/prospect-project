@@ -445,6 +445,12 @@ def text_parse():
     text = body.get("text") or ""
     results = text_parser.parse_pasted_text(text)
     if not results:
+        if text_parser.looks_like_unfilled_prompt(text):
+            return jsonify(error=(
+                "Ce texte contient encore des champs entre crochets (ex: [Nom de l'entreprise]) — "
+                "on dirait que c'est le PROMPT qui a été collé, pas la réponse de l'IA. Colle d'abord "
+                "ce texte sur Gemini/ChatGPT, récupère sa réponse, puis colle CETTE réponse ici."
+            )), 400
         return jsonify(error="Aucune entreprise reconnue dans ce texte. Vérifie le format (liste à puces)."), 400
     return jsonify(prospects=results)
 
