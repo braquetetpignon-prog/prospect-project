@@ -232,3 +232,36 @@ def verify_siret(siret):
                 }
 
     return {"found": False}
+
+
+def delete_prospect(prospect_id, workspace_id):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM prospects WHERE id = %s AND workspace_id = %s RETURNING id",
+                (prospect_id, workspace_id),
+            )
+            deleted = cur.fetchone()
+        conn.commit()
+        if not deleted:
+            raise ProspectError("Prospect introuvable dans cet espace de travail.")
+    finally:
+        conn.close()
+
+
+def delete_prospects_bulk(prospect_ids, workspace_id):
+    if not prospect_ids:
+        raise ProspectError("Aucun prospect sélectionné.")
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM prospects WHERE workspace_id = %s AND id = ANY(%s) RETURNING id",
+                (workspace_id, prospect_ids),
+            )
+            deleted_ids = [r[0] for r in cur.fetchall()]
+        conn.commit()
+        return deleted_ids
+    finally:
+        conn.close()

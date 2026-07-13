@@ -21,6 +21,9 @@
   .rdv-inline { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 16px; display: none; }
   .rdv-inline.show { display: block; }
   .readonly-field { background: var(--cream); color: var(--text-soft); }
+  .bulk-bar { display: none; align-items: center; gap: 12px; padding: 10px 24px; background: var(--cream); border-bottom: 1px solid var(--border); font-size: 13.5px; }
+  .bulk-bar.show { display: flex; }
+  .checkbox-cell { width: 32px; }
   @media (max-width: 700px) { .field-row { grid-template-columns: 1fr; } .toolbar input[type="text"] { max-width: none; } }
 {% endblock %}
 
@@ -45,6 +48,10 @@
   <div class="panel-head">
     <h2>Liste</h2>
     <span id="prospect-count" style="font-size:13px; color:var(--text-soft);"></span>
+  </div>
+  <div class="bulk-bar" id="bulk-bar">
+    <span id="bulk-count"></span>
+    <button class="btn btn-ghost btn-sm" id="bulk-delete-btn">Supprimer la sélection</button>
   </div>
   <div id="prospects-container">
     <div class="panel-body"><div class="skeleton" style="height:200px;"></div></div>
@@ -145,6 +152,22 @@ function onAuthReady(me) {
     document.getElementById('rdv-inline').classList.toggle('show');
   });
   document.getElementById('create-rdv-btn').addEventListener('click', createInlineRdv);
+  document.getElementById('bulk-delete-btn').addEventListener('click', bulkDelete);
+}
+
+async function bulkDelete() {
+  const ids = getSelectedIds();
+  if (!ids.length) return;
+  if (!confirm(`Supprimer ${ids.length} prospect${ids.length > 1 ? 's' : ''} ? Cette action est irréversible.`)) return;
+  try {
+    const result = await fetchJSON('/api/prospects/bulk-delete', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
+    });
+    showToast(`${result.count} prospect(s) supprimé(s).`);
+    loadProspects();
+  } catch (err) {
+    showToast(err.message, true);
+  }
 }
 
 function updateExportLink() {
@@ -188,14 +211,17 @@ function renderProspects(list) {
         <h3>Aucun prospect</h3>
         <p>Ajoute une fiche manuellement, importe un fichier, ou lance une recherche IA.</p>
       </div>`;
+    updateBulkBar();
     return;
   }
+  const checkboxHead = canWrite ? `<th class="checkbox-cell"><input type="checkbox" id="select-all-checkbox"></th>` : '';
   container.innerHTML = `
     <table>
-      <thead><tr><th>Entreprise</th><th>Ville</th><th>Contact</th><th>Type</th><th>Statut</th></tr></thead>
+      <thead><tr>${checkboxHead}<th>Entreprise</th><th>Ville</th><th>Contact</th><th>Type</th><th>Statut</th></tr></thead>
       <tbody>
         ${list.map(p => `
           <tr class="prospect-row" data-id="${p.id}">
+            ${canWrite ? `<td class="checkbox-cell" onclick="event.stopPropagation()"><input type="checkbox" class="row-checkbox" value="${p.id}"></td>` : ''}
             <td>
               <div class="prospect-name">${escapeHtml(p.nom_entreprise)}</div>
               <div class="prospect-meta">${escapeHtml(p.email || "Pas d'e-mail")}</div>
@@ -212,6 +238,32 @@ function renderProspects(list) {
   container.querySelectorAll('.prospect-row').forEach(row => {
     row.addEventListener('click', () => openModal(parseInt(row.dataset.id, 10)));
   });
+
+  if (canWrite) {
+    document.getElementById('select-all-checkbox').addEventListener('change', (e) => {
+      container.querySelectorAll('.row-checkbox').forEach(cb => cb.checked = e.target.checked);
+      updateBulkBar();
+    });
+    container.querySelectorAll('.row-checkbox').forEach(cb => {
+      cb.addEventListener('change', updateBulkBar);
+    });
+  }
+  updateBulkBar();
+}
+
+function getSelectedIds() {
+  return Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => parseInt(cb.value, 10));
+}
+
+function updateBulkBar() {
+  const ids = getSelectedIds();
+  const bar = document.getElementById('bulk-bar');
+  if (ids.length) {
+    bar.classList.add('show');
+    document.getElementById('bulk-count').textContent = `${ids.length} sélectionné${ids.length > 1 ? 's' : ''}`;
+  } else {
+    bar.classList.remove('show');
+  }
 }
 
 async function openModal(prospectId) {

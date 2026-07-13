@@ -39,6 +39,12 @@
   .scheduled-row:first-child { border-top: none; }
 
   .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .legal-form-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
+  .legal-form-row:first-child { border-top: none; }
+  .legal-form-row label { display: flex; align-items: center; gap: 8px; flex: 1; font-weight: 600; font-size: 14px; margin-bottom: 0; cursor: pointer; }
+  .legal-form-row input[type="checkbox"] { width: auto; }
+  .legal-form-row input[type="number"] { width: 90px; margin-bottom: 0; }
+  .official-count-badge { font-size: 12px; color: var(--text-soft); }
   @media (max-width: 700px) { .field-row, .review-fields-grid { grid-template-columns: 1fr; } .review-card { grid-template-columns: 1fr; } }
 {% endblock %}
 
@@ -55,6 +61,7 @@
 <div class="source-tabs" id="source-tabs">
   <button class="source-tab active" data-tab="fichier">📄 Fichier</button>
   <button class="source-tab" data-tab="ia">🔍 Recherche IA</button>
+  <button class="source-tab" data-tab="officiel">🏛️ Recherche automatique</button>
   <button class="source-tab" data-tab="texte">📋 Coller une réponse IA</button>
 </div>
 
@@ -118,6 +125,7 @@ function onAuthReady(me) {
 function renderTab() {
   if (activeTab === 'fichier') renderFileStep1();
   if (activeTab === 'ia') renderIaTab();
+  if (activeTab === 'officiel') renderOfficielTab();
   if (activeTab === 'texte') renderTexteTab();
 }
 
@@ -449,6 +457,85 @@ async function loadScheduledSearches() {
   }
 }
 
+/* ============================= RECHERCHE AUTOMATIQUE (APIs officielles) ============================= */
+
+function renderOfficielTab() {
+  document.getElementById('tab-root').innerHTML = `
+    <div class="panel">
+      <div class="panel-head"><h2>Recherche automatique de prospects</h2></div>
+      <div class="panel-body">
+        <p style="font-size:13.5px; color:var(--text-soft); margin-top:0;">
+          Recherche en direct dans le registre public officiel (data.gouv.fr / Recherche d'Entreprises), limitée
+          aux entreprises actives. Aucune donnée n'est jamais inventée : en cas d'erreur ou d'indisponibilité de
+          l'API, aucun résultat fictif n'est généré. Le registre ne contient ni téléphone ni e-mail — utilise le
+          bouton « Rechercher » sur chaque ligne pour les compléter toi-même une fois les résultats obtenus.
+        </p>
+        <div class="field-row">
+          <div class="field"><label for="off-zone">Zone géographique (code postal)</label><input id="off-zone" placeholder="Ex : 79000"></div>
+          <div class="field"><label for="off-secteur">Secteur d'activité ou code NAF</label><input id="off-secteur" placeholder="Ex : boulangerie, ou 5610A"></div>
+        </div>
+        <label style="font-size:13px; font-weight:600; display:block; margin-bottom:8px;">Formes juridiques à cibler (quantité par type)</label>
+        <div id="legal-forms-list"></div>
+        <button class="btn btn-primary" id="official-search-btn" style="margin-top:16px;">Lancer la recherche</button>
+      </div>
+    </div>
+
+    <div class="panel" id="official-results-panel" style="display:none;">
+      <div class="panel-head"><h2>Résultats à vérifier</h2><span id="official-results-count" style="font-size:13px; color:var(--text-soft);"></span></div>
+      <div id="official-results-container"></div>
+    </div>
+  `;
+
+  const LEGAL_FORMS = [
+    { key: 'sarl_eurl', label: 'SARL / EURL' },
+    { key: 'sas_sasu', label: 'SAS / SASU' },
+    { key: 'association', label: 'Associations' },
+  ];
+  document.getElementById('legal-forms-list').innerHTML = LEGAL_FORMS.map(f => `
+    <div class="legal-form-row">
+      <label><input type="checkbox" class="legal-form-check" value="${f.key}"> ${f.label}</label>
+      <input type="number" class="legal-form-qty" data-key="${f.key}" value="20" min="1" max="100">
+    </div>
+  `).join('');
+
+  document.getElementById('official-search-btn').addEventListener('click', runOfficialSearch);
+}
+
+async function runOfficialSearch() {
+  const forms = {};
+  document.querySelectorAll('.legal-form-check:checked').forEach(cb => {
+    const qty = document.querySelector(`.legal-form-qty[data-key="${cb.value}"]`).value;
+    forms[cb.value] = parseInt(qty, 10) || 0;
+  });
+  const zone = document.getElementById('off-zone').value.trim();
+  const secteur = document.getElementById('off-secteur').value.trim();
+
+  if (!zone) { showToast('Renseigne une zone géographique (code postal).', true); return; }
+  if (!Object.keys(forms).length) { showToast('Sélectionne au moins une forme juridique.', true); return; }
+
+  const btn = document.getElementById('official-search-btn');
+  btn.disabled = true;
+  btn.textContent = 'Recherche en cours…';
+  const resultsPanel = document.getElementById('official-results-panel');
+  resultsPanel.style.display = 'block';
+  document.getElementById('official-results-container').innerHTML = `<div class="panel-body"><div class="skeleton" style="height:120px;"></div></div>`;
+
+  try {
+    const result = await fetchJSON('/api/official-search', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ zone, secteur, forms }),
+    });
+    const countsText = Object.entries(result.counts).map(([k, v]) => `${v} ${k}`).join(', ');
+    document.getElementById('official-results-count').textContent = countsText;
+    renderReviewQueue(result.results, 'official-results-container', null, { showSearchButton: true });
+  } catch (err) {
+    document.getElementById('official-results-container').innerHTML = `<div class="empty-state"><h3>La recherche a échoué</h3><p>${escapeHtml(err.message)}</p></div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Lancer la recherche';
+  }
+}
+
 /* ============================= COLLER TEXTE ============================= */
 
 function renderTexteTab() {
@@ -458,13 +545,15 @@ function renderTexteTab() {
       <div class="panel-body">
         <p style="font-size:13.5px; color:var(--text-soft); margin-top:0;">
           Pose ta question gratuitement sur le site de ton choix, copie la réponse complète, colle-la ci-dessous.
-          Aucune clé API, aucun coût. Format attendu : une liste à puces, une entreprise par puce.
+          Aucune clé API, aucun coût. Fonctionne avec la plupart des formats (listes à puces, numérotées,
+          avec ou sans mise en gras) — inutile de reformater la réponse copiée.
         </p>
         <textarea id="paste-text" rows="10" placeholder="Collez ici la RÉPONSE de l'IA (pas votre question), par exemple :
-* Nom de l'entreprise
-  * Adresse : ...
-  * Téléphone : ...
-  * Site internet : ..."></textarea>
+1. Boulangerie du Marché
+   Adresse : 12 rue de la Gare, Niort
+   Téléphone : ...
+2. Le Fournil Niortais
+   Adresse : ..."></textarea>
         <button class="btn btn-primary btn-sm" id="analyze-btn" style="margin-top:14px;">Analyser le texte collé</button>
       </div>
     </div>
@@ -494,7 +583,8 @@ function renderTexteTab() {
 
 /* ============================= VÉRIFICATION PARTAGÉE ============================= */
 
-function renderReviewQueue(list, containerId, countId) {
+function renderReviewQueue(list, containerId, countId, options) {
+  options = options || {};
   const countEl = countId ? document.getElementById(countId) : null;
   const container = document.getElementById(containerId);
   if (countEl) countEl.textContent = `${list.length} proposition(s) — à relire avant tout ajout`;
@@ -503,9 +593,10 @@ function renderReviewQueue(list, containerId, countId) {
     return;
   }
   container.innerHTML = list.map((p, i) => `
-    <div class="review-card" data-index="${i}" data-source-id="${p.id || ''}">
+    <div class="review-card" data-index="${i}" data-source-id="${p.id || ''}" data-siret="${escapeHtml(p.siret || '')}" data-siren="${escapeHtml(p.siren || '')}" data-naf="${escapeHtml(p.naf_code || '')}" data-cp="${escapeHtml(p.code_postal || '')}">
       <div>
         <input type="text" class="review-nom" value="${escapeHtml(p.nom_entreprise || '')}" placeholder="Nom de l'entreprise" style="font-weight:600; margin-bottom:8px;">
+        ${p.forme_juridique ? `<div style="font-size:12px; color:var(--text-soft); margin-bottom:8px;">${escapeHtml(p.forme_juridique)}${p.siret ? ' · SIRET ' + escapeHtml(p.siret) : ''}</div>` : ''}
         <div class="review-fields-grid">
           ${REVIEW_FIELDS.map(f => `
             <div>
@@ -515,7 +606,10 @@ function renderReviewQueue(list, containerId, countId) {
         </div>
         ${p.description ? `<div style="font-size:12.5px; color:var(--text-soft); margin-top:8px;">${escapeHtml(p.description)}</div>` : ''}
       </div>
-      <button class="btn btn-ghost btn-sm remove-review-btn">Retirer</button>
+      <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+        ${options.showSearchButton ? `<button type="button" class="btn btn-ghost btn-sm search-review-btn" data-query="${escapeHtml([p.nom_entreprise, p.ville].filter(Boolean).join(' '))}">🔎 Rechercher</button>` : ''}
+        <button class="btn btn-ghost btn-sm remove-review-btn">Retirer</button>
+      </div>
     </div>
   `).join('') + `
     <div class="panel-body" style="border-top:1px solid var(--border);">
@@ -524,6 +618,9 @@ function renderReviewQueue(list, containerId, countId) {
 
   container.querySelectorAll('.remove-review-btn').forEach(btn => btn.addEventListener('click', () => {
     btn.closest('.review-card').remove();
+  }));
+  container.querySelectorAll('.search-review-btn').forEach(btn => btn.addEventListener('click', () => {
+    window.open(`https://www.google.com/search?q=${encodeURIComponent(btn.dataset.query)}`, '_blank', 'noopener');
   }));
 
   document.getElementById(`confirm-review-btn-${containerId}`).addEventListener('click', async () => {
@@ -536,6 +633,10 @@ function renderReviewQueue(list, containerId, countId) {
     for (const card of cards) {
       const fields = { workspace_id: workspaceId, nom_entreprise: card.querySelector('.review-nom').value.trim() };
       card.querySelectorAll('.review-field').forEach(inp => { if (inp.value.trim()) fields[inp.dataset.field] = inp.value.trim(); });
+      if (card.dataset.siret) fields.siret = card.dataset.siret;
+      if (card.dataset.siren) fields.siren = card.dataset.siren;
+      if (card.dataset.naf) fields.naf_code = card.dataset.naf;
+      if (card.dataset.cp) fields.code_postal = card.dataset.cp;
       const sourceId = card.dataset.sourceId;
       if (!fields.nom_entreprise) { failed++; continue; }
       try {

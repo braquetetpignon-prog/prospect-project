@@ -18,6 +18,7 @@ from app import prospects
 from app import text_parser
 from app import prospect_types
 from app import rendez_vous
+from app import official_search
 from flask import Response
 
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "schema.sql")
@@ -448,6 +449,28 @@ def text_parse():
     return jsonify(prospects=results)
 
 
+# --- Recherche automatique par APIs officielles (aucune donnée inventée) ---
+
+@app.route("/api/official-search", methods=["POST"])
+@login_required
+@require_role(*WRITE_ROLES)
+def official_search_route():
+    body = request.get_json(silent=True) or {}
+    zone = body.get("zone")
+    secteur = body.get("secteur")
+    forms = body.get("forms") or {}  # {"sarl_eurl": 20, "sas_sasu": 20, ...}
+
+    try:
+        forms_clean = {k: int(v) for k, v in forms.items() if int(v or 0) > 0}
+        result = official_search.search_by_legal_forms(zone, secteur, forms_clean)
+    except official_search.OfficialSearchError as exc:
+        return jsonify(error=str(exc)), 400
+    except (ValueError, TypeError):
+        return jsonify(error="Quantités invalides."), 400
+
+    return jsonify(result)
+
+
 # --- Option 3 : Configuration (paramètres réservés à l'administrateur) ----
 
 @app.route("/api/workspaces/<int:workspace_id>/google-business-profile", methods=["GET", "PUT"])
@@ -720,6 +743,19 @@ def prospects_collection():
     return jsonify(prospects=results)
 
 
+@app.route("/api/prospects/bulk-delete", methods=["POST"])
+@login_required
+@require_role(*WRITE_ROLES)
+def prospects_bulk_delete():
+    body = request.get_json(silent=True) or {}
+    ids = body.get("ids") or []
+    try:
+        deleted = prospects.delete_prospects_bulk(ids, session.get("workspace_id"))
+    except prospects.ProspectError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(status="deleted", deleted_ids=deleted, count=len(deleted))
+
+
 @app.route("/api/prospects/export.csv")
 @login_required
 @require_own_workspace
@@ -747,9 +783,18 @@ def prospects_verify_siret():
     return jsonify(result)
 
 
-@app.route("/api/prospects/<int:prospect_id>", methods=["GET", "PUT"])
+@app.route("/api/prospects/<int:prospect_id>", methods=["GET", "PUT", "DELETE"])
 @login_required
 def prospect_detail(prospect_id):
+    if request.method == "DELETE":
+        if session.get("role") not in WRITE_ROLES:
+            return jsonify(error="Permission insuffisante pour cette action."), 403
+        try:
+            prospects.delete_prospect(prospect_id, session.get("workspace_id"))
+        except prospects.ProspectError as exc:
+            return jsonify(error=str(exc)), 404
+        return jsonify(status="deleted")
+
     if request.method == "PUT":
         if session.get("role") not in WRITE_ROLES:
             return jsonify(error="Permission insuffisante pour cette action."), 403
