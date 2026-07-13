@@ -27,7 +27,7 @@ FIELD_SYNONYMS = {
     "telephone": ["telephone", "téléphone", "tel", "phone"],
     "email": ["email", "e-mail", "mail", "courriel"],
     "site_web": ["site internet", "site web", "site", "website", "url"],
-    "contact_nom": ["dirigeant", "gerant", "gérant", "gérante", "responsable", "contact", "propriétaire", "proprietaire"],
+    "contact_nom": ["dirigeant", "gerant", "gérant", "gérante", "responsable", "contact", "propriétaire", "proprietaire", "réalisateur", "realisateur", "référent", "referent"],
     "description": ["description", "activite", "activité", "notes", "note"],
 }
 
@@ -51,6 +51,12 @@ SKIP_PATTERNS = re.compile(
     r"^(voici|liste des|résultats?|voila|here (is|are)|based on|je (n'ai|te propose))",
     re.IGNORECASE,
 )
+
+
+# Valeur encore entre crochets, jamais remplacée (ex: "[Nom de l'entreprise]") — signe
+# que l'utilisateur a collé un PROMPT (le sien ou un modèle suggéré par l'app) au lieu
+# de la réponse que l'IA lui a renvoyée après l'avoir utilisé.
+PLACEHOLDER_VALUE = re.compile(r"^\[.{1,80}\]$")
 
 
 def _match_field(label):
@@ -79,10 +85,54 @@ def _looks_like_intro(text):
     return False
 
 
+def _drop_unfilled_placeholders(entry):
+    """Retire les champs dont la valeur est encore un espace réservé entre
+    crochets (jamais remplacé) — mieux vaut un champ vide qu'une donnée
+    du type "[adresse complète]" reprise telle quelle."""
+    return {k: v for k, v in entry.items() if not (isinstance(v, str) and PLACEHOLDER_VALUE.match(v.strip()))}
+
+
+def looks_like_unfilled_prompt(text):
+    """Heuristique : le texte contient plusieurs espaces réservés entre crochets
+    jamais remplacés (typiquement le prompt lui-même, collé par erreur à la
+    place de la réponse de l'IA). Sert uniquement à afficher un message d'erreur
+    plus utile que "aucune entreprise reconnue"."""
+    return len(re.findall(r"\[[^\[\]\n]{2,60}\]", text or "")) >= 3
+
+
+# Tous les libellés de champs reconnus, triés du plus long au plus court (évite
+# qu'une alternative courte comme "site" ne masque "site internet"/"site web").
+_ALL_LABEL_SYNONYMS = sorted(
+    {syn for synonyms in FIELD_SYNONYMS.values() for syn in synonyms},
+    key=len,
+    reverse=True,
+)
+
+# Repère un espace juste avant un libellé reconnu suivi (après espaces éventuels)
+# d'un ":" — c'est-à-dire un nouveau champ qui démarre au milieu d'une ligne au
+# lieu d'être sur sa propre ligne.
+_INLINE_LABEL_BOUNDARY = re.compile(
+    r"[ \t]+(?=(?:" + "|".join(re.escape(s) for s in _ALL_LABEL_SYNONYMS) + r")\s*[:：])",
+    re.IGNORECASE,
+)
+
+
+def _split_inline_labels(text):
+    """Certains outils IA (ou le copier-coller depuis leur interface) aplatissent
+    la mise en forme et livrent tous les champs d'une fiche sur une seule ligne :
+    'Entreprise X Activité : ... Adresse : ... Téléphone : ...' au lieu d'un champ
+    par ligne. On réinsère un saut de ligne avant chaque libellé reconnu pour que
+    l'algorithme ligne-par-ligne ci-dessous s'applique normalement dans les deux cas.
+    """
+    return _INLINE_LABEL_BOUNDARY.sub("\n", text)
+
+
 def parse_pasted_text(text):
     """Retourne une liste de dicts (mêmes clés que csv_import.PROSPECT_FIELDS)."""
     if not text or not text.strip():
         return []
+
+    text = _split_inline_labels(text)
 
     entries = []
     current = None
@@ -129,4 +179,5 @@ def parse_pasted_text(text):
     if current:
         entries.append(current)
 
+    entries = [_drop_unfilled_placeholders(e) for e in entries]
     return [e for e in entries if e.get("nom_entreprise")]
