@@ -3,9 +3,10 @@ Recherche IA intégrée (Option 2) — fournisseur Gemini, palier gratuit.
 
 Flux : l'utilisateur personnalise seulement le lieu et le type d'entreprise
 (+ un critère optionnel). Le prompt est pré-construit côté serveur, envoyé à
-Gemini, la réponse structurée est retournée pour relecture. Rien n'est
-enregistré automatiquement dans une fiche prospect — l'insertion reste une
-action manuelle et volontaire de l'utilisateur, faite séparément.
+Gemini avec la recherche Google activée (grounding réel, pas juste une
+estimation du modèle), la réponse structurée est retournée pour relecture.
+Rien n'est enregistré automatiquement dans une fiche prospect — l'insertion
+reste une action manuelle et volontaire de l'utilisateur, faite séparément.
 
 Quota : 3 lancements par jour par espace de travail (table ia_search_log).
 """
@@ -18,11 +19,19 @@ from app.db import get_db
 from app import official_search
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-DEFAULT_GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite")
+# Le grounding (recherche Google) combiné à une sortie JSON structurée n'est
+# disponible que sur les modèles de la série Gemini 3 (ex: gemini-3.5-flash).
+# Modifiable sans redéploiement depuis Paramètres si Google fait évoluer l'offre.
+DEFAULT_GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
 
 DAILY_QUOTA = 3
 NOMBRE_RESULTATS = 8
-REQUEST_TIMEOUT = 30
+# Le grounding peut déclencher plusieurs recherches web avant de répondre :
+# plus lent qu'un simple appel texte, d'où un délai plus généreux.
+REQUEST_TIMEOUT = 45
+INTERACTIONS_API_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
+# Fige le format de réponse ("steps") de l'API Interactions, encore en évolution.
+API_REVISION = "2026-05-20"
 
 
 def get_current_model():
@@ -56,19 +65,21 @@ def set_current_model(model_name):
         conn.close()
 
 RESPONSE_SCHEMA = {
-    "type": "OBJECT",
+    "type": "object",
     "properties": {
         "prospects": {
-            "type": "ARRAY",
+            "type": "array",
             "items": {
-                "type": "OBJECT",
+                "type": "object",
                 "properties": {
-                    "nom_entreprise": {"type": "STRING"},
-                    "adresse": {"type": "STRING"},
-                    "ville": {"type": "STRING"},
-                    "telephone": {"type": "STRING"},
-                    "site_web": {"type": "STRING"},
-                    "description": {"type": "STRING"},
+                    "nom_entreprise": {"type": "string"},
+                    "adresse": {"type": "string"},
+                    "ville": {"type": "string"},
+                    "telephone": {"type": "string"},
+                    "email": {"type": "string"},
+                    "site_web": {"type": "string"},
+                    "dirigeant": {"type": "string"},
+                    "description": {"type": "string"},
                 },
                 "required": ["nom_entreprise"],
             },
@@ -83,11 +94,13 @@ Critères de recherche :
 - Type d'entreprise recherché : {type_entreprise}
 - Lieu : {lieu}{criteres_line}
 
-Propose jusqu'à {nombre_resultats} entreprises plausibles correspondant à ces critères.
-Pour chaque entreprise, ne renseigne un champ (adresse, téléphone, site web) que si tu es \
-raisonnablement certain de son exactitude. Laisse-le vide plutôt que d'inventer une \
-information. Cette liste sera systématiquement relue et vérifiée par un humain avant tout \
-usage — elle ne doit donc contenir aucune donnée present\u00e9e comme certaine si elle ne l'est pas."""
+Utilise la recherche web pour trouver jusqu'à {nombre_resultats} entreprises réelles \
+correspondant à ces critères (annuaires professionnels, pages jaunes, sites d'entreprise, \
+registres légaux). Pour chaque entreprise, ne renseigne un champ (adresse, téléphone, email, \
+site web, dirigeant) que si tu es raisonnablement certain de son exactitude d'après ce que tu \
+as trouvé. Laisse-le vide plutôt que d'inventer une information. Cette liste sera \
+systématiquement relue et vérifiée par un humain avant tout usage — elle ne doit donc contenir \
+aucune donnée présentée comme certaine si elle ne l'est pas."""
 
 
 class QuotaExceeded(Exception):
@@ -143,19 +156,27 @@ def call_gemini(prompt):
         raise GeminiError("GEMINI_API_KEY n'est pas configurée sur le serveur.")
 
     model = get_current_model()
-    gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
     body = {
-        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "response_mime_type": "application/json",
-            "response_schema": RESPONSE_SCHEMA,
+        "model": model,
+        "input": prompt,
+        # Grounding réel : le modèle exécute lui-même des recherches Google et
+        # base sa réponse dessus, au lieu de deviner à partir de sa mémoire.
+        "tools": [{"type": "google_search"}],
+        "response_format": {
+            "type": "text",
+            "mime_type": "application/json",
+            "schema": RESPONSE_SCHEMA,
         },
     }
     try:
         resp = requests.post(
-            gemini_url,
-            headers={"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY},
+            INTERACTIONS_API_URL,
+            headers={
+                "Content-Type": "application/json",
+                "x-goog-api-key": GEMINI_API_KEY,
+                "Api-Revision": API_REVISION,
+            },
             json=body,
             timeout=REQUEST_TIMEOUT,
         )
@@ -173,17 +194,47 @@ def call_gemini(prompt):
             f"changer directement depuis Paramètres, sans intervention technique "
             f"(voir la liste à jour sur ai.google.dev/gemini-api/docs/models)."
         )
+    if resp.status_code == 400:
+        raise GeminiError(
+            f"Gemini a refusé la requête (modèle {model}) — la recherche web combinée à une "
+            f"réponse structurée n'est disponible que sur certains modèles récents (ex: "
+            f"gemini-3.5-flash). Vérifiez le modèle configuré dans Paramètres. Détail : "
+            f"{resp.text[:300]}"
+        )
     if resp.status_code >= 400:
         raise GeminiError(f"Erreur Gemini ({resp.status_code}) : {resp.text[:300]}")
 
     data = resp.json()
-    try:
-        text = data["candidates"][0]["content"]["parts"][0]["text"]
-        parsed = json.loads(text)
-    except (KeyError, IndexError, json.JSONDecodeError) as exc:
-        raise GeminiError(f"Réponse Gemini inattendue : {exc}") from exc
+    text = _extract_model_output_text(data)
+    if not text:
+        raise GeminiError("Réponse Gemini vide ou dans un format inattendu.")
 
-    return parsed.get("prospects", [])
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise GeminiError(f"Réponse Gemini non exploitable (JSON invalide) : {exc}") from exc
+
+    prospects = parsed.get("prospects") if isinstance(parsed, dict) else None
+    if not isinstance(prospects, list):
+        raise GeminiError("Format de réponse Gemini inattendu (champ 'prospects' manquant).")
+
+    return prospects[:NOMBRE_RESULTATS]
+
+
+def _extract_model_output_text(data):
+    """Concatène le texte des blocs du dernier step 'model_output' (schéma
+    'steps' de l'API Interactions — les autres steps sont les appels/résultats
+    de recherche Google, qu'on ignore ici car seul le texte final nous intéresse).
+    """
+    steps = data.get("steps") or []
+    chunks = []
+    for step in steps:
+        if step.get("type") != "model_output":
+            continue
+        for block in step.get("content") or []:
+            if block.get("type") == "text" and block.get("text"):
+                chunks.append(block["text"])
+    return "\n".join(chunks).strip()
 
 
 def _enrich_with_official_registry(prospects):
@@ -192,10 +243,15 @@ def _enrich_with_official_registry(prospects):
     registre Recherche d'Entreprises (data.gouv.fr), déjà utilisé ailleurs
     dans l'app (onglet Recherche automatique, vérification SIRET manuelle).
 
-    Purement additif et jamais bloquant : si aucune correspondance fiable
-    n'est trouvée ou si le registre est indisponible, la proposition de
-    Gemini reste inchangée — on ne comble jamais un champ par une donnée
-    inventée ou incertaine.
+    Le grounding (recherche Google) peut désormais aussi remonter téléphone,
+    email et dirigeant directement depuis le web (annuaires, sites d'entreprise)
+    — ces champs-là ne viennent jamais du registre officiel, qui ne les contient
+    pas, et restent donc « à vérifier » côté humain plutôt que garantis.
+
+    Purement additif et jamais bloquant pour le SIRET/l'adresse : si aucune
+    correspondance fiable n'est trouvée ou si le registre est indisponible,
+    la proposition de Gemini reste inchangée — on ne comble jamais un champ
+    par une donnée inventée ou incertaine.
     """
     enriched = []
     for prospect in prospects:

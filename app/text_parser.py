@@ -27,11 +27,15 @@ FIELD_SYNONYMS = {
     "telephone": ["telephone", "téléphone", "tel", "phone"],
     "email": ["email", "e-mail", "mail", "courriel"],
     "site_web": ["site internet", "site web", "site", "website", "url"],
+    "contact_nom": ["dirigeant", "gerant", "gérant", "gérante", "responsable", "contact", "propriétaire", "proprietaire"],
     "description": ["description", "activite", "activité", "notes", "note"],
 }
 
 # Ligne "champ : valeur" — accepte :, -, – ou — comme séparateur (les IA varient).
-LABEL_VALUE = re.compile(r"^(?P<label>[^:：\-–—]{2,40})\s*[:：\-–—]\s*(?P<value>.+)$")
+# Le séparateur est capturé séparément : un ":" est un signal fort d'intention
+# "champ : valeur" (cf. plus bas), alors qu'un "-" est ambigu (peut aussi apparaître
+# dans un nom d'entreprise composé, ex. "Boulangerie-Pâtisserie Noailles").
+LABEL_VALUE = re.compile(r"^(?P<label>[^:：\-–—]{2,40})\s*(?P<sep>[:：\-–—])\s*(?P<value>.+)$")
 
 # Puce de liste isolée (*, -, •...) en tête de ligne, à retirer avant de tenter la
 # détection "label : valeur" — sinon le tiret de la puce casse la regex ci-dessus.
@@ -102,7 +106,15 @@ def parse_pasted_text(text):
             if current is not None:
                 current[field] = lv.group("value").strip()
             continue
-        # Si le motif "label : valeur" matche mais que le label n'est pas reconnu (ex: un tiret
+
+        # Motif "label : valeur" avec un vrai deux-points mais un label non reconnu
+        # (Horaires, Zone d'intervention, Dirigeant non couvert, etc.) : c'est une
+        # métadonnée qu'on ne stocke pas, pas un nom d'entreprise — on l'ignore
+        # plutôt que de créer une fausse fiche avec "Horaires" comme nom.
+        if lv and lv.group("sep") in (":", "："):
+            continue
+
+        # Si le motif matche avec un tiret mais que le label n'est pas reconnu (ex: un tiret
         # dans un nom d'entreprise comme "Boulangerie-Pâtisserie Noailles"), on ne le jette pas :
         # on retombe sur le traitement "nouvelle fiche" ci-dessous, avec la ligne complète.
 

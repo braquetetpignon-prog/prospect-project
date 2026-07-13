@@ -121,12 +121,16 @@ function renderResults(list, workspaceId) {
         <div class="result-name">${escapeHtml(p.nom_entreprise || 'Entreprise sans nom')}</div>
         <div class="result-meta">
           ${[p.adresse, p.ville].filter(Boolean).map(escapeHtml).join(', ') || 'Adresse non précisée'}<br>
-          ${[p.telephone, p.site_web].filter(Boolean).map(escapeHtml).join(' · ')}
+          ${[p.telephone, p.email, p.site_web].filter(Boolean).map(escapeHtml).join(' · ')}
+          ${p.dirigeant ? `<br>Dirigeant : ${escapeHtml(p.dirigeant)}` : ''}
           ${p.description ? `<br>${escapeHtml(p.description)}` : ''}
         </div>
         ${p.verifie_registre_officiel
           ? `<span class="result-verified">✓ SIRET ${escapeHtml(p.siret || '')} — vérifié registre officiel</span>`
           : `<span class="result-verified" style="background:#F3EEE6; color:var(--text-soft);">Non retrouvé dans le registre officiel</span>`}
+        ${(p.telephone || p.email || p.dirigeant)
+          ? `<span class="result-verified" style="background:#F3EEE6; color:var(--text-soft);">Téléphone/email/dirigeant via recherche web — à vérifier</span>`
+          : ''}
       </div>
       <button class="btn btn-ghost btn-sm add-result-btn" data-index="${i}">Ajouter comme prospect</button>
     </div>
@@ -149,7 +153,9 @@ async function addResultAsProspect(result, btn, workspaceId) {
         adresse: result.adresse,
         ville: result.ville,
         telephone: result.telephone,
+        email: result.email || undefined,
         site_web: result.site_web,
+        contact_nom: result.dirigeant || undefined,
         siret: result.siret || undefined,
         siren: result.siren || undefined,
         naf_code: result.naf_code || undefined,

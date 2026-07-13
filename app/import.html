@@ -79,6 +79,21 @@ const FIELD_LABELS = {
   ville: 'Ville', telephone: 'Téléphone', email: 'E-mail', site_web: 'Site web', description: 'Description',
 };
 const REVIEW_FIELDS = ['adresse', 'ville', 'telephone', 'email', 'site_web'];
+const SUGGESTED_PROMPT = `Tu es mon assistant de prospection commerciale. Utilise la recherche web (annuaires professionnels, PagesJaunes, Google Maps, Societe.com, Infogreffe, Pappers.fr) pour trouver jusqu'à 15 entreprises réelles du secteur [TYPE D'ENTREPRISE, ex : menuiserie, plomberie, électricité...] situées à [VILLE OU ZONE, ex : Surgères et communes alentours].
+
+Ne renseigne un champ que si tu es raisonnablement certain de son exactitude d'après ce que tu as trouvé. Laisse-le vide plutôt que d'inventer une information.
+
+Réponds strictement sous cette forme, une entreprise par bloc, séparée par une ligne vide, sans aucun autre champ ni commentaire :
+
+1. [Nom de l'entreprise]
+Activité : [activité]
+Adresse : [adresse complète]
+Ville : [ville]
+Code postal : [code postal]
+Téléphone : [téléphone]
+Email : [email]
+Site web : [site web]
+Dirigeant : [nom du dirigeant ou contact]`;
 const AUTO_MATCH = {
   nom_entreprise: ['nom', 'entreprise', 'societe', 'société', 'company'],
   contact_prenom: ['prenom', 'prénom', 'firstname'], contact_nom: ['nomcontact', 'lastname'],
@@ -548,6 +563,17 @@ function renderTexteTab() {
           Aucune clé API, aucun coût. Fonctionne avec la plupart des formats (listes à puces, numérotées,
           avec ou sans mise en gras) — inutile de reformater la réponse copiée.
         </p>
+        <details style="margin:14px 0 18px;">
+          <summary style="cursor:pointer; font-size:13.5px; font-weight:600; color:var(--text);">
+            Pas sûr de la question à poser ? Utiliser un modèle de prompt
+          </summary>
+          <p style="font-size:13px; color:var(--text-soft); margin:10px 0 6px;">
+            Modifie le lieu et le secteur entre crochets, puis colle ce texte sur Gemini, ChatGPT ou autre
+            (avec la recherche web activée si l'outil le propose). Copie ensuite sa réponse ci-dessous.
+          </p>
+          <textarea id="suggested-prompt" rows="14" readonly style="font-size:12.5px; color:var(--text-soft); background:#FBF8F3;">${SUGGESTED_PROMPT}</textarea>
+          <button class="btn btn-ghost btn-sm" id="copy-prompt-btn" type="button" style="margin-top:8px;">Copier le prompt</button>
+        </details>
         <textarea id="paste-text" rows="10" placeholder="Collez ici la RÉPONSE de l'IA (pas votre question), par exemple :
 1. Boulangerie du Marché
    Adresse : 12 rue de la Gare, Niort
@@ -562,6 +588,18 @@ function renderTexteTab() {
       <div id="texte-results-container"></div>
     </div>
   `;
+
+  document.getElementById('copy-prompt-btn').addEventListener('click', async (e) => {
+    try {
+      await navigator.clipboard.writeText(document.getElementById('suggested-prompt').value);
+      const btn = e.currentTarget;
+      const original = btn.textContent;
+      btn.textContent = 'Copié !';
+      setTimeout(() => { btn.textContent = original; }, 1500);
+    } catch (err) {
+      showToast("Impossible de copier automatiquement : sélectionne le texte manuellement.", true);
+    }
+  });
 
   document.getElementById('analyze-btn').addEventListener('click', async () => {
     const text = document.getElementById('paste-text').value;
