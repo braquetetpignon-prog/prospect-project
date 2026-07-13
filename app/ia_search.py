@@ -17,12 +17,42 @@ import requests
 from app.db import get_db
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+DEFAULT_GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite")
 
 DAILY_QUOTA = 3
 NOMBRE_RESULTATS = 8
 REQUEST_TIMEOUT = 30
+
+
+def get_current_model():
+    """Modèle Gemini actif : réglage en base s'il existe (modifiable depuis les
+    Paramètres sans redéploiement), sinon la variable d'environnement GEMINI_MODEL,
+    sinon la valeur par défaut codée en dur."""
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT value FROM app_settings WHERE key = 'gemini_model'")
+            row = cur.fetchone()
+        return (row[0] if row and row[0] else None) or DEFAULT_GEMINI_MODEL
+    finally:
+        conn.close()
+
+
+def set_current_model(model_name):
+    model_name = (model_name or "").strip()
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO app_settings (key, value, updated_at) VALUES ('gemini_model', %s, now())
+                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+                """,
+                (model_name or None,),
+            )
+        conn.commit()
+    finally:
+        conn.close()
 
 RESPONSE_SCHEMA = {
     "type": "OBJECT",
@@ -111,6 +141,9 @@ def call_gemini(prompt):
     if not GEMINI_API_KEY:
         raise GeminiError("GEMINI_API_KEY n'est pas configurée sur le serveur.")
 
+    model = get_current_model()
+    gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
     body = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {
@@ -120,7 +153,7 @@ def call_gemini(prompt):
     }
     try:
         resp = requests.post(
-            GEMINI_URL,
+            gemini_url,
             headers={"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY},
             json=body,
             timeout=REQUEST_TIMEOUT,
@@ -131,6 +164,13 @@ def call_gemini(prompt):
     if resp.status_code == 429:
         raise GeminiError(
             "Quota Gemini atteint au niveau du compte Google (palier gratuit global). Réessayez plus tard."
+        )
+    if resp.status_code == 404:
+        raise GeminiError(
+            f"Le modèle IA configuré ({model}) n'est plus disponible chez Google — "
+            f"c'est fréquent, ces modèles sont retirés régulièrement. Un administrateur peut le "
+            f"changer directement depuis Paramètres, sans intervention technique "
+            f"(voir la liste à jour sur ai.google.dev/gemini-api/docs/models)."
         )
     if resp.status_code >= 400:
         raise GeminiError(f"Erreur Gemini ({resp.status_code}) : {resp.text[:300]}")

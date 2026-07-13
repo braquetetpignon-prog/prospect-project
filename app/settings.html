@@ -51,6 +51,7 @@ function onAuthReady(me) {
   loadSmtpConfig(me.workspace_id);
   loadMembers(me.workspace_id);
   loadProspectTypes(me.workspace_id);
+  loadGeminiModel();
 }
 
 function renderSettingsShell(workspaceId) {
@@ -88,6 +89,26 @@ function renderSettingsShell(workspaceId) {
           <div class="field"><label for="smtp-from">Adresse d'expédition</label><input id="smtp-from" type="email" placeholder="contact@votre-entreprise.fr" required></div>
           <button class="btn btn-primary btn-sm" type="submit">Enregistrer</button>
         </form>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Modèle de recherche IA</h2>
+      </div>
+      <div class="panel-body">
+        <p style="font-size:13.5px; color:var(--text-soft); margin-top:0;">
+          Google retire régulièrement d'anciens modèles Gemini. Si la recherche IA affiche une erreur
+          « modèle non disponible », change-le ici sans attendre une intervention technique.
+        </p>
+        <div class="field-row">
+          <div class="field"><label for="gemini-model-input">Modèle actif</label><input id="gemini-model-input"></div>
+          <div class="field" style="display:flex; align-items:flex-end; gap:8px;">
+            <button class="btn btn-primary btn-sm" id="save-model-btn" type="button">Enregistrer</button>
+            <button class="btn btn-ghost btn-sm" id="reset-model-btn" type="button">Réinitialiser</button>
+          </div>
+        </div>
+        <p style="font-size:12px; color:var(--text-soft);">Liste à jour des modèles : <a href="https://ai.google.dev/gemini-api/docs/models" target="_blank" rel="noopener">ai.google.dev/gemini-api/docs/models</a></p>
       </div>
     </div>
 
@@ -140,6 +161,8 @@ function renderSettingsShell(workspaceId) {
   document.getElementById('gbp-form').addEventListener('submit', (e) => saveGbp(e, workspaceId));
   document.getElementById('smtp-form').addEventListener('submit', (e) => saveSmtp(e, workspaceId));
   document.getElementById('add-type-btn').addEventListener('click', () => addType(workspaceId));
+  document.getElementById('save-model-btn').addEventListener('click', saveGeminiModel);
+  document.getElementById('reset-model-btn').addEventListener('click', resetGeminiModel);
   document.getElementById('new-type-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); addType(workspaceId); }
   });
@@ -333,5 +356,32 @@ async function addType(workspaceId) {
   } catch (err) {
     showToast(err.message, true);
   }
+}
+
+let geminiDefault = '';
+
+async function loadGeminiModel() {
+  try {
+    const data = await fetchJSON('/api/admin/gemini-model');
+    document.getElementById('gemini-model-input').value = data.model;
+    geminiDefault = data.default;
+  } catch (e) { /* silencieux */ }
+}
+
+async function saveGeminiModel() {
+  const model = document.getElementById('gemini-model-input').value.trim();
+  try {
+    await fetchJSON('/api/admin/gemini-model', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model }),
+    });
+    showToast('Modèle mis à jour.');
+  } catch (err) {
+    showToast(err.message, true);
+  }
+}
+
+async function resetGeminiModel() {
+  document.getElementById('gemini-model-input').value = geminiDefault;
+  await saveGeminiModel();
 }
 {% endblock %}

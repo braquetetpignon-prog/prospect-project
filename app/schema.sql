@@ -109,6 +109,15 @@ CREATE TABLE IF NOT EXISTS ia_search_log (
 );
 CREATE INDEX IF NOT EXISTS idx_ia_search_log_workspace_date ON ia_search_log(workspace_id, created_at);
 
+-- Paramètres techniques globaux modifiables sans redéploiement (ex: modèle Gemini
+-- en cas de retrait par Google). Portée globale, pas par espace de travail —
+-- à restreindre à un rôle "super-admin" une fois plusieurs clients réels.
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Recherches IA planifiées (relance automatique quotidienne, fiable côté serveur)
 CREATE TABLE IF NOT EXISTS scheduled_searches (
     id SERIAL PRIMARY KEY,

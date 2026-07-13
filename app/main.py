@@ -338,6 +338,17 @@ def ia_search_quota():
     return jsonify(ia_search.get_quota_status(workspace_id))
 
 
+@app.route("/api/admin/gemini-model", methods=["GET", "PUT"])
+@login_required
+@require_role("admin")
+def admin_gemini_model():
+    if request.method == "GET":
+        return jsonify(model=ia_search.get_current_model(), default=ia_search.DEFAULT_GEMINI_MODEL)
+    body = request.get_json(silent=True) or {}
+    ia_search.set_current_model(body.get("model"))
+    return jsonify(status="ok", model=ia_search.get_current_model())
+
+
 @app.route("/api/ia-search", methods=["POST"])
 @login_required
 @require_own_workspace
