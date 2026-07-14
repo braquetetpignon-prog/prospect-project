@@ -23,6 +23,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 from app.db import get_db
 from app import prospect_types
+from app import subscriptions
 
 ROLES = ("admin", "commercial", "lecture_seule")
 WRITE_ROLES = ("admin", "commercial")  # rôles autorisés à créer/modifier/envoyer
@@ -45,7 +46,10 @@ def create_workspace_with_admin(workspace_name, admin_email, admin_password):
     conn = get_db()
     try:
         with conn.cursor() as cur:
-            cur.execute("INSERT INTO workspaces (name) VALUES (%s) RETURNING id", (workspace_name,))
+            cur.execute(
+                "INSERT INTO workspaces (name, plan, trial_ends_at) VALUES (%s, 'trial', %s) RETURNING id",
+                (workspace_name, subscriptions.trial_end_date()),
+            )
             workspace_id = cur.fetchone()[0]
             cur.execute(
                 """
@@ -133,7 +137,10 @@ def login(email, password):
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, workspace_id, password_hash, role, is_active FROM users WHERE email = %s",
+                """
+                SELECT id, workspace_id, password_hash, role, is_active, must_change_password
+                FROM users WHERE email = %s
+                """,
                 (email.lower().strip(),),
             )
             row = cur.fetchone()
@@ -145,10 +152,35 @@ def login(email, password):
     if not row[4]:
         raise AuthError("Ce compte a été désactivé.")
 
+    session.pop("superadmin_id", None)
     session["user_id"] = row[0]
     session["workspace_id"] = row[1]
     session["role"] = row[3]
+    session["must_change_password"] = row[5]
     session.permanent = True
+
+
+def change_own_password(user_id, current_password, new_password):
+    """Changement de mot de passe par l'utilisateur lui-même (depuis Paramètres,
+    ou après une réinitialisation par le superadmin)."""
+    if len(new_password) < 8:
+        raise AuthError("Le nouveau mot de passe doit contenir au moins 8 caractères.")
+
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT password_hash FROM users WHERE id = %s", (user_id,))
+            row = cur.fetchone()
+            if not row or not check_password_hash(row[0], current_password):
+                raise AuthError("Mot de passe actuel incorrect.")
+            cur.execute(
+                "UPDATE users SET password_hash = %s, must_change_password = FALSE WHERE id = %s",
+                (hash_password(new_password), user_id),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    session["must_change_password"] = False
 
 
 def logout():
@@ -158,7 +190,12 @@ def logout():
 def current_user():
     if "user_id" not in session:
         return None
-    return {"user_id": session["user_id"], "workspace_id": session["workspace_id"], "role": session["role"]}
+    return {
+        "user_id": session["user_id"],
+        "workspace_id": session["workspace_id"],
+        "role": session["role"],
+        "must_change_password": session.get("must_change_password", False),
+    }
 
 
 # --- Décorateurs de protection des routes ----------------------------------
@@ -176,6 +213,9 @@ def _requested_workspace_id(kwargs):
     if "workspace_id" in kwargs:
         return kwargs["workspace_id"]
     val = request.args.get("workspace_id", type=int)
+    if val:
+        return val
+    val = request.form.get("workspace_id", type=int)
     if val:
         return val
     body = request.get_json(silent=True) or {}

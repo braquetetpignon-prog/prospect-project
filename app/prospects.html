@@ -171,7 +171,14 @@ async function bulkDelete() {
 }
 
 function updateExportLink() {
-  document.getElementById('export-csv-link').href = `/api/prospects/export.csv?workspace_id=${workspaceId}`;
+  const link = document.getElementById('export-csv-link');
+  link.href = `/api/prospects/export.csv?workspace_id=${workspaceId}`;
+  link.onclick = (e) => {
+    if (currentUser && currentUser.restricted) {
+      e.preventDefault();
+      showToast("Export CSV réservé aux espaces en essai ou payants. Contactez-nous pour passer en version payante.", true);
+    }
+  };
 }
 
 async function loadProspectTypes() {

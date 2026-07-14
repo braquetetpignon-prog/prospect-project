@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Superadmin — ClickProspect</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600,0,700&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --cream: #FAF6F0; --terracotta: #C1653D; --terracotta-deep: #A2502E;
+    --sauge: #7A9471; --text: #35302A; --text-soft: #6E6459;
+    --white: #FFFFFF; --border: rgba(53,48,42,0.12);
+    --shadow: 0 16px 40px rgba(53,40,24,0.10);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--text); color: var(--text);
+    font-family: 'Figtree', sans-serif; display: flex; align-items: center; justify-content: center; padding: 24px;
+  }
+  .card { background: var(--white); border-radius: 24px; box-shadow: var(--shadow); padding: 44px; width: 100%; max-width: 380px; }
+  h1 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--text-soft); font-size: 13px; margin: 0 0 24px; }
+  label { display: block; font-size: 13.5px; font-weight: 600; margin-bottom: 6px; margin-top: 16px; }
+  label:first-of-type { margin-top: 0; }
+  input {
+    width: 100%; padding: 12px 14px; border-radius: 12px; border: 1.5px solid var(--border);
+    font-family: 'Figtree', sans-serif; font-size: 15px; background: var(--cream); color: var(--text);
+  }
+  input:focus { outline: none; border-color: var(--terracotta); }
+  .btn { width: 100%; margin-top: 26px; padding: 13px; border-radius: 999px; border: none; background: var(--text); color: var(--white); font-weight: 600; font-size: 15px; cursor: pointer; font-family: 'Figtree', sans-serif; }
+  .btn:hover { background: #000; }
+  .btn:disabled { opacity: 0.6; cursor: default; }
+  .error { background: #F8E6E0; color: #A2502E; border-radius: 10px; padding: 11px 14px; font-size: 13.5px; margin-top: 18px; display: none; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Superadmin</h1>
+  <p class="sub">Accès réservé — gestion des espaces de travail.</p>
+
+  <form id="login-form">
+    <label for="email">E-mail</label>
+    <input id="email" name="email" type="email" required>
+
+    <label for="password">Mot de passe</label>
+    <input id="password" name="password" type="password" required>
+
+    <button class="btn" type="submit">Se connecter</button>
+    <div class="error" id="error-box"></div>
+  </form>
+</div>
+
+<script>
+const form = document.getElementById('login-form');
+const errorBox = document.getElementById('error-box');
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  errorBox.style.display = 'none';
+  const btn = form.querySelector('button');
+  btn.disabled = true;
+  btn.textContent = 'Connexion…';
+
+  try {
+    const res = await fetch('/api/supadmin/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: document.getElementById('email').value.trim(),
+        password: document.getElementById('password').value,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Une erreur est survenue.');
+    window.location.href = '/supadmin';
+  } catch (err) {
+    errorBox.textContent = err.message;
+    errorBox.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = 'Se connecter';
+  }
+});
+</script>
+</body>
+</html>

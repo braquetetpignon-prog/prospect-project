@@ -19,6 +19,8 @@ from app import text_parser
 from app import prospect_types
 from app import rendez_vous
 from app import official_search
+from app import superadmin
+from app import subscriptions
 from flask import Response
 
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "schema.sql")
@@ -47,6 +49,16 @@ def init_db():
         conn.close()
 
 
+UPGRADE_MESSAGE = (
+    "Fonction réservée aux espaces de travail en essai ou payants. "
+    "Contactez-nous pour passer en version payante."
+)
+
+
+def _restricted_response():
+    return jsonify(error=UPGRADE_MESSAGE), 402
+
+
 @app.route("/")
 def index():
     return flask_render_template("landing.html")
@@ -60,6 +72,23 @@ def signup_page():
 @app.route("/login")
 def login_page():
     return flask_render_template("login.html")
+
+
+@app.route("/changer-mot-de-passe")
+def change_password_page():
+    return flask_render_template("change_password.html")
+
+
+# --- Superadmin (chemin volontairement non lié depuis le reste du site) ---
+
+@app.route("/supadmin")
+def supadmin_page():
+    return flask_render_template("supadmin.html")
+
+
+@app.route("/supadmin/login")
+def supadmin_login_page():
+    return flask_render_template("supadmin_login.html")
 
 
 @app.route("/dashboard")
@@ -174,12 +203,32 @@ def auth_me():
     finally:
         conn.close()
 
+    sub = subscriptions.get_workspace_subscription(user["workspace_id"]) or {}
+
     return jsonify(
         email=email_row[0] if email_row else None,
         role=user["role"],
         workspace_id=user["workspace_id"],
         workspace_name=workspace_row[0] if workspace_row else None,
+        must_change_password=user["must_change_password"],
+        plan=sub.get("plan"),
+        plan_effective=sub.get("plan_effective"),
+        trial_days_left=sub.get("trial_days_left"),
+        restricted=sub.get("restricted", False),
     )
+
+
+@app.route("/api/auth/change-password", methods=["POST"])
+@login_required
+def auth_change_password():
+    body = request.get_json(silent=True) or {}
+    current_password = body.get("current_password") or ""
+    new_password = body.get("new_password") or ""
+    try:
+        auth.change_own_password(session["user_id"], current_password, new_password)
+    except auth.AuthError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(status="ok")
 
 
 # --- Gestion des membres (admin uniquement) --------------------------------
@@ -645,6 +694,8 @@ def campaign_send(campaign_id):
     error = _check_campaign_access(campaign_id)
     if error:
         return error
+    if subscriptions.is_restricted(session["workspace_id"]):
+        return _restricted_response()
 
     body = request.get_json(silent=True) or {}
     prospect_ids = body.get("prospect_ids")
@@ -668,6 +719,8 @@ def campaign_send_by_type(campaign_id):
     error = _check_campaign_access(campaign_id)
     if error:
         return error
+    if subscriptions.is_restricted(session["workspace_id"]):
+        return _restricted_response()
 
     body = request.get_json(silent=True) or {}
     prospect_type_id = body.get("prospect_type_id")
@@ -769,6 +822,8 @@ def prospects_export_csv():
     workspace_id = request.args.get("workspace_id", type=int)
     if not workspace_id:
         return jsonify(error="workspace_id requis"), 400
+    if subscriptions.is_restricted(workspace_id):
+        return _restricted_response()
     csv_content = prospects.export_csv(workspace_id)
     return Response(
         csv_content,
@@ -1028,7 +1083,63 @@ def dashboard_stats(workspace_id):
         conn.close()
 
 
+# --- Superadmin (API) -------------------------------------------------
+# Toutes ces routes utilisent leur propre décorateur d'authentification
+# (superadmin.login_required), complètement séparé de login_required /
+# require_role utilisés partout ailleurs — un compte utilisateur normal,
+# même admin de son espace, ne peut jamais accéder à ces routes.
+
+@app.route("/api/supadmin/login", methods=["POST"])
+def supadmin_login():
+    body = request.get_json(silent=True) or {}
+    email = (body.get("email") or "").strip()
+    password = body.get("password") or ""
+    if not email or not password:
+        return jsonify(error="email et password sont requis"), 400
+    try:
+        superadmin.login(email, password)
+    except superadmin.SuperadminError as exc:
+        return jsonify(error=str(exc)), 401
+    return jsonify(status="ok")
+
+
+@app.route("/api/supadmin/logout", methods=["POST"])
+def supadmin_logout():
+    superadmin.logout()
+    return jsonify(status="ok")
+
+
+@app.route("/api/supadmin/workspaces")
+@superadmin.login_required
+def supadmin_workspaces():
+    return jsonify(workspaces=superadmin.list_workspaces())
+
+
+@app.route("/api/supadmin/workspaces/<int:workspace_id>/plan", methods=["PUT"])
+@superadmin.login_required
+def supadmin_set_plan(workspace_id):
+    body = request.get_json(silent=True) or {}
+    plan = body.get("plan")
+    paid_until = body.get("paid_until")  # ISO 8601, requis si plan == 'paid'
+    try:
+        superadmin.set_plan(workspace_id, plan, paid_until=paid_until)
+    except superadmin.SuperadminError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(status="ok")
+
+
+@app.route("/api/supadmin/workspaces/<int:workspace_id>/reset-admin-password", methods=["POST"])
+@superadmin.login_required
+def supadmin_reset_password(workspace_id):
+    try:
+        result = superadmin.reset_workspace_admin_password(workspace_id)
+    except superadmin.SuperadminError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(result)
+
+
 init_db()
+superadmin.ensure_bootstrap_superadmin()
 scheduler.start()
 
 if __name__ == "__main__":

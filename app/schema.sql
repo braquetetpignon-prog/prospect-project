@@ -18,6 +18,28 @@ CREATE TABLE IF NOT EXISTS workspaces (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Abonnement par espace de travail : 'trial' (essai, accès complet, 7 jours par
+-- défaut) / 'free' (gratuit, fonctions restreintes) / 'paid' (payant, accès complet).
+-- Le statut EFFECTIF est calculé dynamiquement (voir app/subscriptions.py) à partir
+-- de trial_ends_at / paid_until — ces colonnes ne sont jamais lues seules.
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'trial';
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMPTZ;
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS paid_until TIMESTAMPTZ;
+
+-- Comptes superadmin — totalement séparés des comptes utilisateurs normaux (table
+-- 'users'), qui sont eux toujours rattachés à un espace de travail. Un superadmin
+-- n'appartient à aucun espace de travail : il gère l'ensemble des clients depuis
+-- une interface cachée (/supadmin), jamais accessible ni visible depuis l'app normale.
+-- Le premier compte est créé automatiquement au démarrage à partir des variables
+-- d'environnement SUPERADMIN_EMAIL / SUPERADMIN_PASSWORD (voir app/superadmin.py) —
+-- ni l'une ni l'autre ne transitent jamais par le code applicatif au-delà de ça.
+CREATE TABLE IF NOT EXISTS superadmins (
+    id SERIAL PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Utilisateurs rattachés à un espace de travail
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
@@ -35,6 +57,9 @@ CREATE INDEX IF NOT EXISTS idx_users_workspace ON users(workspace_id);
 -- EXISTS ne la modifierait pas.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'commercial';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+-- Forcé à TRUE quand un superadmin réinitialise le mot de passe de cet utilisateur :
+-- il doit en choisir un nouveau avant de pouvoir faire quoi que ce soit d'autre.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- Prospects
 CREATE TABLE IF NOT EXISTS prospects (

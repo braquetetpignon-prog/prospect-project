@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Superadmin — ClickProspect</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600,0,700&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --cream: #FAF6F0; --terracotta: #C1653D; --terracotta-deep: #A2502E;
+    --sauge: #7A9471; --sauge-light: #E7EDE3; --text: #35302A; --text-soft: #6E6459;
+    --white: #FFFFFF; --border: rgba(53,48,42,0.12);
+    --shadow: 0 6px 18px rgba(53,40,24,0.06);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--cream); color: var(--text); font-family: 'Figtree', sans-serif; }
+  h1 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 24px; margin: 0; }
+  .topbar { display: flex; justify-content: space-between; align-items: center; padding: 22px 32px; background: var(--text); color: var(--white); }
+  .topbar h1 { color: var(--white); font-size: 18px; }
+  .main { padding: 28px 32px 60px; max-width: 1100px; margin: 0 auto; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 16px; border-radius: 999px; font-weight: 600; font-size: 13.5px; border: none; cursor: pointer; font-family: 'Figtree', sans-serif; }
+  .btn-primary { background: var(--terracotta); color: var(--white); }
+  .btn-primary:hover { background: var(--terracotta-deep); }
+  .btn-ghost { background: var(--white); color: var(--text); border: 1.5px solid var(--border); }
+  .btn-ghost:hover { border-color: var(--text); }
+  .btn-dark { background: var(--text); color: var(--white); }
+  .panel { background: var(--white); border-radius: 18px; box-shadow: var(--shadow); overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-soft); font-weight: 600; padding: 12px 18px; background: var(--cream); }
+  td { padding: 14px 18px; border-top: 1px solid var(--border); font-size: 14px; vertical-align: middle; }
+  .badge { font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 999px; white-space: nowrap; }
+  .badge-trial { background: #EAF0FF; color: #3454A8; }
+  .badge-free { background: #F3E3E3; color: #9B4646; }
+  .badge-paid { background: var(--sauge-light); color: #4F6647; }
+  .muted { color: var(--text-soft); font-size: 12.5px; }
+  .row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  input, select {
+    font-family: 'Figtree', sans-serif; font-size: 14px; color: var(--text);
+    border: 1.5px solid var(--border); border-radius: 10px; padding: 9px 12px; background: var(--cream); width: 100%;
+  }
+  label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; margin-top: 14px; }
+  label:first-of-type { margin-top: 0; }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(53,48,42,0.4); display: none; align-items: center; justify-content: center; z-index: 90; padding: 24px; }
+  .modal-overlay.show { display: flex; }
+  .modal { background: var(--white); border-radius: 18px; padding: 26px; width: 100%; max-width: 400px; }
+  .modal h3 { font-family: 'Fraunces', serif; font-size: 17px; margin: 0 0 16px; }
+  .modal-actions { display: flex; gap: 10px; margin-top: 20px; justify-content: flex-end; }
+  .temp-password { font-family: monospace; font-size: 18px; font-weight: 700; background: var(--cream); border-radius: 10px; padding: 12px 14px; text-align: center; letter-spacing: 0.03em; margin: 14px 0; user-select: all; }
+  .warning { font-size: 12.5px; color: var(--terracotta-deep); background: #FDECE3; border-radius: 10px; padding: 10px 12px; }
+  .empty-state { padding: 48px 24px; text-align: center; color: var(--text-soft); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>Superadmin — ClickProspect</h1>
+  <button class="btn btn-ghost" id="logout-btn" type="button">Déconnexion</button>
+</div>
+
+<div class="main">
+  <div class="panel">
+    <div id="table-container">
+      <div class="empty-state">Chargement…</div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal : changer l'abonnement -->
+<div class="modal-overlay" id="plan-modal-overlay">
+  <div class="modal">
+    <h3>Changer l'abonnement</h3>
+    <div id="plan-modal-workspace-name" class="muted" style="margin-bottom: 10px;"></div>
+
+    <label for="plan-select">Statut</label>
+    <select id="plan-select">
+      <option value="trial">Essai (7 jours à partir d'aujourd'hui)</option>
+      <option value="paid">Payant</option>
+      <option value="free">Gratuit (restreint)</option>
+    </select>
+
+    <div id="paid-until-field" style="display:none;">
+      <label for="paid-until-input">Abonnement payant jusqu'au</label>
+      <input id="paid-until-input" type="date">
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="plan-cancel-btn" type="button">Annuler</button>
+      <button class="btn btn-primary" id="plan-confirm-btn" type="button">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal : réinitialisation de mot de passe -->
+<div class="modal-overlay" id="reset-modal-overlay">
+  <div class="modal">
+    <h3>Mot de passe temporaire</h3>
+    <div id="reset-modal-body"></div>
+    <div class="modal-actions">
+      <button class="btn btn-dark" id="reset-close-btn" type="button">Fermer</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let workspaces = [];
+let currentPlanWorkspaceId = null;
+
+async function fetchJSON(url, options) {
+  const res = await fetch(url, options);
+  if (res.status === 401) {
+    window.location.href = '/supadmin/login';
+    throw new Error('Non authentifié');
+  }
+  let data = null;
+  try { data = await res.json(); } catch (e) {}
+  if (!res.ok) throw new Error((data && data.error) || `Erreur ${res.status}`);
+  return data;
+}
+
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function formatDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+const planLabels = { trial: 'Essai', free: 'Gratuit', paid: 'Payant' };
+
+function planEndLabel(w) {
+  if (w.plan_effective === 'trial') {
+    return `Essai jusqu'au ${formatDate(w.trial_ends_at)}`;
+  }
+  if (w.plan_effective === 'paid') {
+    return `Payant jusqu'au ${formatDate(w.paid_until)}`;
+  }
+  return 'Gratuit (restreint)';
+}
+
+async function loadWorkspaces() {
+  try {
+    const data = await fetchJSON('/api/supadmin/workspaces');
+    workspaces = data.workspaces;
+    renderTable();
+  } catch (err) {
+    document.getElementById('table-container').innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderTable() {
+  if (!workspaces.length) {
+    document.getElementById('table-container').innerHTML = `<div class="empty-state">Aucun espace de travail pour l'instant.</div>`;
+    return;
+  }
+  document.getElementById('table-container').innerHTML = `
+    <table>
+      <thead><tr><th>Espace</th><th>Admin</th><th>Membres</th><th>Créé le</th><th>Statut</th><th></th></tr></thead>
+      <tbody>
+        ${workspaces.map(w => `
+          <tr>
+            <td><strong>${escapeHtml(w.name)}</strong></td>
+            <td>${escapeHtml(w.admin_email || '—')}</td>
+            <td>${w.member_count}</td>
+            <td class="muted">${formatDate(w.created_at)}</td>
+            <td>
+              <span class="badge badge-${w.plan_effective}">${planLabels[w.plan_effective]}</span>
+              <div class="muted" style="margin-top:4px;">${planEndLabel(w)}</div>
+            </td>
+            <td>
+              <div class="row-actions">
+                <button class="btn btn-ghost" data-action="plan" data-id="${w.id}">Abonnement</button>
+                <button class="btn btn-ghost" data-action="reset" data-id="${w.id}">Réinit. mot de passe</button>
+              </div>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+
+  document.querySelectorAll('[data-action="plan"]').forEach(btn => {
+    btn.addEventListener('click', () => openPlanModal(parseInt(btn.dataset.id, 10)));
+  });
+  document.querySelectorAll('[data-action="reset"]').forEach(btn => {
+    btn.addEventListener('click', () => resetPassword(parseInt(btn.dataset.id, 10)));
+  });
+}
+
+function openPlanModal(workspaceId) {
+  const w = workspaces.find(x => x.id === workspaceId);
+  if (!w) return;
+  currentPlanWorkspaceId = workspaceId;
+  document.getElementById('plan-modal-workspace-name').textContent = w.name;
+  document.getElementById('plan-select').value = w.plan_effective;
+  document.getElementById('paid-until-field').style.display = w.plan_effective === 'paid' ? 'block' : 'none';
+  if (w.paid_until) document.getElementById('paid-until-input').value = w.paid_until.slice(0, 10);
+  document.getElementById('plan-modal-overlay').classList.add('show');
+}
+
+document.getElementById('plan-select').addEventListener('change', (e) => {
+  document.getElementById('paid-until-field').style.display = e.target.value === 'paid' ? 'block' : 'none';
+});
+
+document.getElementById('plan-cancel-btn').addEventListener('click', () => {
+  document.getElementById('plan-modal-overlay').classList.remove('show');
+});
+
+document.getElementById('plan-confirm-btn').addEventListener('click', async () => {
+  const plan = document.getElementById('plan-select').value;
+  const paidUntilRaw = document.getElementById('paid-until-input').value;
+  if (plan === 'paid' && !paidUntilRaw) {
+    alert("Indique une date de fin pour un abonnement payant.");
+    return;
+  }
+  try {
+    await fetchJSON(`/api/supadmin/workspaces/${currentPlanWorkspaceId}/plan`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan, paid_until: plan === 'paid' ? paidUntilRaw : null }),
+    });
+    document.getElementById('plan-modal-overlay').classList.remove('show');
+    loadWorkspaces();
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+async function resetPassword(workspaceId) {
+  const w = workspaces.find(x => x.id === workspaceId);
+  if (!w) return;
+  if (!confirm(`Réinitialiser le mot de passe de l'administrateur de "${w.name}" ? L'accès actuel sera immédiatement coupé.`)) return;
+
+  try {
+    const result = await fetchJSON(`/api/supadmin/workspaces/${workspaceId}/reset-admin-password`, { method: 'POST' });
+    document.getElementById('reset-modal-body').innerHTML = `
+      <p>Nouveau mot de passe temporaire pour <strong>${escapeHtml(result.emails.join(', '))}</strong> :</p>
+      <div class="temp-password">${escapeHtml(result.temporary_password)}</div>
+      <div class="warning">Ce mot de passe ne sera plus jamais affiché. Transmets-le à l'administrateur concerné — il devra en choisir un nouveau à sa prochaine connexion.</div>
+    `;
+    document.getElementById('reset-modal-overlay').classList.add('show');
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+document.getElementById('reset-close-btn').addEventListener('click', () => {
+  document.getElementById('reset-modal-overlay').classList.remove('show');
+});
+
+document.getElementById('logout-btn').addEventListener('click', async () => {
+  await fetch('/api/supadmin/logout', { method: 'POST' });
+  window.location.href = '/supadmin/login';
+});
+
+loadWorkspaces();
+</script>
+</body>
+</html>
