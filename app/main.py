@@ -1199,6 +1199,8 @@ def supadmin_test_email():
         )
     except system_mail.SystemMailError as exc:
         return jsonify(error=str(exc)), 400
+    except Exception as exc:  # filet de sécurité : jamais de 500 brut sur ce test
+        return jsonify(error=f"Erreur inattendue : {exc}"), 400
     return jsonify(status="ok")
 
 

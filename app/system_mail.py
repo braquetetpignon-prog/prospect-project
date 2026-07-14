@@ -26,23 +26,35 @@ class SystemMailError(Exception):
 
 def _get_config():
     host = os.environ.get("SYSTEM_SMTP_HOST")
-    port = os.environ.get("SYSTEM_SMTP_PORT")
+    port_raw = os.environ.get("SYSTEM_SMTP_PORT")
     username = os.environ.get("SYSTEM_SMTP_USERNAME")
     password = os.environ.get("SYSTEM_SMTP_PASSWORD")
     from_email = os.environ.get("SYSTEM_SMTP_FROM_EMAIL")
-    if not all([host, port, username, password, from_email]):
+    if not all([host, port_raw, username, password, from_email]):
         return None
+    try:
+        port = int(str(port_raw).strip())
+    except ValueError:
+        raise SystemMailError(
+            f"SYSTEM_SMTP_PORT doit être un nombre (ex: 587) — valeur actuelle : {port_raw!r}"
+        )
     return {
-        "host": host,
-        "port": int(port),
-        "username": username,
+        "host": host.strip(),
+        "port": port,
+        "username": username.strip(),
         "password": password,
-        "from_email": from_email,
+        "from_email": from_email.strip(),
     }
 
 
 def is_configured():
-    return _get_config() is not None
+    return all([
+        os.environ.get("SYSTEM_SMTP_HOST"),
+        os.environ.get("SYSTEM_SMTP_PORT"),
+        os.environ.get("SYSTEM_SMTP_USERNAME"),
+        os.environ.get("SYSTEM_SMTP_PASSWORD"),
+        os.environ.get("SYSTEM_SMTP_FROM_EMAIL"),
+    ])
 
 
 def send_system_email(to_email, subject, body):
