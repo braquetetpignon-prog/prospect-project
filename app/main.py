@@ -829,7 +829,10 @@ def prospects_export_csv():
     return Response(
         csv_content,
         mimetype="text/csv",
-        headers={"Content-Disposition": "attachment; filename=prospects.csv"},
+        headers={
+            "Content-Disposition": "attachment; filename=prospects.csv",
+            "Cache-Control": "no-store",
+        },
     )
 
 

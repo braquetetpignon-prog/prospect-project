@@ -172,11 +172,31 @@ async function bulkDelete() {
 
 function updateExportLink() {
   const link = document.getElementById('export-csv-link');
-  link.href = `/api/prospects/export.csv?workspace_id=${workspaceId}`;
-  link.onclick = (e) => {
-    if (currentUser && currentUser.restricted) {
-      e.preventDefault();
-      showToast("Export CSV réservé aux espaces en essai ou payants. Contactez-nous pour passer en version payante.", true);
+  link.href = '#';
+  link.onclick = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`/api/prospects/export.csv?workspace_id=${workspaceId}`, { cache: 'no-store' });
+      if (!res.ok) {
+        let message = "Impossible d'exporter pour le moment.";
+        try {
+          const data = await res.json();
+          if (data && data.error) message = data.error;
+        } catch (parseErr) {}
+        showToast(message, true);
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'prospects.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      showToast("Erreur réseau pendant l'export.", true);
     }
   };
 }
