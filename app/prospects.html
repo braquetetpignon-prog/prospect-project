@@ -18,6 +18,8 @@
   .siret-status.ok { color: #4F6647; }
   .siret-status.warn { color: #A2502E; }
   .modal-wide { max-width: 560px; }
+  .table-scroll { max-height: 640px; overflow-y: auto; }
+  .table-scroll thead th { position: sticky; top: 0; z-index: 1; }
   .rdv-inline { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 16px; display: none; }
   .rdv-inline.show { display: block; }
   .readonly-field { background: var(--cream); color: var(--text-soft); }
@@ -243,25 +245,27 @@ function renderProspects(list) {
   }
   const checkboxHead = canWrite ? `<th class="checkbox-cell"><input type="checkbox" id="select-all-checkbox"></th>` : '';
   container.innerHTML = `
-    <table>
-      <thead><tr>${checkboxHead}<th>Entreprise</th><th>Ville</th><th>Téléphone</th><th>Contact</th><th>Type</th><th>Statut</th></tr></thead>
-      <tbody>
-        ${list.map(p => `
-          <tr class="prospect-row" data-id="${p.id}">
-            ${canWrite ? `<td class="checkbox-cell" onclick="event.stopPropagation()"><input type="checkbox" class="row-checkbox" value="${p.id}"></td>` : ''}
-            <td>
-              <div class="prospect-name">${escapeHtml(p.nom_entreprise)}</div>
-              <div class="prospect-meta">${escapeHtml(p.email || "Pas d'e-mail")}</div>
-            </td>
-            <td>${escapeHtml(p.ville || '—')}</td>
-            <td>${escapeHtml(p.telephone || '—')}</td>
-            <td>${escapeHtml([p.contact_prenom, p.contact_nom].filter(Boolean).join(' ') || '—')}</td>
-            <td>${escapeHtml(p.type_nom || '—')}</td>
-            <td><span class="badge badge-${p.statut}">${statusLabels[p.statut] || p.statut}</span></td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
+    <div class="table-scroll">
+      <table>
+        <thead><tr>${checkboxHead}<th>Entreprise</th><th>Ville</th><th>Téléphone</th><th>Contact</th><th>Type</th><th>Statut</th></tr></thead>
+        <tbody>
+          ${list.map(p => `
+            <tr class="prospect-row" data-id="${p.id}">
+              ${canWrite ? `<td class="checkbox-cell" onclick="event.stopPropagation()"><input type="checkbox" class="row-checkbox" value="${p.id}"></td>` : ''}
+              <td>
+                <div class="prospect-name">${escapeHtml(p.nom_entreprise)}</div>
+                <div class="prospect-meta">${escapeHtml(p.email || "Pas d'e-mail")}</div>
+              </td>
+              <td>${escapeHtml(p.ville || '—')}</td>
+              <td>${escapeHtml(p.telephone || '—')}</td>
+              <td>${escapeHtml([p.contact_prenom, p.contact_nom].filter(Boolean).join(' ') || '—')}</td>
+              <td>${escapeHtml(p.type_nom || '—')}</td>
+              <td><span class="badge badge-${p.statut}">${statusLabels[p.statut] || p.statut}</span></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
   `;
   container.querySelectorAll('.prospect-row').forEach(row => {
     row.addEventListener('click', () => openModal(parseInt(row.dataset.id, 10)));
