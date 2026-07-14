@@ -156,6 +156,26 @@ CREATE TABLE IF NOT EXISTS ia_search_log (
 );
 CREATE INDEX IF NOT EXISTS idx_ia_search_log_workspace_date ON ia_search_log(workspace_id, created_at);
 
+-- Historique des messages envoyés à l'assistant d'aide (pour appliquer un quota
+-- quotidien par espace de travail — même principe que ia_search_log).
+CREATE TABLE IF NOT EXISTS assistant_chat_log (
+    id SERIAL PRIMARY KEY,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_assistant_chat_log_workspace_date ON assistant_chat_log(workspace_id, created_at);
+
+-- Suggestions/idées d'amélioration remontées volontairement par les utilisateurs
+-- depuis l'assistant d'aide. Visibles côté superadmin (/supadmin).
+CREATE TABLE IF NOT EXISTS admin_feedback (
+    id SERIAL PRIMARY KEY,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    workspace_name TEXT,
+    user_email TEXT,
+    message TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Paramètres techniques globaux modifiables sans redéploiement (ex: modèle Gemini
 -- en cas de retrait par Google). Portée globale, pas par espace de travail —
 -- à restreindre à un rôle "super-admin" une fois plusieurs clients réels.

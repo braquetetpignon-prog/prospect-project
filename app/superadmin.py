@@ -442,3 +442,28 @@ def login_as(workspace_id):
         superadmin_id=impersonator_id,
         superadmin_email=impersonator_email,
     )
+
+
+# --- Suggestions remontées par les utilisateurs via l'assistant ------------
+
+def list_feedback(limit=200):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT workspace_name, user_email, message, created_at
+                FROM admin_feedback
+                ORDER BY created_at DESC
+                LIMIT %s
+                """,
+                (limit,),
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    return [
+        {"workspace_name": r[0], "user_email": r[1], "message": r[2], "created_at": r[3]}
+        for r in rows
+    ]

@@ -124,6 +124,41 @@
   #impersonation-banner { border-radius: 14px; padding: 13px 18px; margin-bottom: 22px; background: var(--text); color: var(--white); display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13.5px; font-weight: 600; }
   #impersonation-banner button { background: var(--terracotta); color: var(--white); border: none; border-radius: 999px; padding: 7px 16px; font-weight: 600; font-size: 13px; cursor: pointer; font-family: 'Figtree', sans-serif; }
 
+  #assistant-toggle-btn {
+    position: fixed; bottom: 24px; right: 24px; width: 52px; height: 52px; border-radius: 50%;
+    background: var(--terracotta); color: var(--white); border: none; font-size: 22px; cursor: pointer;
+    box-shadow: 0 8px 20px rgba(53,40,24,0.22); z-index: 100;
+  }
+  #assistant-toggle-btn:hover { background: var(--terracotta-deep); }
+  #assistant-panel {
+    display: none; position: fixed; bottom: 88px; right: 24px; width: 360px; max-width: calc(100vw - 32px);
+    height: 480px; max-height: calc(100vh - 120px); background: var(--white); border-radius: 18px;
+    box-shadow: 0 16px 40px rgba(53,40,24,0.18); z-index: 100; flex-direction: column; overflow: hidden;
+  }
+  #assistant-panel.show { display: flex; }
+  #assistant-header {
+    background: var(--text); color: var(--white); padding: 14px 16px; font-weight: 600; font-size: 14.5px;
+    display: flex; justify-content: space-between; align-items: center; font-family: 'Fraunces', serif;
+  }
+  #assistant-header button { background: none; border: none; color: var(--white); font-size: 16px; cursor: pointer; }
+  #assistant-mode-bar { display: flex; gap: 8px; padding: 10px 14px 0; }
+  .assistant-mode-btn {
+    flex: 1; padding: 7px; border-radius: 999px; border: 1.5px solid var(--border); background: var(--white);
+    color: var(--text-soft); font-size: 12.5px; font-weight: 600; cursor: pointer; font-family: 'Figtree', sans-serif;
+  }
+  .assistant-mode-btn.active { background: var(--terracotta); border-color: var(--terracotta); color: var(--white); }
+  #assistant-messages { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .assistant-msg { max-width: 85%; padding: 9px 13px; border-radius: 14px; font-size: 13.5px; line-height: 1.4; white-space: pre-wrap; }
+  .assistant-msg.user { align-self: flex-end; background: var(--terracotta); color: var(--white); border-bottom-right-radius: 4px; }
+  .assistant-msg.assistant { align-self: flex-start; background: var(--cream); color: var(--text); border-bottom-left-radius: 4px; }
+  .assistant-msg.system { align-self: center; color: var(--text-soft); font-size: 12px; text-align: center; }
+  #assistant-quota { padding: 0 14px; font-size: 11.5px; color: var(--text-soft); }
+  #assistant-input-row { display: flex; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--border); }
+  #assistant-input { flex: 1; resize: none; border-radius: 12px; border: 1.5px solid var(--border); padding: 9px 11px; font-family: 'Figtree', sans-serif; font-size: 13.5px; background: var(--cream); color: var(--text); }
+  #assistant-input:focus { outline: none; border-color: var(--terracotta); }
+  #assistant-send-btn { background: var(--terracotta); color: var(--white); border: none; border-radius: 12px; padding: 0 16px; font-weight: 600; font-size: 13px; cursor: pointer; font-family: 'Figtree', sans-serif; }
+  #assistant-send-btn:disabled { opacity: 0.6; cursor: default; }
+
   @media (max-width: 980px) {
     .shell { grid-template-columns: 1fr; }
     .sidebar { position: sticky; top: 0; flex-direction: row; align-items: center; overflow-x: auto; z-index: 20; }
@@ -186,6 +221,24 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<button id="assistant-toggle-btn" type="button" aria-label="Aide">💬</button>
+<div id="assistant-panel">
+  <div id="assistant-header">
+    <span>Assistant ClickProspect</span>
+    <button id="assistant-close-btn" type="button" aria-label="Fermer">✕</button>
+  </div>
+  <div id="assistant-mode-bar">
+    <button class="assistant-mode-btn active" id="assistant-mode-chat" type="button">Question</button>
+    <button class="assistant-mode-btn" id="assistant-mode-feedback" type="button">Suggestion</button>
+  </div>
+  <div id="assistant-messages"></div>
+  <div id="assistant-quota"></div>
+  <div id="assistant-input-row">
+    <textarea id="assistant-input" rows="2" placeholder="Pose ta question sur ClickProspect…"></textarea>
+    <button id="assistant-send-btn" type="button">Envoyer</button>
+  </div>
+</div>
 
 <script>
 const roleLabels = { admin: 'Administrateur', commercial: 'Commercial', lecture_seule: 'Lecture seule' };
@@ -274,6 +327,105 @@ async function initAuth() {
 }
 
 initAuth();
+
+// --- Assistant d'aide en ligne ---
+
+let assistantHistory = [];
+let assistantMode = 'chat';
+
+function assistantAddMessage(role, text) {
+  const container = document.getElementById('assistant-messages');
+  const div = document.createElement('div');
+  div.className = `assistant-msg ${role}`;
+  div.textContent = text;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+async function assistantRefreshQuota() {
+  try {
+    const q = await fetchJSON('/api/assistant/quota');
+    document.getElementById('assistant-quota').textContent =
+      `${q.remaining} question${q.remaining > 1 ? 's' : ''} restante${q.remaining > 1 ? 's' : ''} aujourd'hui sur ${q.limit}.`;
+  } catch (e) { /* silencieux */ }
+}
+
+function assistantSetMode(mode) {
+  assistantMode = mode;
+  document.getElementById('assistant-mode-chat').classList.toggle('active', mode === 'chat');
+  document.getElementById('assistant-mode-feedback').classList.toggle('active', mode === 'feedback');
+  document.getElementById('assistant-input').placeholder =
+    mode === 'chat' ? 'Pose ta question sur ClickProspect…' : 'Décris ton idée ou ton retour…';
+  document.getElementById('assistant-quota').style.display = mode === 'chat' ? 'block' : 'none';
+}
+
+document.getElementById('assistant-toggle-btn').addEventListener('click', () => {
+  const panel = document.getElementById('assistant-panel');
+  panel.classList.toggle('show');
+  if (panel.classList.contains('show') && !assistantHistory.length) {
+    assistantAddMessage('system', "Pose-moi une question sur l'utilisation de ClickProspect, ou passe en mode Suggestion pour proposer une idée.");
+    assistantRefreshQuota();
+  }
+});
+
+document.getElementById('assistant-close-btn').addEventListener('click', () => {
+  document.getElementById('assistant-panel').classList.remove('show');
+});
+
+document.getElementById('assistant-mode-chat').addEventListener('click', () => assistantSetMode('chat'));
+document.getElementById('assistant-mode-feedback').addEventListener('click', () => assistantSetMode('feedback'));
+
+async function assistantSend() {
+  const input = document.getElementById('assistant-input');
+  const text = input.value.trim();
+  if (!text) return;
+
+  const btn = document.getElementById('assistant-send-btn');
+  btn.disabled = true;
+  input.value = '';
+
+  if (assistantMode === 'feedback') {
+    assistantAddMessage('user', text);
+    try {
+      await fetchJSON('/api/assistant/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text }),
+      });
+      assistantAddMessage('system', 'Merci, ta suggestion a bien été transmise.');
+    } catch (err) {
+      assistantAddMessage('system', `Échec de l'envoi : ${err.message}`);
+    } finally {
+      btn.disabled = false;
+    }
+    return;
+  }
+
+  assistantAddMessage('user', text);
+  assistantHistory.push({ role: 'user', text });
+  try {
+    const data = await fetchJSON('/api/assistant/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text, history: assistantHistory }),
+    });
+    assistantAddMessage('assistant', data.reply);
+    assistantHistory.push({ role: 'assistant', text: data.reply });
+  } catch (err) {
+    assistantAddMessage('system', `Erreur : ${err.message}`);
+  } finally {
+    btn.disabled = false;
+    assistantRefreshQuota();
+  }
+}
+
+document.getElementById('assistant-send-btn').addEventListener('click', assistantSend);
+document.getElementById('assistant-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    assistantSend();
+  }
+});
 
 {% block extra_js %}{% endblock %}
 </script>

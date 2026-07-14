@@ -22,6 +22,7 @@ from app import official_search
 from app import superadmin
 from app import subscriptions
 from app import system_mail
+from app import assistant
 from flask import Response
 
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "schema.sql")
@@ -388,6 +389,59 @@ def ia_search_quota():
     if not workspace_id:
         return jsonify(error="workspace_id requis"), 400
     return jsonify(ia_search.get_quota_status(workspace_id))
+
+
+# --- Assistant d'aide en ligne ------------------------------------------
+# workspace_id vient toujours de la session, jamais d'un paramètre fourni par
+# le client — pas besoin de require_own_workspace ici.
+
+@app.route("/api/assistant/quota")
+@login_required
+def assistant_quota():
+    return jsonify(assistant.get_quota_status(session["workspace_id"]))
+
+
+@app.route("/api/assistant/chat", methods=["POST"])
+@login_required
+def assistant_chat():
+    body = request.get_json(silent=True) or {}
+    message = body.get("message")
+    history = body.get("history") or []
+    if not isinstance(history, list):
+        history = []
+    try:
+        reply = assistant.send_message(session["workspace_id"], history, message)
+    except assistant.AssistantError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(reply=reply)
+
+
+@app.route("/api/assistant/feedback", methods=["POST"])
+@login_required
+def assistant_feedback():
+    body = request.get_json(silent=True) or {}
+    message = body.get("message")
+
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT email FROM users WHERE id = %s", (session["user_id"],))
+            email_row = cur.fetchone()
+            cur.execute("SELECT name FROM workspaces WHERE id = %s", (session["workspace_id"],))
+            workspace_row = cur.fetchone()
+    finally:
+        conn.close()
+
+    try:
+        assistant.submit_feedback(
+            session["workspace_id"],
+            workspace_row[0] if workspace_row else None,
+            email_row[0] if email_row else None,
+            message,
+        )
+    except assistant.AssistantError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(status="ok")
 
 
 @app.route("/api/admin/gemini-model", methods=["GET", "PUT"])
@@ -1186,6 +1240,12 @@ def auth_end_impersonation():
 @superadmin.login_required
 def supadmin_audit_log():
     return jsonify(entries=superadmin.list_audit_log())
+
+
+@app.route("/api/supadmin/feedback")
+@superadmin.login_required
+def supadmin_feedback():
+    return jsonify(entries=superadmin.list_feedback())
 
 
 @app.route("/api/supadmin/db-stats")

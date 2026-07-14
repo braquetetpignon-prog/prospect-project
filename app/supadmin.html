@@ -117,6 +117,16 @@
 
   <div class="panel">
     <div class="panel-head">
+      <h2>Suggestions</h2>
+      <p>Idées et retours envoyés volontairement par les utilisateurs depuis l'assistant d'aide.</p>
+    </div>
+    <div id="feedback-container">
+      <div class="empty-state">Chargement…</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
       <h2>Journal d'audit</h2>
       <p>Historique des actions sensibles effectuées depuis cette console (200 dernières).</p>
     </div>
@@ -532,6 +542,42 @@ function renderAuditLog(entries) {
 loadWorkspaces();
 loadDbStats();
 loadAuditLog();
+loadFeedback();
+
+// --- Suggestions ---
+
+async function loadFeedback() {
+  try {
+    const data = await fetchJSON('/api/supadmin/feedback');
+    renderFeedback(data.entries);
+  } catch (err) {
+    document.getElementById('feedback-container').innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderFeedback(entries) {
+  if (!entries.length) {
+    document.getElementById('feedback-container').innerHTML = `<div class="empty-state">Aucune suggestion pour l'instant.</div>`;
+    return;
+  }
+  document.getElementById('feedback-container').innerHTML = `
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Quand</th><th>Espace</th><th>Utilisateur</th><th>Message</th></tr></thead>
+        <tbody>
+          ${entries.map(e => `
+            <tr>
+              <td class="muted">${formatDateTime(e.created_at)}</td>
+              <td>${escapeHtml(e.workspace_name || '—')}</td>
+              <td>${escapeHtml(e.user_email || '—')}</td>
+              <td>${escapeHtml(e.message)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
 </script>
 </body>
 </html>
