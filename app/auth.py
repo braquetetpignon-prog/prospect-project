@@ -159,6 +159,17 @@ def login(email, password):
     session["must_change_password"] = row[5]
     session.permanent = True
 
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE workspaces SET last_active_at = now(), deletion_requested_at = NULL WHERE id = %s",
+                (row[1],),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
 
 def change_own_password(user_id, current_password, new_password):
     """Changement de mot de passe par l'utilisateur lui-même (depuis Paramètres,

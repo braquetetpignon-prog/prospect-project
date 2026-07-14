@@ -18,23 +18,32 @@
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--cream); color: var(--text); font-family: 'Figtree', sans-serif; }
   h1 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 24px; margin: 0; }
+  h2 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 17px; margin: 0; }
   .topbar { display: flex; justify-content: space-between; align-items: center; padding: 22px 32px; background: var(--text); color: var(--white); }
   .topbar h1 { color: var(--white); font-size: 18px; }
-  .main { padding: 28px 32px 60px; max-width: 1100px; margin: 0 auto; }
+  .main { padding: 28px 32px 60px; max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
   .btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 16px; border-radius: 999px; font-weight: 600; font-size: 13.5px; border: none; cursor: pointer; font-family: 'Figtree', sans-serif; }
   .btn-primary { background: var(--terracotta); color: var(--white); }
   .btn-primary:hover { background: var(--terracotta-deep); }
   .btn-ghost { background: var(--white); color: var(--text); border: 1.5px solid var(--border); }
   .btn-ghost:hover { border-color: var(--text); }
   .btn-dark { background: var(--text); color: var(--white); }
+  .btn-danger { background: #F8E6E0; color: #A2502E; }
+  .btn-danger:hover { background: #F3D9CF; }
+  .btn:disabled { opacity: .5; cursor: default; }
   .panel { background: var(--white); border-radius: 18px; box-shadow: var(--shadow); overflow: hidden; }
+  .panel-head { padding: 18px 22px; border-bottom: 1px solid var(--border); }
+  .panel-head p { margin: 4px 0 0; font-size: 13px; color: var(--text-soft); }
+  .panel-body { padding: 22px; }
   table { width: 100%; border-collapse: collapse; }
   th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-soft); font-weight: 600; padding: 12px 18px; background: var(--cream); }
   td { padding: 14px 18px; border-top: 1px solid var(--border); font-size: 14px; vertical-align: middle; }
+  tr.flagged td { background: #FDF4F0; }
   .badge { font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 999px; white-space: nowrap; }
   .badge-trial { background: #EAF0FF; color: #3454A8; }
   .badge-free { background: #F3E3E3; color: #9B4646; }
   .badge-paid { background: var(--sauge-light); color: #4F6647; }
+  .badge-flagged { background: var(--terracotta); color: var(--white); }
   .muted { color: var(--text-soft); font-size: 12.5px; }
   .row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
   input, select {
@@ -51,6 +60,12 @@
   .temp-password { font-family: monospace; font-size: 18px; font-weight: 700; background: var(--cream); border-radius: 10px; padding: 12px 14px; text-align: center; letter-spacing: 0.03em; margin: 14px 0; user-select: all; }
   .warning { font-size: 12.5px; color: var(--terracotta-deep); background: #FDECE3; border-radius: 10px; padding: 10px 12px; }
   .empty-state { padding: 48px 24px; text-align: center; color: var(--text-soft); }
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 18px; }
+  .stat-card { background: var(--cream); border-radius: 14px; padding: 16px 18px; }
+  .stat-card .value { font-family: 'Fraunces', serif; font-size: 26px; font-weight: 600; }
+  .stat-card .label { font-size: 12.5px; color: var(--text-soft); margin-top: 2px; }
+  .purge-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-top: 1px solid var(--border); }
+  .purge-row:first-of-type { border-top: none; }
 </style>
 </head>
 <body>
@@ -62,7 +77,21 @@
 
 <div class="main">
   <div class="panel">
+    <div class="panel-head">
+      <h2>Espaces de travail</h2>
+      <p>Les lignes surlignées ont été signalées automatiquement pour inactivité prolongée (gratuit, 30 jours+) — à valider ou ignorer manuellement.</p>
+    </div>
     <div id="table-container">
+      <div class="empty-state">Chargement…</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Base de données</h2>
+      <p>Nettoyage des données obsolètes — n'affecte jamais les prospects ni les comptes.</p>
+    </div>
+    <div class="panel-body" id="db-stats-container">
       <div class="empty-state">Chargement…</div>
     </div>
   </div>
@@ -104,9 +133,24 @@
   </div>
 </div>
 
+<!-- Modal : suppression définitive -->
+<div class="modal-overlay" id="delete-modal-overlay">
+  <div class="modal">
+    <h3>Supprimer définitivement cet espace ?</h3>
+    <p class="muted" id="delete-modal-warning"></p>
+    <label for="delete-confirm-input">Tape le nom exact de l'espace pour confirmer</label>
+    <input id="delete-confirm-input" type="text">
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="delete-cancel-btn" type="button">Annuler</button>
+      <button class="btn btn-danger" id="delete-confirm-btn" type="button" disabled>Supprimer définitivement</button>
+    </div>
+  </div>
+</div>
+
 <script>
 let workspaces = [];
 let currentPlanWorkspaceId = null;
+let currentDeleteWorkspaceId = null;
 
 async function fetchJSON(url, options) {
   const res = await fetch(url, options);
@@ -131,17 +175,22 @@ function formatDate(iso) {
   return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
+function formatDateTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' }) +
+    ' à ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+}
+
 const planLabels = { trial: 'Essai', free: 'Gratuit', paid: 'Payant' };
 
 function planEndLabel(w) {
-  if (w.plan_effective === 'trial') {
-    return `Essai jusqu'au ${formatDate(w.trial_ends_at)}`;
-  }
-  if (w.plan_effective === 'paid') {
-    return `Payant jusqu'au ${formatDate(w.paid_until)}`;
-  }
+  if (w.plan_effective === 'trial') return `Essai jusqu'au ${formatDate(w.trial_ends_at)}`;
+  if (w.plan_effective === 'paid') return `Payant jusqu'au ${formatDate(w.paid_until)}`;
   return 'Gratuit (restreint)';
 }
+
+// --- Espaces de travail ---
 
 async function loadWorkspaces() {
   try {
@@ -160,14 +209,18 @@ function renderTable() {
   }
   document.getElementById('table-container').innerHTML = `
     <table>
-      <thead><tr><th>Espace</th><th>Admin</th><th>Membres</th><th>Créé le</th><th>Statut</th><th></th></tr></thead>
+      <thead><tr><th>Espace</th><th>Admin</th><th>Membres</th><th>Créé le</th><th>Dernière activité</th><th>Statut</th><th></th></tr></thead>
       <tbody>
         ${workspaces.map(w => `
-          <tr>
-            <td><strong>${escapeHtml(w.name)}</strong></td>
+          <tr class="${w.deletion_requested_at ? 'flagged' : ''}">
+            <td>
+              <strong>${escapeHtml(w.name)}</strong>
+              ${w.deletion_requested_at ? `<div><span class="badge badge-flagged">Suppression demandée</span></div>` : ''}
+            </td>
             <td>${escapeHtml(w.admin_email || '—')}</td>
             <td>${w.member_count}</td>
             <td class="muted">${formatDate(w.created_at)}</td>
+            <td class="muted">${formatDateTime(w.last_active_at)}</td>
             <td>
               <span class="badge badge-${w.plan_effective}">${planLabels[w.plan_effective]}</span>
               <div class="muted" style="margin-top:4px;">${planEndLabel(w)}</div>
@@ -176,6 +229,8 @@ function renderTable() {
               <div class="row-actions">
                 <button class="btn btn-ghost" data-action="plan" data-id="${w.id}">Abonnement</button>
                 <button class="btn btn-ghost" data-action="reset" data-id="${w.id}">Réinit. mot de passe</button>
+                ${w.deletion_requested_at ? `<button class="btn btn-ghost" data-action="dismiss" data-id="${w.id}">Ignorer la demande</button>` : ''}
+                <button class="btn btn-danger" data-action="delete" data-id="${w.id}">Supprimer</button>
               </div>
             </td>
           </tr>
@@ -189,6 +244,12 @@ function renderTable() {
   });
   document.querySelectorAll('[data-action="reset"]').forEach(btn => {
     btn.addEventListener('click', () => resetPassword(parseInt(btn.dataset.id, 10)));
+  });
+  document.querySelectorAll('[data-action="dismiss"]').forEach(btn => {
+    btn.addEventListener('click', () => dismissDeletion(parseInt(btn.dataset.id, 10)));
+  });
+  document.querySelectorAll('[data-action="delete"]').forEach(btn => {
+    btn.addEventListener('click', () => openDeleteModal(parseInt(btn.dataset.id, 10)));
   });
 }
 
@@ -253,12 +314,104 @@ document.getElementById('reset-close-btn').addEventListener('click', () => {
   document.getElementById('reset-modal-overlay').classList.remove('show');
 });
 
+async function dismissDeletion(workspaceId) {
+  try {
+    await fetchJSON(`/api/supadmin/workspaces/${workspaceId}/dismiss-deletion`, { method: 'POST' });
+    loadWorkspaces();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+function openDeleteModal(workspaceId) {
+  const w = workspaces.find(x => x.id === workspaceId);
+  if (!w) return;
+  currentDeleteWorkspaceId = workspaceId;
+  document.getElementById('delete-modal-warning').textContent =
+    `Toutes les données de "${w.name}" (prospects, campagnes, rendez-vous...) seront supprimées définitivement. Cette action est irréversible.`;
+  document.getElementById('delete-confirm-input').value = '';
+  document.getElementById('delete-confirm-input').dataset.expected = w.name;
+  document.getElementById('delete-confirm-btn').disabled = true;
+  document.getElementById('delete-modal-overlay').classList.add('show');
+}
+
+document.getElementById('delete-confirm-input').addEventListener('input', (e) => {
+  document.getElementById('delete-confirm-btn').disabled = e.target.value !== e.target.dataset.expected;
+});
+
+document.getElementById('delete-cancel-btn').addEventListener('click', () => {
+  document.getElementById('delete-modal-overlay').classList.remove('show');
+});
+
+document.getElementById('delete-confirm-btn').addEventListener('click', async () => {
+  try {
+    await fetchJSON(`/api/supadmin/workspaces/${currentDeleteWorkspaceId}`, { method: 'DELETE' });
+    document.getElementById('delete-modal-overlay').classList.remove('show');
+    loadWorkspaces();
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+// --- Base de données ---
+
+async function loadDbStats() {
+  try {
+    const stats = await fetchJSON('/api/supadmin/db-stats');
+    renderDbStats(stats);
+  } catch (err) {
+    document.getElementById('db-stats-container').innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderDbStats(stats) {
+  document.getElementById('db-stats-container').innerHTML = `
+    <div class="stats-grid">
+      <div class="stat-card"><div class="value">${stats.workspace_count}</div><div class="label">Espaces de travail</div></div>
+      <div class="stat-card"><div class="value">${stats.prospect_count}</div><div class="label">Prospects au total</div></div>
+    </div>
+    <div class="purge-row">
+      <div>
+        <strong>Recherches IA planifiées jamais vérifiées</strong>
+        <div class="muted">${stats.stale_scheduled_results} résultat(s) de plus de 30 jours, jamais relus</div>
+      </div>
+      <button class="btn btn-ghost" id="purge-scheduled-btn" ${stats.stale_scheduled_results === 0 ? 'disabled' : ''}>Purger</button>
+    </div>
+    <div class="purge-row">
+      <div>
+        <strong>Imports CSV abandonnés</strong>
+        <div class="muted">${stats.abandoned_import_jobs} import(s) commencé(s) puis jamais confirmé(s) (24h+)</div>
+      </div>
+      <button class="btn btn-ghost" id="purge-imports-btn" ${stats.abandoned_import_jobs === 0 ? 'disabled' : ''}>Purger</button>
+    </div>
+  `;
+
+  document.getElementById('purge-scheduled-btn')?.addEventListener('click', () => purge('scheduled_search_results', stats.stale_scheduled_results));
+  document.getElementById('purge-imports-btn')?.addEventListener('click', () => purge('import_jobs', stats.abandoned_import_jobs));
+}
+
+async function purge(target, count) {
+  if (!confirm(`Supprimer définitivement ces ${count} entrée(s) obsolète(s) ? Cette action est irréversible.`)) return;
+  try {
+    const result = await fetchJSON('/api/supadmin/purge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target }),
+    });
+    alert(`${result.deleted_count} entrée(s) supprimée(s).`);
+    loadDbStats();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
 document.getElementById('logout-btn').addEventListener('click', async () => {
   await fetch('/api/supadmin/logout', { method: 'POST' });
   window.location.href = '/supadmin/login';
 });
 
 loadWorkspaces();
+loadDbStats();
 </script>
 </body>
 </html>

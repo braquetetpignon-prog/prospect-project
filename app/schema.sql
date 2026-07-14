@@ -25,6 +25,13 @@ CREATE TABLE IF NOT EXISTS workspaces (
 ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'trial';
 ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMPTZ;
 ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS paid_until TIMESTAMPTZ;
+-- Dernière connexion d'un membre de l'équipe (mise à jour à chaque login) — sert
+-- à détecter l'inactivité prolongée d'un espace en version gratuite.
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMPTZ NOT NULL DEFAULT now();
+-- Renseigné automatiquement par la tâche quotidienne (30j d'inactivité + gratuit) :
+-- l'espace apparaît alors dans la file de validation du superadmin, qui décide de
+-- supprimer ou d'ignorer — jamais de suppression automatique sans validation humaine.
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS deletion_requested_at TIMESTAMPTZ;
 
 -- Comptes superadmin — totalement séparés des comptes utilisateurs normaux (table
 -- 'users'), qui sont eux toujours rattachés à un espace de travail. Un superadmin

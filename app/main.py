@@ -1138,6 +1138,46 @@ def supadmin_reset_password(workspace_id):
     return jsonify(result)
 
 
+@app.route("/api/supadmin/workspaces/<int:workspace_id>", methods=["DELETE"])
+@superadmin.login_required
+def supadmin_delete_workspace(workspace_id):
+    try:
+        superadmin.delete_workspace(workspace_id)
+    except superadmin.SuperadminError as exc:
+        return jsonify(error=str(exc)), 404
+    return jsonify(status="ok")
+
+
+@app.route("/api/supadmin/workspaces/<int:workspace_id>/dismiss-deletion", methods=["POST"])
+@superadmin.login_required
+def supadmin_dismiss_deletion(workspace_id):
+    try:
+        superadmin.dismiss_deletion_request(workspace_id)
+    except superadmin.SuperadminError as exc:
+        return jsonify(error=str(exc)), 404
+    return jsonify(status="ok")
+
+
+@app.route("/api/supadmin/db-stats")
+@superadmin.login_required
+def supadmin_db_stats():
+    return jsonify(superadmin.get_db_stats())
+
+
+@app.route("/api/supadmin/purge", methods=["POST"])
+@superadmin.login_required
+def supadmin_purge():
+    body = request.get_json(silent=True) or {}
+    target = body.get("target")
+    if target == "scheduled_search_results":
+        count = superadmin.purge_stale_scheduled_results()
+    elif target == "import_jobs":
+        count = superadmin.purge_abandoned_import_jobs()
+    else:
+        return jsonify(error="Cible de purge invalide."), 400
+    return jsonify(status="ok", deleted_count=count)
+
+
 init_db()
 superadmin.ensure_bootstrap_superadmin()
 scheduler.start()

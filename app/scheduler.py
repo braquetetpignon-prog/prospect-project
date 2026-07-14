@@ -12,6 +12,7 @@ import time
 
 from app import sending
 from app import ia_search
+from app import lifecycle
 
 SCHEDULER_INTERVAL_SECONDS = int(os.environ.get("SCHEDULER_INTERVAL_SECONDS", "30"))
 _started = False
@@ -28,6 +29,10 @@ def _loop():
             pass
         try:
             ia_search.run_due_scheduled_searches()
+        except Exception:
+            pass
+        try:
+            lifecycle.run_daily_maintenance()
         except Exception:
             pass
         time.sleep(SCHEDULER_INTERVAL_SECONDS)
