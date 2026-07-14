@@ -153,6 +153,7 @@ def login(email, password):
         raise AuthError("Ce compte a été désactivé.")
 
     session.pop("superadmin_id", None)
+    session.pop("impersonation_superadmin_id", None)
     session["user_id"] = row[0]
     session["workspace_id"] = row[1]
     session["role"] = row[3]

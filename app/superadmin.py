@@ -49,7 +49,7 @@ def login(email, password):
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, password_hash FROM superadmins WHERE email = %s",
+                "SELECT id, password_hash, email FROM superadmins WHERE email = %s",
                 (email.lower().strip(),),
             )
             row = cur.fetchone()
@@ -61,6 +61,7 @@ def login(email, password):
 
     session.clear()
     session["superadmin_id"] = row[0]
+    session["superadmin_email"] = row[2]
     session.permanent = True
 
 
@@ -79,6 +80,70 @@ def login_required(f):
             return jsonify(error="Authentification superadmin requise."), 401
         return f(*args, **kwargs)
     return wrapper
+
+
+def _log_action(action, workspace_id=None, workspace_name=None, details=None,
+                 superadmin_id=None, superadmin_email=None):
+    """Trace toute action sensible effectuée depuis /supadmin. Volontairement
+    tolérant : un souci d'écriture du journal ne doit jamais faire échouer
+    l'action elle-même (mieux vaut une action réussie sans trace qu'une
+    action refusée à cause du journal).
+
+    superadmin_id/superadmin_email peuvent être passés explicitement quand
+    l'appelant a déjà modifié la session (ex: login_as, qui bascule sur une
+    session utilisateur normale avant de journaliser) — sinon, lus depuis la
+    session courante."""
+    if superadmin_id is None:
+        superadmin_id = current_superadmin_id()
+    if superadmin_email is None:
+        superadmin_email = session.get("superadmin_email", "?")
+    try:
+        conn = get_db()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO superadmin_audit_log
+                        (superadmin_id, superadmin_email, action, workspace_id, workspace_name, details)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (superadmin_id, superadmin_email, action, workspace_id, workspace_name, details),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+
+def list_audit_log(limit=200):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT superadmin_email, action, workspace_id, workspace_name, details, created_at
+                FROM superadmin_audit_log
+                ORDER BY created_at DESC
+                LIMIT %s
+                """,
+                (limit,),
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    return [
+        {
+            "superadmin_email": r[0],
+            "action": r[1],
+            "workspace_id": r[2],
+            "workspace_name": r[3],
+            "details": r[4],
+            "created_at": r[5],
+        }
+        for r in rows
+    ]
 
 
 # --- Gestion des espaces de travail ----------------------------------------
@@ -133,17 +198,17 @@ def set_plan(workspace_id, plan, paid_until=None):
         with conn.cursor() as cur:
             if plan == "trial":
                 cur.execute(
-                    "UPDATE workspaces SET plan = 'trial', trial_ends_at = %s, paid_until = NULL WHERE id = %s RETURNING id",
+                    "UPDATE workspaces SET plan = 'trial', trial_ends_at = %s, paid_until = NULL WHERE id = %s RETURNING id, name",
                     (subscriptions.trial_end_date(), workspace_id),
                 )
             elif plan == "paid":
                 cur.execute(
-                    "UPDATE workspaces SET plan = 'paid', paid_until = %s WHERE id = %s RETURNING id",
+                    "UPDATE workspaces SET plan = 'paid', paid_until = %s WHERE id = %s RETURNING id, name",
                     (paid_until, workspace_id),
                 )
             else:  # free
                 cur.execute(
-                    "UPDATE workspaces SET plan = 'free', paid_until = NULL WHERE id = %s RETURNING id",
+                    "UPDATE workspaces SET plan = 'free', paid_until = NULL WHERE id = %s RETURNING id, name",
                     (workspace_id,),
                 )
             updated = cur.fetchone()
@@ -152,6 +217,13 @@ def set_plan(workspace_id, plan, paid_until=None):
             raise SuperadminError("Espace de travail introuvable.")
     finally:
         conn.close()
+
+    _log_action(
+        "set_plan",
+        workspace_id=workspace_id,
+        workspace_name=updated[1],
+        details=f"Nouveau statut : {plan}" + (f" jusqu'au {paid_until}" if plan == "paid" else ""),
+    )
 
 
 def reset_workspace_admin_password(workspace_id):
@@ -172,12 +244,22 @@ def reset_workspace_admin_password(workspace_id):
                 (generate_password_hash(temp_password), workspace_id),
             )
             updated = cur.fetchall()
+            cur.execute("SELECT name FROM workspaces WHERE id = %s", (workspace_id,))
+            name_row = cur.fetchone()
         conn.commit()
         if not updated:
             raise SuperadminError("Aucun administrateur trouvé pour cet espace de travail.")
-        return {"emails": [r[0] for r in updated], "temporary_password": temp_password}
     finally:
         conn.close()
+
+    emails = [r[0] for r in updated]
+    _log_action(
+        "reset_admin_password",
+        workspace_id=workspace_id,
+        workspace_name=name_row[0] if name_row else None,
+        details=f"Mot de passe réinitialisé pour : {', '.join(emails)}",
+    )
+    return {"emails": emails, "temporary_password": temp_password}
 
 
 def delete_workspace(workspace_id):
@@ -188,13 +270,15 @@ def delete_workspace(workspace_id):
     conn = get_db()
     try:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM workspaces WHERE id = %s RETURNING id", (workspace_id,))
+            cur.execute("DELETE FROM workspaces WHERE id = %s RETURNING id, name", (workspace_id,))
             deleted = cur.fetchone()
         conn.commit()
         if not deleted:
             raise SuperadminError("Espace de travail introuvable.")
     finally:
         conn.close()
+
+    _log_action("delete_workspace", workspace_id=workspace_id, workspace_name=deleted[1])
 
 
 def dismiss_deletion_request(workspace_id):
@@ -203,7 +287,7 @@ def dismiss_deletion_request(workspace_id):
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE workspaces SET deletion_requested_at = NULL WHERE id = %s RETURNING id",
+                "UPDATE workspaces SET deletion_requested_at = NULL WHERE id = %s RETURNING id, name",
                 (workspace_id,),
             )
             updated = cur.fetchone()
@@ -212,6 +296,8 @@ def dismiss_deletion_request(workspace_id):
             raise SuperadminError("Espace de travail introuvable.")
     finally:
         conn.close()
+
+    _log_action("dismiss_deletion_request", workspace_id=workspace_id, workspace_name=updated[1])
 
 
 # --- Base de données : état et purge (données obsolètes, jamais les prospects) ---
@@ -274,7 +360,9 @@ def purge_stale_scheduled_results():
             )
             deleted = cur.fetchall()
         conn.commit()
-        return len(deleted)
+        count = len(deleted)
+        _log_action("purge_scheduled_search_results", details=f"{count} entrée(s) supprimée(s)")
+        return count
     finally:
         conn.close()
 
@@ -299,6 +387,58 @@ def purge_abandoned_import_jobs():
             )
             deleted = cur.fetchall()
         conn.commit()
-        return len(deleted)
+        count = len(deleted)
+        _log_action("purge_import_jobs", details=f"{count} entrée(s) supprimée(s)")
+        return count
     finally:
         conn.close()
+
+
+# --- Dépannage : se connecter en tant qu'administrateur d'un espace --------
+
+def login_as(workspace_id):
+    """Ouvre une session utilisateur normale sur le compte admin de cet espace,
+    pour dépanner un client sans jamais connaître ni changer son mot de passe.
+    Systématiquement journalisé — c'est l'action la plus sensible de la console.
+    La session garde une marque discrète (impersonation_superadmin_id) pour que
+    l'app affiche un bandeau "vue superadmin" pendant toute la durée de la visite.
+    """
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT u.id, u.role, u.email, w.name
+                FROM users u JOIN workspaces w ON w.id = u.workspace_id
+                WHERE u.workspace_id = %s AND u.role = 'admin'
+                ORDER BY u.created_at LIMIT 1
+                """,
+                (workspace_id,),
+            )
+            row = cur.fetchone()
+    finally:
+        conn.close()
+
+    if not row:
+        raise SuperadminError("Aucun administrateur trouvé pour cet espace de travail.")
+
+    user_id, role, email, workspace_name = row
+    impersonator_id = current_superadmin_id()
+    impersonator_email = session.get("superadmin_email", "?")
+
+    session.clear()
+    session["user_id"] = user_id
+    session["workspace_id"] = workspace_id
+    session["role"] = role
+    session["must_change_password"] = False
+    session["impersonation_superadmin_id"] = impersonator_id
+    session.permanent = True
+
+    _log_action(
+        "login_as",
+        workspace_id=workspace_id,
+        workspace_name=workspace_name,
+        details=f"Connecté en tant que {email}",
+        superadmin_id=impersonator_id,
+        superadmin_email=impersonator_email,
+    )

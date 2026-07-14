@@ -66,6 +66,8 @@
   .stat-card .label { font-size: 12.5px; color: var(--text-soft); margin-top: 2px; }
   .purge-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-top: 1px solid var(--border); }
   .purge-row:first-of-type { border-top: none; }
+  .table-scroll { max-height: 480px; overflow-y: auto; }
+  .table-scroll thead th { position: sticky; top: 0; z-index: 1; }
 </style>
 </head>
 <body>
@@ -110,6 +112,16 @@
         <button class="btn btn-primary" id="test-email-btn" type="button">Envoyer</button>
       </div>
       <div id="test-email-result" class="muted" style="margin-top:10px;"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Journal d'audit</h2>
+      <p>Historique des actions sensibles effectuées depuis cette console (200 dernières).</p>
+    </div>
+    <div id="audit-log-container">
+      <div class="empty-state">Chargement…</div>
     </div>
   </div>
 </div>
@@ -246,6 +258,7 @@ function renderTable() {
               <div class="row-actions">
                 <button class="btn btn-ghost" data-action="plan" data-id="${w.id}">Abonnement</button>
                 <button class="btn btn-ghost" data-action="reset" data-id="${w.id}">Réinit. mot de passe</button>
+                ${w.admin_email ? `<button class="btn btn-ghost" data-action="login-as" data-id="${w.id}">Se connecter en tant que</button>` : ''}
                 ${w.deletion_requested_at ? `<button class="btn btn-ghost" data-action="dismiss" data-id="${w.id}">Ignorer la demande</button>` : ''}
                 <button class="btn btn-danger" data-action="delete" data-id="${w.id}">Supprimer</button>
               </div>
@@ -262,12 +275,27 @@ function renderTable() {
   document.querySelectorAll('[data-action="reset"]').forEach(btn => {
     btn.addEventListener('click', () => resetPassword(parseInt(btn.dataset.id, 10)));
   });
+  document.querySelectorAll('[data-action="login-as"]').forEach(btn => {
+    btn.addEventListener('click', () => loginAs(parseInt(btn.dataset.id, 10)));
+  });
   document.querySelectorAll('[data-action="dismiss"]').forEach(btn => {
     btn.addEventListener('click', () => dismissDeletion(parseInt(btn.dataset.id, 10)));
   });
   document.querySelectorAll('[data-action="delete"]').forEach(btn => {
     btn.addEventListener('click', () => openDeleteModal(parseInt(btn.dataset.id, 10)));
   });
+}
+
+async function loginAs(workspaceId) {
+  const w = workspaces.find(x => x.id === workspaceId);
+  if (!w) return;
+  if (!confirm(`Te connecter en tant qu'administrateur de "${w.name}" (${w.admin_email}) ? Cette action est journalisée.`)) return;
+  try {
+    await fetchJSON(`/api/supadmin/workspaces/${workspaceId}/login-as`, { method: 'POST' });
+    window.location.href = '/dashboard';
+  } catch (err) {
+    alert(err.message);
+  }
 }
 
 function openPlanModal(workspaceId) {
@@ -455,8 +483,55 @@ document.getElementById('logout-btn').addEventListener('click', async () => {
   window.location.href = '/supadmin/login';
 });
 
+// --- Journal d'audit ---
+
+const actionLabels = {
+  set_plan: "Changement d'abonnement",
+  reset_admin_password: "Réinitialisation de mot de passe",
+  delete_workspace: "Suppression d'espace",
+  dismiss_deletion_request: "Demande de suppression ignorée",
+  purge_scheduled_search_results: "Purge — recherches IA planifiées",
+  purge_import_jobs: "Purge — imports CSV abandonnés",
+  login_as: "Connexion en tant que",
+};
+
+async function loadAuditLog() {
+  try {
+    const data = await fetchJSON('/api/supadmin/audit-log');
+    renderAuditLog(data.entries);
+  } catch (err) {
+    document.getElementById('audit-log-container').innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderAuditLog(entries) {
+  if (!entries.length) {
+    document.getElementById('audit-log-container').innerHTML = `<div class="empty-state">Aucune action journalisée pour l'instant.</div>`;
+    return;
+  }
+  document.getElementById('audit-log-container').innerHTML = `
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Quand</th><th>Qui</th><th>Action</th><th>Espace</th><th>Détail</th></tr></thead>
+        <tbody>
+          ${entries.map(e => `
+            <tr>
+              <td class="muted">${formatDateTime(e.created_at)}</td>
+              <td>${escapeHtml(e.superadmin_email)}</td>
+              <td>${escapeHtml(actionLabels[e.action] || e.action)}</td>
+              <td>${escapeHtml(e.workspace_name || '—')}</td>
+              <td class="muted">${escapeHtml(e.details || '—')}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
 loadWorkspaces();
 loadDbStats();
+loadAuditLog();
 </script>
 </body>
 </html>

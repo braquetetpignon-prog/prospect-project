@@ -121,6 +121,8 @@
   #plan-banner { border-radius: 14px; padding: 13px 18px; font-size: 13.5px; font-weight: 600; margin-bottom: 22px; }
   #plan-banner.trial { background: #EAF0FF; color: #3454A8; }
   #plan-banner.free { background: #FDECE3; color: var(--terracotta-deep); }
+  #impersonation-banner { border-radius: 14px; padding: 13px 18px; margin-bottom: 22px; background: var(--text); color: var(--white); display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13.5px; font-weight: 600; }
+  #impersonation-banner button { background: var(--terracotta); color: var(--white); border: none; border-radius: 999px; padding: 7px 16px; font-weight: 600; font-size: 13px; cursor: pointer; font-family: 'Figtree', sans-serif; }
 
   @media (max-width: 980px) {
     .shell { grid-template-columns: 1fr; }
@@ -177,6 +179,7 @@
   </aside>
 
   <main class="main">
+    <div id="impersonation-banner" style="display:none;"></div>
     <div id="plan-banner" style="display:none;"></div>
     {% block content %}{% endblock %}
   </main>
@@ -234,6 +237,21 @@ async function initAuth() {
   currentUser = me;
   document.getElementById('workspace-name-display').textContent = me.workspace_name;
   document.getElementById('user-role-display').textContent = `${me.email} · ${roleLabels[me.role] || me.role}`;
+
+  const impBanner = document.getElementById('impersonation-banner');
+  if (me.impersonating) {
+    impBanner.innerHTML = `<span>Vue superadmin — connecté en tant que ${me.email} (${me.workspace_name})</span>`;
+    const btn = document.createElement('button');
+    btn.textContent = 'Quitter cette vue';
+    btn.addEventListener('click', async () => {
+      await fetchJSON('/api/auth/end-impersonation', { method: 'POST' });
+      window.location.href = '/supadmin/login';
+    });
+    impBanner.appendChild(btn);
+    impBanner.style.display = 'flex';
+  } else {
+    impBanner.style.display = 'none';
+  }
 
   const banner = document.getElementById('plan-banner');
   if (me.plan_effective === 'trial') {

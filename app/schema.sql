@@ -47,6 +47,21 @@ CREATE TABLE IF NOT EXISTS superadmins (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Journal des actions sensibles effectuées depuis /supadmin. superadmin_id référence
+-- superadmins, mais SET NULL si le compte est supprimé un jour — l'historique reste
+-- lisible grâce à superadmin_email (dénormalisé). Idem pour workspace_id/workspace_name :
+-- l'action doit rester traçable même après suppression définitive de l'espace concerné.
+CREATE TABLE IF NOT EXISTS superadmin_audit_log (
+    id SERIAL PRIMARY KEY,
+    superadmin_id INTEGER REFERENCES superadmins(id) ON DELETE SET NULL,
+    superadmin_email TEXT NOT NULL,
+    action TEXT NOT NULL,
+    workspace_id INTEGER,
+    workspace_name TEXT,
+    details TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Utilisateurs rattachés à un espace de travail
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,

@@ -216,6 +216,7 @@ def auth_me():
         plan_effective=sub.get("plan_effective"),
         trial_days_left=sub.get("trial_days_left"),
         restricted=sub.get("restricted", False),
+        impersonating=bool(session.get("impersonation_superadmin_id")),
     )
 
 
@@ -1160,6 +1161,31 @@ def supadmin_dismiss_deletion(workspace_id):
     except superadmin.SuperadminError as exc:
         return jsonify(error=str(exc)), 404
     return jsonify(status="ok")
+
+
+@app.route("/api/supadmin/workspaces/<int:workspace_id>/login-as", methods=["POST"])
+@superadmin.login_required
+def supadmin_login_as(workspace_id):
+    try:
+        superadmin.login_as(workspace_id)
+    except superadmin.SuperadminError as exc:
+        return jsonify(error=str(exc)), 404
+    return jsonify(status="ok")
+
+
+@app.route("/api/auth/end-impersonation", methods=["POST"])
+@login_required
+def auth_end_impersonation():
+    if not session.get("impersonation_superadmin_id"):
+        return jsonify(error="Aucune session de dépannage en cours."), 400
+    session.clear()
+    return jsonify(status="ok")
+
+
+@app.route("/api/supadmin/audit-log")
+@superadmin.login_required
+def supadmin_audit_log():
+    return jsonify(entries=superadmin.list_audit_log())
 
 
 @app.route("/api/supadmin/db-stats")
