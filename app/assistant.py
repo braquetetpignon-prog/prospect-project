@@ -11,6 +11,8 @@ assistant_chat_log, même principe que ia_search_log pour la Recherche IA).
 """
 import os
 
+import time
+
 import requests
 
 from app.db import get_db
@@ -18,7 +20,8 @@ from app.db import get_db
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 DEFAULT_MODEL = "gemini-3.5-flash"
 DAILY_QUOTA = 20
-REQUEST_TIMEOUT = 30
+REQUEST_TIMEOUT = 45
+RETRY_DELAY_SECONDS = 2
 GENERATE_URL_TEMPLATE = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 # Limite la conversation envoyée à chaque appel (évite un prompt qui grossit
@@ -109,6 +112,18 @@ def get_current_model():
         conn.close()
 
 
+def _call_gemini(model, body):
+    """Un seul essai. Les erreurs transitoires (timeout, 503 surchargé) sont
+    retentées une fois par l'appelant plutôt qu'ici, pour garder cette fonction
+    simple à tester."""
+    return requests.post(
+        GENERATE_URL_TEMPLATE.format(model=model),
+        headers={"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY},
+        json=body,
+        timeout=REQUEST_TIMEOUT,
+    )
+
+
 def send_message(workspace_id, history, message):
     """history : liste de {"role": "user"|"assistant", "text": "..."} — les tours
     précédents de LA conversation en cours (gardés côté client, pas en base).
@@ -141,15 +156,24 @@ def send_message(workspace_id, history, message):
 
     _log_message(workspace_id)  # compte dans le quota même en cas d'échec ci-dessous
 
-    try:
-        resp = requests.post(
-            GENERATE_URL_TEMPLATE.format(model=model),
-            headers={"Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY},
-            json=body,
-            timeout=REQUEST_TIMEOUT,
-        )
-    except requests.RequestException as exc:
-        raise AssistantError(f"Erreur réseau vers l'assistant : {exc}") from exc
+    # Une seule nouvelle tentative, uniquement pour les soucis transitoires
+    # (timeout réseau ou 503 "surchargé" côté Google) — pas pour une vraie
+    # erreur (mauvaise clé, modèle introuvable...), qui échouerait pareil deux fois.
+    last_exc = None
+    resp = None
+    for attempt in range(2):
+        try:
+            resp = _call_gemini(model, body)
+            if resp.status_code != 503:
+                break
+        except requests.RequestException as exc:
+            last_exc = exc
+            resp = None
+        if attempt == 0:
+            time.sleep(RETRY_DELAY_SECONDS)
+
+    if resp is None:
+        raise AssistantError(f"Erreur réseau vers l'assistant : {last_exc}") from last_exc
 
     if resp.status_code == 429:
         raise AssistantError("Quota atteint au niveau du compte Google (palier gratuit global). Réessayez plus tard.")
@@ -157,6 +181,10 @@ def send_message(workspace_id, history, message):
         raise AssistantError(
             f"Le modèle configuré ({model}) n'est plus disponible chez Google. "
             f"Un administrateur peut le changer depuis Paramètres."
+        )
+    if resp.status_code == 503:
+        raise AssistantError(
+            "Le modèle est momentanément surchargé côté Google (pic de demande temporaire) — réessayez dans quelques instants."
         )
     if resp.status_code >= 400:
         raise AssistantError(f"Erreur assistant ({resp.status_code}) : {resp.text[:300]}")
