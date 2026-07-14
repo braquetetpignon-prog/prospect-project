@@ -95,6 +95,23 @@
       <div class="empty-state">Chargement…</div>
     </div>
   </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <h2>E-mail système</h2>
+      <p>Vérifie que SYSTEM_SMTP_* est bien configuré (alertes d'inactivité, futures annonces) sans toucher à un vrai espace client.</p>
+    </div>
+    <div class="panel-body">
+      <div style="display:flex; gap:10px; align-items:flex-end;">
+        <div style="flex:1;">
+          <label for="test-email-input">Envoyer un e-mail de test à</label>
+          <input id="test-email-input" type="email" placeholder="toi@exemple.fr">
+        </div>
+        <button class="btn btn-primary" id="test-email-btn" type="button">Envoyer</button>
+      </div>
+      <div id="test-email-result" class="muted" style="margin-top:10px;"></div>
+    </div>
+  </div>
 </div>
 
 <!-- Modal : changer l'abonnement -->
@@ -404,6 +421,34 @@ async function purge(target, count) {
     alert(err.message);
   }
 }
+
+// --- E-mail système ---
+
+document.getElementById('test-email-btn').addEventListener('click', async () => {
+  const input = document.getElementById('test-email-input');
+  const resultBox = document.getElementById('test-email-result');
+  const btn = document.getElementById('test-email-btn');
+  if (!input.value.trim()) {
+    resultBox.textContent = 'Indique une adresse e-mail.';
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'Envoi…';
+  resultBox.textContent = '';
+  try {
+    await fetchJSON('/api/supadmin/test-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to_email: input.value.trim() }),
+    });
+    resultBox.textContent = `E-mail envoyé à ${input.value.trim()} — vérifie sa boîte de réception (et les spams).`;
+  } catch (err) {
+    resultBox.textContent = `Échec : ${err.message}`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Envoyer';
+  }
+});
 
 document.getElementById('logout-btn').addEventListener('click', async () => {
   await fetch('/api/supadmin/logout', { method: 'POST' });

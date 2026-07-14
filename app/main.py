@@ -21,6 +21,7 @@ from app import rendez_vous
 from app import official_search
 from app import superadmin
 from app import subscriptions
+from app import system_mail
 from flask import Response
 
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "schema.sql")
@@ -1176,6 +1177,29 @@ def supadmin_purge():
     else:
         return jsonify(error="Cible de purge invalide."), 400
     return jsonify(status="ok", deleted_count=count)
+
+
+@app.route("/api/supadmin/test-email", methods=["POST"])
+@superadmin.login_required
+def supadmin_test_email():
+    body = request.get_json(silent=True) or {}
+    to_email = (body.get("to_email") or "").strip()
+    if not to_email:
+        return jsonify(error="Adresse e-mail requise."), 400
+    if not system_mail.is_configured():
+        return jsonify(error=(
+            "SYSTEM_SMTP_* n'est pas configuré (ou incomplet) sur le serveur. "
+            "Vérifie les 5 variables sur Coolify puis redéploie."
+        )), 400
+    try:
+        system_mail.send_system_email(
+            to_email,
+            "Test — ClickProspect",
+            "Ceci est un e-mail de test envoyé depuis la console superadmin. Si tu le reçois, la configuration SYSTEM_SMTP_* fonctionne.",
+        )
+    except system_mail.SystemMailError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(status="ok")
 
 
 init_db()
