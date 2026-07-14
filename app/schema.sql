@@ -222,6 +222,11 @@ CREATE TABLE IF NOT EXISTS smtp_configs (
     from_email TEXT NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Une configuration ne peut servir à une campagne qu'après un test d'envoi réussi
+-- (bouton "Tester l'envoi" dans Paramètres). Remis à FALSE à chaque modification
+-- des identifiants (voir app/workspace_settings.py::set_smtp_config).
+ALTER TABLE smtp_configs ADD COLUMN IF NOT EXISTS verified BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE smtp_configs ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ;
 
 -- Fiche Google Business Profile par espace de travail
 CREATE TABLE IF NOT EXISTS google_business_profiles (
@@ -242,6 +247,14 @@ CREATE TABLE IF NOT EXISTS campaigns (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_campaigns_workspace ON campaigns(workspace_id);
+
+-- Image insérée dans le corps du message (optionnelle). Toujours ré-encodée
+-- côté serveur avant stockage (app/campaign_image.py) : jamais le fichier brut
+-- envoyé par l'utilisateur, pour neutraliser tout payload caché dans les
+-- métadonnées. Poids limité à 200 Ko après compression.
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS image_data BYTEA;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS image_mimetype TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS image_updated_at TIMESTAMPTZ;
 
 -- Envois (email uniquement au lancement — colonne canal prévue pour le SMS futur)
 CREATE TABLE IF NOT EXISTS campaign_sends (

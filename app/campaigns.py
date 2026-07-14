@@ -77,14 +77,81 @@ def list_campaigns(workspace_id):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, type, nom, sujet, contenu, quota_par_jour, statut, created_at
+                SELECT id, type, nom, sujet, contenu, quota_par_jour, statut, created_at,
+                       (image_data IS NOT NULL) AS has_image
                 FROM campaigns WHERE workspace_id = %s ORDER BY created_at DESC
                 """,
                 (workspace_id,),
             )
             rows = cur.fetchall()
-        cols = ["id", "type", "nom", "sujet", "contenu", "quota_par_jour", "statut", "created_at"]
+        cols = ["id", "type", "nom", "sujet", "contenu", "quota_par_jour", "statut", "created_at", "has_image"]
         return [dict(zip(cols, r)) for r in rows]
+    finally:
+        conn.close()
+
+
+# --- Image insérée dans le corps du message (ré-encodée, cf. campaign_image.py) ---
+
+def set_campaign_image(workspace_id, campaign_id, image_bytes, mimetype):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE campaigns SET image_data = %s, image_mimetype = %s, image_updated_at = now()
+                WHERE id = %s AND workspace_id = %s RETURNING id
+                """,
+                (image_bytes, mimetype, campaign_id, workspace_id),
+            )
+            updated = cur.fetchone()
+        conn.commit()
+        if not updated:
+            raise ValueError("Campagne introuvable pour cet espace de travail.")
+    finally:
+        conn.close()
+
+
+def remove_campaign_image(workspace_id, campaign_id):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE campaigns SET image_data = NULL, image_mimetype = NULL, image_updated_at = NULL
+                WHERE id = %s AND workspace_id = %s RETURNING id
+                """,
+                (campaign_id, workspace_id),
+            )
+            updated = cur.fetchone()
+        conn.commit()
+        if not updated:
+            raise ValueError("Campagne introuvable pour cet espace de travail.")
+    finally:
+        conn.close()
+
+
+def get_campaign_image(workspace_id, campaign_id):
+    """Renvoie {"data": bytes, "mimetype": str} ou None si aucune image.
+    workspace_id=None autorise la lecture cross-workspace pour un usage
+    interne uniquement (worker d'envoi, cf. app/sending.py) — jamais depuis
+    une route API accessible à l'utilisateur."""
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            if workspace_id is None:
+                cur.execute(
+                    "SELECT image_data, image_mimetype FROM campaigns WHERE id = %s",
+                    (campaign_id,),
+                )
+            else:
+                cur.execute(
+                    "SELECT image_data, image_mimetype FROM campaigns WHERE id = %s AND workspace_id = %s",
+                    (campaign_id, workspace_id),
+                )
+            row = cur.fetchone()
+        if not row or row[0] is None:
+            return None
+        return {"data": bytes(row[0]), "mimetype": row[1]}
     finally:
         conn.close()
 

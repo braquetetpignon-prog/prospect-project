@@ -159,8 +159,12 @@ def search_prospects(workspace_id, query=None, statut=None, prospect_type_id=Non
         like = f"%{query}%"
         params += [like, like, like, like]
     if statut:
-        conditions.append("p.statut = %s")
-        params.append(statut)
+        if isinstance(statut, (list, tuple, set)):
+            conditions.append("p.statut = ANY(%s)")
+            params.append(list(statut))
+        else:
+            conditions.append("p.statut = %s")
+            params.append(statut)
     if prospect_type_id:
         conditions.append("p.prospect_type_id = %s")
         params.append(prospect_type_id)

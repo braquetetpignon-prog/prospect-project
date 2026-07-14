@@ -52,6 +52,7 @@
 <div class="modal-overlay" id="type-send-modal-overlay">
   <div class="modal">
     <h3 id="type-send-title">Configurer & envoyer</h3>
+    <p style="font-size:12.5px; color:var(--text-soft); margin-top:-8px;">Seuls les prospects qualifiés ou clients de ce type recevront la campagne.</p>
     <div class="field">
       <label for="type-send-campaign">Campagne à utiliser</label>
       <select id="type-send-campaign"></select>
@@ -82,7 +83,14 @@
         <div class="panel-body">
           <form id="edit-form">
             <div class="field"><label for="edit-sujet">Sujet</label><input id="edit-sujet"></div>
-            <div class="field"><label for="edit-contenu">Message</label><textarea id="edit-contenu" rows="8"></textarea></div>
+            <div class="field">
+              <label for="edit-contenu">Message</label>
+              <textarea id="edit-contenu" rows="8"></textarea>
+              <p style="font-size:12px; color:var(--text-soft); margin:4px 0 0;">
+                Utilise <code>{image}</code> dans le texte pour choisir où l'image apparaît (sinon elle est ajoutée à la fin).
+              </p>
+              <button class="btn btn-ghost btn-sm" type="button" id="improve-ai-btn" style="margin-top:8px;">✨ Améliorer avec l'IA</button>
+            </div>
             <div class="field-row">
               <div class="field"><label for="edit-quota">Quota d'envois/jour</label><input id="edit-quota" type="number" min="1"></div>
             </div>
@@ -92,7 +100,31 @@
       </div>
 
       <div class="panel">
+        <div class="panel-head"><h2>Image dans le message</h2><p style="margin:0;">Optionnelle — 200 Ko maximum, compressée automatiquement.</p></div>
+        <div class="panel-body">
+          <div id="image-current-preview" style="display:none; margin-bottom:14px;">
+            <img id="image-current-img" style="max-width:100%; max-height:180px; border-radius:8px; border:1px solid var(--border);">
+            <div style="margin-top:8px;"><button class="btn btn-ghost btn-sm" type="button" id="remove-image-btn">Supprimer l'image</button></div>
+          </div>
+          <input type="file" id="image-file-input" accept="image/jpeg,image/png,image/webp,image/gif">
+          <div id="crop-editor" style="display:none; margin-top:14px;">
+            <div style="position:relative; max-width:420px; overflow:hidden; border-radius:8px; border:1px solid var(--border);">
+              <img id="crop-source-img" style="display:block; width:100%; height:auto;">
+              <div id="crop-box" style="position:absolute; border:2px solid var(--terracotta-deep); box-sizing:border-box; cursor:move;"></div>
+            </div>
+            <p style="font-size:12px; color:var(--text-soft); margin:8px 0;">Fais glisser le cadre pour choisir la zone à conserver.</p>
+            <button class="btn btn-primary btn-sm" type="button" id="upload-image-btn">Envoyer l'image</button>
+            <button class="btn btn-ghost btn-sm" type="button" id="cancel-image-btn">Annuler</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
         <div class="panel-head"><h2>Envoyer</h2><p style="margin:0;">Sélectionne les destinataires puis lance l'envoi.</p></div>
+        <p style="font-size:12.5px; color:var(--text-soft); margin:0; padding:0 24px 8px;">
+          Seuls les prospects <strong>qualifiés</strong> ou <strong>clients</strong> sont proposés ici —
+          les prospects en attente ne peuvent pas être sollicités par campagne, pour ne pas risquer de les perdre.
+        </p>
         <div class="checklist" id="recipient-checklist"></div>
         <div class="panel-body" style="padding-top:12px; border-top:1px solid var(--border);">
           <div class="field"><label for="send-date">Planifier pour (optionnel)</label><input id="send-date" type="datetime-local"></div>
@@ -237,10 +269,158 @@ async function openCampaign(id) {
 
   document.getElementById('edit-form').querySelectorAll('input,textarea,button').forEach(el => el.disabled = !canWrite);
   document.getElementById('trigger-send-btn').style.display = canWrite ? 'inline-flex' : 'none';
+  document.getElementById('image-file-input').style.display = canWrite ? 'block' : 'none';
+  document.getElementById('remove-image-btn').style.display = canWrite ? 'inline-flex' : 'none';
 
   loadRecipientChecklist();
   loadSends(id);
+  loadCampaignImage(id);
 }
+
+document.getElementById('improve-ai-btn')?.addEventListener('click', async () => {
+  const textarea = document.getElementById('edit-contenu');
+  const draft = textarea.value;
+  if (!draft.trim()) { showToast('Rien à améliorer : le message est vide.', true); return; }
+  const btn = document.getElementById('improve-ai-btn');
+  btn.disabled = true; btn.textContent = 'Amélioration en cours…';
+  try {
+    const result = await fetchJSON(`/api/campaigns/${currentCampaign.id}/improve-content`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contenu: draft, type: currentCampaign.type }),
+    });
+    textarea.value = result.contenu;
+    showToast('Proposition insérée — relis-la puis enregistre si elle te convient.');
+  } catch (err) {
+    showToast(err.message, true);
+  } finally {
+    btn.disabled = false; btn.textContent = "✨ Améliorer avec l'IA";
+  }
+});
+
+function loadCampaignImage(id) {
+  const previewWrap = document.getElementById('image-current-preview');
+  const img = document.getElementById('image-current-img');
+  img.onerror = () => { previewWrap.style.display = 'none'; };
+  img.onload = () => { previewWrap.style.display = 'block'; };
+  img.src = `/api/campaigns/${id}/image/preview?t=${Date.now()}`;
+}
+
+document.getElementById('remove-image-btn')?.addEventListener('click', async () => {
+  if (!currentCampaign) return;
+  try {
+    await fetchJSON(`/api/campaigns/${currentCampaign.id}/image`, { method: 'DELETE' });
+    document.getElementById('image-current-preview').style.display = 'none';
+    showToast('Image supprimée.');
+  } catch (err) {
+    showToast(err.message, true);
+  }
+});
+
+// --- Upload + recadrage (glisser le cadre sur l'image) ---
+let selectedImageFile = null;
+let cropState = { xPct: 10, yPct: 10, wPct: 80, hPct: 80 };
+
+document.getElementById('image-file-input')?.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  selectedImageFile = file;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    const sourceImg = document.getElementById('crop-source-img');
+    sourceImg.src = ev.target.result;
+    document.getElementById('crop-editor').style.display = 'block';
+    cropState = { xPct: 10, yPct: 10, wPct: 80, hPct: 80 };
+    sourceImg.onload = () => updateCropBoxDisplay();
+  };
+  reader.readAsDataURL(file);
+});
+
+document.getElementById('cancel-image-btn')?.addEventListener('click', () => {
+  selectedImageFile = null;
+  document.getElementById('crop-editor').style.display = 'none';
+  document.getElementById('image-file-input').value = '';
+});
+
+function updateCropBoxDisplay() {
+  const box = document.getElementById('crop-box');
+  box.style.left = cropState.xPct + '%';
+  box.style.top = cropState.yPct + '%';
+  box.style.width = cropState.wPct + '%';
+  box.style.height = cropState.hPct + '%';
+}
+
+(function setupCropDrag() {
+  const box = document.getElementById('crop-box');
+  if (!box) return;
+  let dragging = false, startX = 0, startY = 0, startState = null;
+
+  function pos(e) { return e.touches ? e.touches[0] : e; }
+
+  function onDown(e) {
+    dragging = true;
+    const p = pos(e);
+    startX = p.clientX; startY = p.clientY;
+    startState = { ...cropState };
+    e.preventDefault();
+  }
+  function onMove(e) {
+    if (!dragging) return;
+    const container = box.parentElement;
+    const rect = container.getBoundingClientRect();
+    const p = pos(e);
+    const dxPct = ((p.clientX - startX) / rect.width) * 100;
+    const dyPct = ((p.clientY - startY) / rect.height) * 100;
+    let x = startState.xPct + dxPct;
+    let y = startState.yPct + dyPct;
+    x = Math.max(0, Math.min(100 - cropState.wPct, x));
+    y = Math.max(0, Math.min(100 - cropState.hPct, y));
+    cropState.xPct = x; cropState.yPct = y;
+    updateCropBoxDisplay();
+  }
+  function onUp() { dragging = false; }
+
+  box.addEventListener('mousedown', onDown);
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup', onUp);
+  box.addEventListener('touchstart', onDown, { passive: false });
+  window.addEventListener('touchmove', onMove, { passive: false });
+  window.addEventListener('touchend', onUp);
+})();
+
+document.getElementById('upload-image-btn')?.addEventListener('click', async () => {
+  if (!selectedImageFile || !currentCampaign) return;
+  const sourceImg = document.getElementById('crop-source-img');
+  const naturalW = sourceImg.naturalWidth, naturalH = sourceImg.naturalHeight;
+
+  const left = Math.round((cropState.xPct / 100) * naturalW);
+  const top = Math.round((cropState.yPct / 100) * naturalH);
+  const right = Math.round(((cropState.xPct + cropState.wPct) / 100) * naturalW);
+  const bottom = Math.round(((cropState.yPct + cropState.hPct) / 100) * naturalH);
+
+  const formData = new FormData();
+  formData.append('image', selectedImageFile);
+  formData.append('crop_left', left);
+  formData.append('crop_top', top);
+  formData.append('crop_right', right);
+  formData.append('crop_bottom', bottom);
+
+  const btn = document.getElementById('upload-image-btn');
+  btn.disabled = true; btn.textContent = 'Envoi en cours…';
+  try {
+    const res = await fetch(`/api/campaigns/${currentCampaign.id}/image`, { method: 'POST', body: formData });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Échec de l\'envoi.');
+    showToast(`Image enregistrée (${Math.round(data.size_bytes / 1024)} Ko).`);
+    document.getElementById('crop-editor').style.display = 'none';
+    document.getElementById('image-file-input').value = '';
+    selectedImageFile = null;
+    loadCampaignImage(currentCampaign.id);
+  } catch (err) {
+    showToast(err.message, true);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Envoyer l\'image';
+  }
+});
 
 async function toggleCampaignActive(campaign) {
   try {
@@ -275,9 +455,9 @@ async function saveCampaignEdits(e) {
 async function loadRecipientChecklist() {
   const container = document.getElementById('recipient-checklist');
   try {
-    const data = await fetchJSON(`/api/prospects?workspace_id=${workspaceId}`);
+    const data = await fetchJSON(`/api/prospects?workspace_id=${workspaceId}&statut=qualifie&statut=client`);
     if (!data.prospects.length) {
-      container.innerHTML = `<div class="empty-state"><p>Aucun prospect à qui envoyer pour le moment.</p></div>`;
+      container.innerHTML = `<div class="empty-state"><p>Aucun prospect qualifié ou client à qui envoyer pour le moment.</p></div>`;
       return;
     }
     container.innerHTML = data.prospects.filter(p => p.email).map(p => `
@@ -320,7 +500,16 @@ async function loadSends(campaignId) {
       container.innerHTML = `<div class="empty-state"><p>Aucun envoi pour l'instant.</p></div>`;
       return;
     }
-    container.innerHTML = data.sends.slice(0, 30).map(s => `
+    const counts = data.sends.reduce((acc, s) => { acc[s.statut] = (acc[s.statut] || 0) + 1; return acc; }, {});
+    const total = data.sends.length;
+    const summary = `
+      <div style="padding:14px 24px; border-bottom:1px solid var(--border); font-size:13.5px;">
+        <strong>${counts.envoye || 0}/${total}</strong> envoyé(s)
+        ${counts.echec ? `<span style="color:#9B4646;"> · ${counts.echec} échec(s)</span>` : ''}
+        ${counts.planifie ? `<span style="color:var(--text-soft);"> · ${counts.planifie} planifié(s)</span>` : ''}
+        ${counts.en_cours ? `<span style="color:var(--text-soft);"> · ${counts.en_cours} en cours</span>` : ''}
+      </div>`;
+    container.innerHTML = summary + data.sends.slice(0, 30).map(s => `
       <div class="activity-item" style="padding:14px 24px; border-top:1px solid var(--border);">
         <span class="badge send-status-${s.statut}">${sendStatusLabels[s.statut] || s.statut}</span>
         <span style="font-size:12.5px; color:var(--text-soft); margin-left:8px;">prospect #${s.prospect_id}</span>
@@ -345,8 +534,8 @@ async function loadTypeCards() {
       <div class="type-card">
         <div class="type-card-head"><strong>${escapeHtml(t.nom)}</strong><span class="type-card-count">${t.total}</span></div>
         ${t.total === 0 ? '<div class="type-card-empty">Aucun prospect avec ce statut.</div>' : ''}
-        <div class="type-card-coverage">${t.avec_email} avec e-mail sur ${t.total}</div>
-        ${canWrite ? `<button class="btn btn-ghost btn-sm open-type-send-btn" data-id="${t.id}" data-nom="${escapeHtml(t.nom)}" ${t.avec_email === 0 ? 'disabled' : ''}>Configurer & envoyer</button>` : ''}
+        <div class="type-card-coverage">${t.eligibles} qualifié(s)/client(s) avec e-mail sur ${t.total}</div>
+        ${canWrite ? `<button class="btn btn-ghost btn-sm open-type-send-btn" data-id="${t.id}" data-nom="${escapeHtml(t.nom)}" ${t.eligibles === 0 ? 'disabled' : ''}>Configurer & envoyer</button>` : ''}
       </div>
     `).join('') + `</div>`;
 

@@ -3,22 +3,27 @@ Envoi des campagnes (Option 3, onglet Envoi).
 
 - Personnalisation du template (prénom, entreprise, lien d'avis, lien de désinscription).
 - Vérifie le consentement (module consent) avant chaque envoi.
+- Vérifie que le prospect est bien qualifié ou client au moment de la mise en
+  file ET au moment de l'envoi effectif (garde-fou double).
 - Respecte le quota quotidien de la campagne (quota_par_jour).
-- Planification : les envois sont mis en file dans campaign_sends (statut 'planifie'),
-  puis dispatchés par process_due_sends(), appelée périodiquement par un planificateur
-  en arrière-plan (voir scheduler.py). Utilise SELECT ... FOR UPDATE SKIP LOCKED pour
-  rester correct même avec plusieurs workers gunicorn en parallèle (pas de double-envoi).
+- Image optionnelle insérée dans le corps du message (Content-ID).
+- Copie systématique de chaque envoi à l'expéditeur (BCC) : archive.
+- Planification asynchrone via campaign_sends + process_due_sends().
 """
+import html as html_module
 import smtplib
-from datetime import datetime, timezone
 from email.mime.base import MIMEBase
+from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email import encoders
 
 from app.db import get_db
+from app import campaigns as campaigns_module
 from app import consent as consent_module
 from app import workspace_settings
+
+ALLOWED_SEND_STATUTS = ("qualifie", "client")
 
 
 class SendError(Exception):
@@ -38,7 +43,43 @@ def render_template(content, prospect, workspace_id, google_profile_url=None):
         nom_entreprise=nom_entreprise,
         lien_avis_google=lien_avis_google,
         lien_desinscription=lien_desinscription,
+        image="",
     )
+
+
+def render_campaign_body_html(content, prospect, workspace_id, google_profile_url=None, has_image=False):
+    prenom = html_module.escape(prospect.get("contact_prenom") or prospect.get("nom_entreprise") or "")
+    nom_entreprise = html_module.escape(prospect.get("nom_entreprise") or "")
+    lien_avis_google = html_module.escape(google_profile_url or "")
+
+    unsub_url = consent_module.build_unsubscribe_url(prospect["id"], prospect["_campaign_type"])
+    lien_desinscription = f'<a href="{html_module.escape(unsub_url)}">se désinscrire</a>'
+
+    image_tag = (
+        '<br><img src="cid:campaign-image" alt="" style="max-width:100%; border-radius:8px; margin:12px 0;"><br>'
+        if has_image else ""
+    )
+
+    escaped = html_module.escape(content)
+    with_line_breaks = escaped.replace("\n", "<br>\n")
+
+    rendered = with_line_breaks.format(
+        prenom=prenom,
+        nom_entreprise=nom_entreprise,
+        lien_avis_google=lien_avis_google,
+        lien_desinscription=lien_desinscription,
+        image=image_tag,
+    )
+
+    if has_image and "{image}" not in content:
+        rendered += image_tag
+
+    return f'<div style="font-family:Arial,sans-serif; font-size:15px; line-height:1.55; color:#2b2b2b;">{rendered}</div>'
+
+
+def render_plain_fallback(content, prospect, workspace_id, google_profile_url=None):
+    rendered = render_template(content, prospect, workspace_id, google_profile_url)
+    return rendered.replace("{image}", "").strip()
 
 
 def _get_prospect(prospect_id):
@@ -46,14 +87,30 @@ def _get_prospect(prospect_id):
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, workspace_id, nom_entreprise, contact_prenom, email FROM prospects WHERE id = %s",
+                "SELECT id, workspace_id, nom_entreprise, contact_prenom, email, statut FROM prospects WHERE id = %s",
                 (prospect_id,),
             )
             row = cur.fetchone()
         if not row:
             return None
-        cols = ["id", "workspace_id", "nom_entreprise", "contact_prenom", "email"]
+        cols = ["id", "workspace_id", "nom_entreprise", "contact_prenom", "email", "statut"]
         return dict(zip(cols, row))
+    finally:
+        conn.close()
+
+
+def _get_prospects_statuts(workspace_id, prospect_ids):
+    if not prospect_ids:
+        return {}
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, statut, email FROM prospects WHERE workspace_id = %s AND id = ANY(%s)",
+                (workspace_id, list(prospect_ids)),
+            )
+            rows = cur.fetchall()
+        return {r[0]: {"statut": r[1], "email": r[2]} for r in rows}
     finally:
         conn.close()
 
@@ -94,9 +151,6 @@ def _count_sent_today(campaign_id):
 
 
 def queue_send(campaign_id, prospect_ids, planifie_pour=None):
-    """Met en file un envoi pour chaque prospect. Vérifie le consentement et le quota
-    quotidien de la campagne avant d'ajouter chaque entrée. Retourne un rapport
-    {queued: [...], skipped: [{prospect_id, reason}, ...]}."""
     campaign = _get_campaign(campaign_id)
     if not campaign:
         raise SendError("Campagne introuvable.")
@@ -106,12 +160,28 @@ def queue_send(campaign_id, prospect_ids, planifie_pour=None):
     already_today = _count_sent_today(campaign_id)
     quota = campaign["quota_par_jour"]
 
+    statuts = _get_prospects_statuts(campaign["workspace_id"], prospect_ids)
+
     queued, skipped = [], []
     conn = get_db()
     try:
         for prospect_id in prospect_ids:
             if already_today + len(queued) >= quota:
                 skipped.append({"prospect_id": prospect_id, "reason": "Quota quotidien de la campagne atteint."})
+                continue
+
+            info = statuts.get(prospect_id)
+            if not info:
+                skipped.append({"prospect_id": prospect_id, "reason": "Prospect introuvable dans cet espace de travail."})
+                continue
+            if info["statut"] not in ALLOWED_SEND_STATUTS:
+                skipped.append({
+                    "prospect_id": prospect_id,
+                    "reason": "Le prospect n'est ni qualifié ni client — les campagnes sont réservées aux prospects validés.",
+                })
+                continue
+            if not info["email"]:
+                skipped.append({"prospect_id": prospect_id, "reason": "Le prospect n'a pas d'adresse e-mail."})
                 continue
 
             allowed, reason = consent_module.can_send(prospect_id, campaign["type"])
@@ -170,6 +240,45 @@ def _send_via_smtp(smtp_creds, to_email, subject, body, attachments=None):
         server.quit()
 
 
+def _send_campaign_email(smtp_creds, to_email, subject, body_html, body_text, image=None, bcc=None):
+    root = MIMEMultipart("related")
+    alt = MIMEMultipart("alternative")
+    alt.attach(MIMEText(body_text, "plain", "utf-8"))
+    alt.attach(MIMEText(body_html, "html", "utf-8"))
+    root.attach(alt)
+
+    if image:
+        subtype = (image["mimetype"].split("/")[-1] or "jpeg").lower()
+        img_part = MIMEImage(image["data"], _subtype=subtype)
+        img_part.add_header("Content-ID", "<campaign-image>")
+        img_part.add_header("Content-Disposition", "inline", filename=f"image.{subtype}")
+        root.attach(img_part)
+
+    root["Subject"] = subject
+    root["From"] = smtp_creds["from_email"]
+    root["To"] = to_email
+
+    recipients = [to_email]
+    if bcc and bcc.lower() != to_email.lower():
+        recipients.append(bcc)
+
+    port = smtp_creds["port"]
+    if port == 465:
+        server = smtplib.SMTP_SSL(smtp_creds["host"], port, timeout=20)
+    else:
+        server = smtplib.SMTP(smtp_creds["host"], port, timeout=20)
+        server.ehlo()
+        if server.has_extn("STARTTLS"):
+            server.starttls()
+            server.ehlo()
+
+    try:
+        server.login(smtp_creds["username"], smtp_creds["password"])
+        server.sendmail(smtp_creds["from_email"], recipients, root.as_string())
+    finally:
+        server.quit()
+
+
 def _process_one_send(conn, send_row):
     send_id, campaign_id, prospect_id = send_row
 
@@ -184,24 +293,41 @@ def _process_one_send(conn, send_row):
         _mark_send(conn, send_id, "echec", "Le prospect n'a pas d'adresse e-mail.")
         return
 
+    if prospect.get("statut") not in ALLOWED_SEND_STATUTS:
+        _mark_send(
+            conn, send_id, "echec",
+            "Le prospect n'est plus qualifié/client au moment de l'envoi (statut modifié depuis la mise en file).",
+        )
+        return
+
     allowed, reason = consent_module.can_send(prospect_id, campaign["type"])
     if not allowed:
         _mark_send(conn, send_id, "echec", f"Consentement refusé au moment de l'envoi : {reason}")
         return
 
-    smtp_creds = workspace_settings.get_smtp_credentials_for_sending(campaign["workspace_id"])
+    smtp_creds = workspace_settings.get_smtp_credentials_for_sending(campaign["workspace_id"], require_verified=True)
     if not smtp_creds:
-        _mark_send(conn, send_id, "echec", "Aucune configuration SMTP pour cet espace de travail.")
+        _mark_send(
+            conn, send_id, "echec",
+            "Configuration SMTP absente ou non vérifiée — testez l'envoi depuis Paramètres avant de lancer une campagne.",
+        )
         return
 
     gbp = workspace_settings.get_google_business_profile(campaign["workspace_id"])
+    image = campaigns_module.get_campaign_image(None, campaign_id)
 
     prospect["_campaign_type"] = campaign["type"]
     try:
         subject = render_template(campaign["sujet"], prospect, campaign["workspace_id"], gbp.get("profile_url"))
-        body = render_template(campaign["contenu"], prospect, campaign["workspace_id"], gbp.get("profile_url"))
-        _send_via_smtp(smtp_creds, prospect["email"], subject, body)
-    except Exception as exc:  # noqa: BLE001 — on veut consigner l'échec, pas planter le worker
+        body_html = render_campaign_body_html(
+            campaign["contenu"], prospect, campaign["workspace_id"], gbp.get("profile_url"), has_image=bool(image)
+        )
+        body_text = render_plain_fallback(campaign["contenu"], prospect, campaign["workspace_id"], gbp.get("profile_url"))
+        _send_campaign_email(
+            smtp_creds, prospect["email"], subject, body_html, body_text,
+            image=image, bcc=smtp_creds["from_email"],
+        )
+    except Exception as exc:  # noqa: BLE001
         _mark_send(conn, send_id, "echec", str(exc)[:500])
         return
 
@@ -224,11 +350,6 @@ def _mark_send(conn, send_id, statut, error_message):
 
 
 def process_due_sends(batch_size=20, stale_after_minutes=5):
-    """Traite les envois planifiés arrivés à échéance. Sûr avec plusieurs workers
-    gunicorn en parallèle : FOR UPDATE SKIP LOCKED évite qu'un même envoi soit
-    traité deux fois. Récupère aussi les envois restés bloqués en 'en_cours' trop
-    longtemps (ex: worker redémarré en pleine tâche), pour qu'ils soient retentés
-    plutôt que perdus."""
     conn = get_db()
     processed = 0
     try:
@@ -255,7 +376,6 @@ def process_due_sends(batch_size=20, stale_after_minutes=5):
                 (batch_size,),
             )
             rows = cur.fetchall()
-            # marquage immédiat pour éviter qu'un autre worker ne reprenne ces lignes
             for row in rows:
                 cur.execute("UPDATE campaign_sends SET statut = 'en_cours', locked_at = now() WHERE id = %s", (row[0],))
         conn.commit()
@@ -274,11 +394,29 @@ class EmailSendError(Exception):
 
 
 def send_email(workspace_id, to_email, subject, body, attachments=None):
-    """Fonction publique réutilisable pour tout envoi ponctuel via le SMTP de
-    l'espace de travail (notifications de rendez-vous, export .ics, etc.) —
-    distinct du pipeline de campagnes (pas de vérification de consentement ni
-    de quota ici, ce n'est pas une communication commerciale)."""
     smtp_creds = workspace_settings.get_smtp_credentials_for_sending(workspace_id)
     if not smtp_creds:
         raise EmailSendError("Aucune configuration SMTP pour cet espace de travail.")
     _send_via_smtp(smtp_creds, to_email, subject, body, attachments=attachments)
+
+
+class SmtpTestError(Exception):
+    pass
+
+
+def send_smtp_test(workspace_id):
+    smtp_creds = workspace_settings.get_smtp_credentials_for_sending(workspace_id)
+    if not smtp_creds:
+        raise SmtpTestError("Aucune configuration SMTP enregistrée pour cet espace de travail.")
+
+    subject = "ClickProspect — test de configuration SMTP"
+    body = (
+        "Cet e-mail confirme que votre configuration SMTP fonctionne correctement.\n\n"
+        "Vous pouvez maintenant lancer des campagnes depuis ClickProspect."
+    )
+    try:
+        _send_via_smtp(smtp_creds, smtp_creds["from_email"], subject, body)
+    except Exception as exc:  # noqa: BLE001
+        raise SmtpTestError(f"Échec de l'envoi de test : {exc}") from exc
+
+    workspace_settings.mark_smtp_verified(workspace_id)

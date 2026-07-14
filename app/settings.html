@@ -87,8 +87,15 @@ function renderSettingsShell(workspaceId) {
           <div class="field"><label for="smtp-username">Identifiant</label><input id="smtp-username" required></div>
           <div class="field"><label for="smtp-password">Mot de passe</label><input id="smtp-password" type="password" placeholder="••••••••" required></div>
           <div class="field"><label for="smtp-from">Adresse d'expédition</label><input id="smtp-from" type="email" placeholder="contact@votre-entreprise.fr" required></div>
-          <button class="btn btn-primary btn-sm" type="submit">Enregistrer</button>
+          <div style="display:flex; gap:10px; align-items:center;">
+            <button class="btn btn-primary btn-sm" type="submit">Enregistrer</button>
+            <button class="btn btn-ghost btn-sm" type="button" id="smtp-test-btn">Tester l'envoi</button>
+          </div>
         </form>
+        <p style="font-size:12px; color:var(--text-soft); margin-top:10px;">
+          Un test réussi est nécessaire avant de pouvoir lancer une campagne — un e-mail de vérification
+          sera envoyé à votre propre adresse d'expédition.
+        </p>
       </div>
     </div>
 
@@ -160,6 +167,7 @@ function renderSettingsShell(workspaceId) {
 
   document.getElementById('gbp-form').addEventListener('submit', (e) => saveGbp(e, workspaceId));
   document.getElementById('smtp-form').addEventListener('submit', (e) => saveSmtp(e, workspaceId));
+  document.getElementById('smtp-test-btn').addEventListener('click', () => testSmtp(workspaceId));
   document.getElementById('add-type-btn').addEventListener('click', () => addType(workspaceId));
   document.getElementById('save-model-btn').addEventListener('click', saveGeminiModel);
   document.getElementById('reset-model-btn').addEventListener('click', resetGeminiModel);
@@ -202,7 +210,10 @@ async function loadSmtpConfig(workspaceId) {
   try {
     const data = await fetchJSON(`/api/workspaces/${workspaceId}/smtp-config`);
     if (data.configured) {
-      statusEl.innerHTML = `<span class="badge badge-active">Configuré</span> ${escapeHtml(data.host)}:${data.port} — expéditeur ${escapeHtml(data.from_email)}`;
+      const verifBadge = data.verified
+        ? `<span class="badge badge-active">Vérifié</span>`
+        : `<span class="badge badge-inactive">Non vérifié — testez l'envoi avant de lancer une campagne</span>`;
+      statusEl.innerHTML = `<span class="badge badge-active">Configuré</span> ${verifBadge} ${escapeHtml(data.host)}:${data.port} — expéditeur ${escapeHtml(data.from_email)}`;
       document.getElementById('smtp-host').value = data.host;
       document.getElementById('smtp-port').value = data.port;
       document.getElementById('smtp-username').value = data.username;
@@ -213,6 +224,20 @@ async function loadSmtpConfig(workspaceId) {
     }
   } catch (e) {
     statusEl.textContent = '';
+  }
+}
+
+async function testSmtp(workspaceId) {
+  const btn = document.getElementById('smtp-test-btn');
+  btn.disabled = true; btn.textContent = 'Test en cours…';
+  try {
+    await fetchJSON(`/api/workspaces/${workspaceId}/smtp-config/test`, { method: 'POST' });
+    showToast('Test réussi — un e-mail a été envoyé à votre adresse d\'expédition.');
+    loadSmtpConfig(workspaceId);
+  } catch (err) {
+    showToast(err.message, true);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Tester l\'envoi';
   }
 }
 

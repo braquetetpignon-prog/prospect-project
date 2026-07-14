@@ -9,6 +9,8 @@ from app import naf_search
 from app import ia_search
 from app import workspace_settings
 from app import campaigns
+from app import campaign_image
+from app import campaign_ai
 from app import consent
 from app import sending
 from app import scheduler
@@ -627,6 +629,21 @@ def smtp_config(workspace_id):
     return jsonify(status="ok")
 
 
+@app.route("/api/workspaces/<int:workspace_id>/smtp-config/test", methods=["POST"])
+@login_required
+@require_own_workspace
+@require_role("admin")
+def smtp_config_test(workspace_id):
+    """Envoie un e-mail de test réel à l'adresse d'expédition elle-même.
+    Ne marque la config comme vérifiée qu'en cas de succès — c'est ce flag
+    qui conditionne ensuite le lancement de campagnes (cf. app/sending.py)."""
+    try:
+        sending.send_smtp_test(workspace_id)
+    except sending.SmtpTestError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(status="ok", verified=True)
+
+
 @app.route("/api/campaigns", methods=["GET", "POST"])
 @login_required
 @require_own_workspace
@@ -683,6 +700,82 @@ def campaigns_update(campaign_id):
         return jsonify(error=str(exc)), 400
 
     return jsonify(status="updated")
+
+
+@app.route("/api/campaigns/<int:campaign_id>/image", methods=["POST", "DELETE"])
+@login_required
+@require_role(*WRITE_ROLES)
+def campaign_image_route(campaign_id):
+    error = _check_campaign_access(campaign_id)
+    if error:
+        return error
+
+    if request.method == "DELETE":
+        campaigns.remove_campaign_image(session["workspace_id"], campaign_id)
+        return jsonify(status="removed")
+
+    if "image" not in request.files:
+        return jsonify(error="Aucun fichier image reçu (champ 'image' attendu)."), 400
+    file = request.files["image"]
+    file_bytes = file.read()
+
+    crop_box = None
+    for field in ("crop_left", "crop_top", "crop_right", "crop_bottom"):
+        if request.form.get(field) is None:
+            crop_box = None
+            break
+    else:
+        try:
+            crop_box = (
+                float(request.form["crop_left"]), float(request.form["crop_top"]),
+                float(request.form["crop_right"]), float(request.form["crop_bottom"]),
+            )
+        except ValueError:
+            return jsonify(error="Coordonnées de recadrage invalides."), 400
+
+    try:
+        image_bytes, mimetype = campaign_image.process_upload(file_bytes, crop_box=crop_box)
+    except campaign_image.ImageError as exc:
+        return jsonify(error=str(exc)), 400
+
+    campaigns.set_campaign_image(session["workspace_id"], campaign_id, image_bytes, mimetype)
+    return jsonify(status="ok", size_bytes=len(image_bytes)), 201
+
+
+@app.route("/api/campaigns/<int:campaign_id>/image/preview")
+@login_required
+def campaign_image_preview(campaign_id):
+    error = _check_campaign_access(campaign_id)
+    if error:
+        return error
+    image = campaigns.get_campaign_image(session["workspace_id"], campaign_id)
+    if not image:
+        return jsonify(error="Aucune image pour cette campagne."), 404
+    return Response(image["data"], mimetype=image["mimetype"])
+
+
+@app.route("/api/campaigns/<int:campaign_id>/improve-content", methods=["POST"])
+@login_required
+@require_role(*WRITE_ROLES)
+def campaign_improve_content(campaign_id):
+    error = _check_campaign_access(campaign_id)
+    if error:
+        return error
+    if subscriptions.is_restricted(session["workspace_id"]):
+        return _restricted_response()
+
+    body = request.get_json(silent=True) or {}
+    draft = body.get("contenu")
+    campaign_type = body.get("type")
+    if not draft:
+        return jsonify(error="contenu requis"), 400
+
+    try:
+        improved = campaign_ai.improve_content(draft, campaign_type)
+    except campaign_ai.ImprovementError as exc:
+        return jsonify(error=str(exc)), 400
+
+    return jsonify(contenu=improved)
 
 
 # --- Option 3 : RGPD / Consentement ---------------------------------------
@@ -783,10 +876,16 @@ def campaign_send_by_type(campaign_id):
     if not prospect_type_id:
         return jsonify(error="prospect_type_id requis"), 400
 
+    # Garde-fou : une campagne ne cible jamais les prospects "en attente" ou
+    # "recalés", même quand l'envoi est déclenché par type de statut juridique
+    # plutôt que par sélection manuelle — cf. sending.ALLOWED_SEND_STATUTS.
     targets = prospects.search_prospects(session["workspace_id"], prospect_type_id=prospect_type_id, limit=10000)
-    prospect_ids = [p["id"] for p in targets if p.get("email")]
+    prospect_ids = [
+        p["id"] for p in targets
+        if p.get("email") and p.get("statut") in sending.ALLOWED_SEND_STATUTS
+    ]
     if not prospect_ids:
-        return jsonify(error="Aucun prospect avec e-mail pour ce type."), 400
+        return jsonify(error="Aucun prospect qualifié ou client avec e-mail pour ce type."), 400
 
     try:
         result = sending.queue_send(campaign_id, prospect_ids, body.get("planifie_pour"))
@@ -849,10 +948,11 @@ def prospects_collection():
     workspace_id = request.args.get("workspace_id", type=int)
     if not workspace_id:
         return jsonify(error="workspace_id requis"), 400
+    statut_values = request.args.getlist("statut")  # supporte ?statut=qualifie&statut=client
     results = prospects.search_prospects(
         workspace_id,
         query=request.args.get("q"),
-        statut=request.args.get("statut"),
+        statut=statut_values if len(statut_values) > 1 else (statut_values[0] if statut_values else None),
         prospect_type_id=request.args.get("prospect_type_id", type=int),
     )
     return jsonify(prospects=results)
@@ -990,7 +1090,10 @@ def prospect_types_stats(workspace_id):
             cur.execute(
                 """
                 SELECT pt.id, pt.nom, count(p.id) AS total,
-                       count(p.id) FILTER (WHERE p.email IS NOT NULL AND p.email != '') AS avec_email
+                       count(p.id) FILTER (WHERE p.email IS NOT NULL AND p.email != '') AS avec_email,
+                       count(p.id) FILTER (
+                           WHERE p.email IS NOT NULL AND p.email != '' AND p.statut IN ('qualifie', 'client')
+                       ) AS eligibles
                 FROM prospect_types pt
                 LEFT JOIN prospects p ON p.prospect_type_id = pt.id AND p.workspace_id = pt.workspace_id
                 WHERE pt.workspace_id = %s
@@ -1000,7 +1103,9 @@ def prospect_types_stats(workspace_id):
                 (workspace_id,),
             )
             rows = cur.fetchall()
-        return jsonify(types=[{"id": r[0], "nom": r[1], "total": r[2], "avec_email": r[3]} for r in rows])
+        return jsonify(types=[
+            {"id": r[0], "nom": r[1], "total": r[2], "avec_email": r[3], "eligibles": r[4]} for r in rows
+        ])
     finally:
         conn.close()
 
