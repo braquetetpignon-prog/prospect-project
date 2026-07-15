@@ -94,6 +94,16 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TR
 -- il doit en choisir un nouveau avant de pouvoir faire quoi que ce soit d'autre.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
 
+-- Préférences personnelles par utilisateur (idée produit : tableau de bord
+-- modulable). Pour l'instant ne contient que la disposition des widgets du
+-- tableau de bord, mais volontairement générique (JSONB) pour accueillir
+-- d'autres préférences futures sans nouvelle migration.
+CREATE TABLE IF NOT EXISTS user_preferences (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    dashboard_layout JSONB,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Anti brute-force : journal des tentatives de connexion (utilisateur normal
 -- ET superadmin), utilisé par app/rate_limit.py pour bloquer temporairement
 -- après trop d'échecs récents (par email ciblé ET par IP source).

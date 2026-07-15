@@ -16,6 +16,9 @@
   .activity-item:first-child { border-top: none; }
   .activity-item .who { font-weight: 600; }
   .activity-item .what { color: var(--text-soft); font-size: 13px; margin-top: 2px; }
+  .widget-drag-handle { cursor: grab; color: var(--text-soft); font-size: 15px; margin-right: 6px; user-select: none; }
+  .widget-panel.dragging { opacity: 0.4; }
+  .widget-panel.drag-over { outline: 2px dashed var(--terracotta); outline-offset: 2px; }
   @media (max-width: 980px) {
     .stat-grid { grid-template-columns: repeat(2, 1fr); }
     .panels { grid-template-columns: 1fr; }
@@ -38,25 +41,8 @@
   <div class="stat-card"><div class="label">Campagnes actives</div><div class="value skeleton" style="height:34px;width:60%">&nbsp;</div></div>
 </div>
 
-<div class="panels">
-  <div class="panel">
-    <div class="panel-head">
-      <h2>Prospects récents</h2>
-      <span id="prospect-count" style="font-size:13px; color:var(--text-soft);"></span>
-    </div>
-    <div id="prospect-list-container">
-      <table>
-        <thead><tr><th>Entreprise</th><th>Ville</th><th>Statut</th></tr></thead>
-        <tbody id="prospect-tbody"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <div class="panel">
-    <div class="panel-head"><h2>Activité récente</h2></div>
-    <div id="activity-container"></div>
-  </div>
-</div>
+<p style="font-size:12.5px; color:var(--text-soft); margin:0 0 10px;">Glisse un bloc par son en-tête (⠿) pour réorganiser la vue à ta convenance.</p>
+<div class="panels" id="panels-container"></div>
 {% endblock %}
 
 {% block extra_js %}
@@ -64,6 +50,15 @@ const statusLabels = { nouveau: 'Nouveau', qualifie: 'Qualifié', client: 'Clien
 function badgeHtml(statut) {
   return `<span class="badge badge-${statut}">${statusLabels[statut] || statut}</span>`;
 }
+
+const WIDGET_TITLES = {
+  rdv: 'Rendez-vous à venir',
+  prospects: 'Prospects récents',
+  activity: 'Activité récente',
+};
+
+let dashboardData = null;
+let widgetOrder = ['rdv', 'prospects', 'activity'];
 
 function onAuthReady(me) {
   document.getElementById('greeting').textContent = 'Bonjour 👋';
@@ -73,18 +68,26 @@ function onAuthReady(me) {
 
 async function loadDashboard(workspaceId) {
   try {
+    const layoutData = await fetchJSON('/api/users/me/dashboard-layout');
+    if (layoutData.layout && layoutData.layout.length) widgetOrder = layoutData.layout;
+  } catch (e) { /* garde l'ordre par défaut si le chargement échoue */ }
+
+  try {
     const stats = await fetchJSON(`/api/workspaces/${workspaceId}/dashboard-stats`);
+    dashboardData = stats;
     renderStats(stats);
-    renderActivity(stats.recent_activity);
   } catch (e) {
     document.getElementById('stat-grid').innerHTML = `<div class="empty-state"><p>Impossible de charger les statistiques.</p></div>`;
+    dashboardData = { recent_activity: [], upcoming_rdv: [] };
   }
   try {
     const data = await fetchJSON(`/api/prospects?workspace_id=${workspaceId}`);
-    renderProspects(data.prospects);
+    dashboardData.prospects = data.prospects;
   } catch (e) {
-    document.getElementById('prospect-tbody').innerHTML = '';
+    dashboardData.prospects = [];
   }
+
+  renderWidgets();
 }
 
 function renderStats(stats) {
@@ -97,41 +100,136 @@ function renderStats(stats) {
   `;
 }
 
-function renderProspects(prospects) {
-  document.getElementById('prospect-count').textContent = `${prospects.length} affiché${prospects.length > 1 ? 's' : ''}`;
+function widgetBodyHtml(widgetId) {
+  if (widgetId === 'rdv') return rdvWidgetHtml(dashboardData.upcoming_rdv || []);
+  if (widgetId === 'prospects') return prospectsWidgetHtml(dashboardData.prospects || []);
+  if (widgetId === 'activity') return activityWidgetHtml(dashboardData.recent_activity || []);
+  return '';
+}
+
+function rdvWidgetHtml(rdvList) {
+  if (!rdvList.length) {
+    return `<div class="empty-state"><h3>Aucun rendez-vous à venir</h3><p>Les prochains rendez-vous planifiés apparaîtront ici.</p><a href="/calendrier" class="btn btn-primary">Ouvrir le calendrier</a></div>`;
+  }
+  return rdvList.map(r => `
+    <div class="activity-item">
+      <div class="who">${escapeHtml(r.titre)}</div>
+      <div class="what">
+        ${new Date(r.date_heure).toLocaleString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+        ${r.prospect_nom ? ` · ${escapeHtml(r.prospect_nom)}` : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+function prospectsWidgetHtml(prospects) {
   if (!prospects.length) {
-    document.getElementById('prospect-list-container').innerHTML = `
+    return `
       <div class="empty-state">
         <h3>Pas encore de prospect</h3>
         <p>Importez une liste de contacts ou lancez une recherche pour commencer à remplir votre pipeline.</p>
         <a href="/import" class="btn btn-primary">Importer des prospects</a>
       </div>`;
-    return;
   }
-  document.getElementById('prospect-tbody').innerHTML = prospects.slice(0, 8).map(p => `
-    <tr>
-      <td>
-        <div class="prospect-name">${escapeHtml(p.nom_entreprise)}</div>
-        <div class="prospect-meta">${escapeHtml(p.email || "Pas d'e-mail")}</div>
-      </td>
-      <td>${escapeHtml(p.ville || '—')}</td>
-      <td>${badgeHtml(p.statut)}</td>
-    </tr>
-  `).join('');
+  return `
+    <table>
+      <thead><tr><th>Entreprise</th><th>Ville</th><th>Statut</th></tr></thead>
+      <tbody>
+        ${prospects.slice(0, 8).map(p => `
+          <tr>
+            <td>
+              <div class="prospect-name">${escapeHtml(p.nom_entreprise)}</div>
+              <div class="prospect-meta">${escapeHtml(p.email || "Pas d'e-mail")}</div>
+            </td>
+            <td>${escapeHtml(p.ville || '—')}</td>
+            <td>${badgeHtml(p.statut)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>`;
 }
 
-function renderActivity(activity) {
-  const container = document.getElementById('activity-container');
-  if (!activity || !activity.length) {
-    container.innerHTML = `<div class="empty-state"><h3>Aucune activité</h3><p>Les envois de campagnes apparaîtront ici.</p></div>`;
-    return;
+function activityWidgetHtml(activityList) {
+  if (!activityList.length) {
+    return `<div class="empty-state"><h3>Aucune activité</h3><p>Les envois de campagnes apparaîtront ici.</p></div>`;
   }
   const statusText = { envoye: 'Envoyé à', planifie: 'Planifié pour', echec: 'Échec pour', en_cours: 'En cours pour' };
-  container.innerHTML = activity.map(a => `
+  return activityList.map(a => `
     <div class="activity-item">
       <div class="who">${escapeHtml(a.campagne_nom)}</div>
       <div class="what">${statusText[a.statut] || a.statut} ${escapeHtml(a.prospect_nom)}</div>
     </div>
   `).join('');
+}
+
+function widgetHeaderExtra(widgetId) {
+  if (widgetId === 'prospects') {
+    const count = (dashboardData.prospects || []).length;
+    return `<span style="font-size:13px; color:var(--text-soft);">${count} affiché${count > 1 ? 's' : ''}</span>`;
+  }
+  return '';
+}
+
+function renderWidgets() {
+  const container = document.getElementById('panels-container');
+  container.innerHTML = widgetOrder.map(widgetId => `
+    <div class="panel widget-panel" data-widget="${widgetId}">
+      <div class="panel-head widget-drag-handle-row" draggable="true">
+        <h2><span class="widget-drag-handle" title="Glisser pour réorganiser">⠿</span>${WIDGET_TITLES[widgetId] || widgetId}</h2>
+        ${widgetHeaderExtra(widgetId)}
+      </div>
+      <div class="widget-body">${widgetBodyHtml(widgetId)}</div>
+    </div>
+  `).join('');
+
+  setupDragAndDrop();
+}
+
+function setupDragAndDrop() {
+  const panels = document.querySelectorAll('.widget-panel');
+  let draggedId = null;
+
+  panels.forEach(panel => {
+    const handle = panel.querySelector('.widget-drag-handle-row');
+
+    handle.addEventListener('dragstart', (e) => {
+      draggedId = panel.dataset.widget;
+      panel.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    handle.addEventListener('dragend', () => {
+      panel.classList.remove('dragging');
+      document.querySelectorAll('.widget-panel').forEach(p => p.classList.remove('drag-over'));
+    });
+
+    panel.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      if (panel.dataset.widget !== draggedId) panel.classList.add('drag-over');
+    });
+    panel.addEventListener('dragleave', () => panel.classList.remove('drag-over'));
+
+    panel.addEventListener('drop', (e) => {
+      e.preventDefault();
+      panel.classList.remove('drag-over');
+      const targetId = panel.dataset.widget;
+      if (!draggedId || draggedId === targetId) return;
+
+      const fromIdx = widgetOrder.indexOf(draggedId);
+      const toIdx = widgetOrder.indexOf(targetId);
+      widgetOrder.splice(fromIdx, 1);
+      widgetOrder.splice(toIdx, 0, draggedId);
+
+      renderWidgets();
+      saveDashboardLayout();
+    });
+  });
+}
+
+async function saveDashboardLayout() {
+  try {
+    await fetchJSON('/api/users/me/dashboard-layout', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ layout: widgetOrder }),
+    });
+  } catch (e) { /* échec silencieux : la disposition reprendra son ordre par défaut au prochain chargement */ }
 }
 {% endblock %}

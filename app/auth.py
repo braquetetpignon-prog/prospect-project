@@ -17,6 +17,7 @@ Mots de passe hachés avec werkzeug (inclus avec Flask, aucune nouvelle
 dépendance nécessaire).
 """
 from functools import wraps
+import json
 
 from flask import session, jsonify, request
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -255,3 +256,47 @@ def require_role(*allowed_roles):
             return f(*args, **kwargs)
         return wrapper
     return decorator
+
+
+DASHBOARD_WIDGETS = ("rdv", "prospects", "activity")
+
+
+def get_dashboard_layout(user_id):
+    """Renvoie l'ordre des widgets du tableau de bord pour cet utilisateur —
+    préférence strictement personnelle, jamais partagée avec le reste de
+    l'équipe. Ordre par défaut si jamais réglé, et toujours filtré/complété
+    pour ne renvoyer que des identifiants de widgets valides (au cas où la
+    liste des widgets disponibles évoluerait après coup)."""
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT dashboard_layout FROM user_preferences WHERE user_id = %s", (user_id,))
+            row = cur.fetchone()
+    finally:
+        conn.close()
+
+    if not row or not row[0]:
+        return list(DASHBOARD_WIDGETS)
+
+    saved = [w for w in row[0] if w in DASHBOARD_WIDGETS]
+    missing = [w for w in DASHBOARD_WIDGETS if w not in saved]
+    return saved + missing  # widgets jamais vus (nouveauté future) ajoutés à la fin
+
+
+def set_dashboard_layout(user_id, layout):
+    if not isinstance(layout, list) or not all(w in DASHBOARD_WIDGETS for w in layout):
+        raise AuthError(f"Disposition invalide — widgets autorisés : {', '.join(DASHBOARD_WIDGETS)}")
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO user_preferences (user_id, dashboard_layout, updated_at)
+                VALUES (%s, %s, now())
+                ON CONFLICT (user_id) DO UPDATE SET dashboard_layout = EXCLUDED.dashboard_layout, updated_at = now()
+                """,
+                (user_id, json.dumps(layout)),
+            )
+        conn.commit()
+    finally:
+        conn.close()

@@ -287,6 +287,22 @@ def auth_me():
     )
 
 
+@app.route("/api/users/me/dashboard-layout", methods=["GET", "PUT"])
+@login_required
+def dashboard_layout():
+    """Disposition personnelle des widgets du tableau de bord — propre à
+    chaque utilisateur, n'affecte jamais les collègues du même espace."""
+    if request.method == "PUT":
+        body = request.get_json(silent=True) or {}
+        try:
+            auth.set_dashboard_layout(session["user_id"], body.get("layout"))
+        except auth.AuthError as exc:
+            return jsonify(error=str(exc)), 400
+        return jsonify(status="ok")
+
+    return jsonify(layout=auth.get_dashboard_layout(session["user_id"]))
+
+
 @app.route("/api/auth/change-password", methods=["POST"])
 @login_required
 def auth_change_password():
@@ -1457,12 +1473,26 @@ def dashboard_stats(workspace_id):
             activity_cols = ["id", "prospect_nom", "campagne_nom", "statut", "envoye_at", "created_at"]
             activity = [dict(zip(activity_cols, r)) for r in cur.fetchall()]
 
+            cur.execute(
+                """
+                SELECT rv.id, rv.titre, rv.date_heure, rv.duree_minutes, p.nom_entreprise
+                FROM rendez_vous rv
+                LEFT JOIN prospects p ON p.id = rv.prospect_id
+                WHERE rv.workspace_id = %s AND rv.date_heure > now()
+                ORDER BY rv.date_heure ASC LIMIT 8
+                """,
+                (workspace_id,),
+            )
+            rdv_cols = ["id", "titre", "date_heure", "duree_minutes", "prospect_nom"]
+            upcoming_rdv = [dict(zip(rdv_cols, r)) for r in cur.fetchall()]
+
         return jsonify(
             total_prospects=total_prospects,
             prospects_by_statut=by_statut,
             active_campaigns=active_campaigns,
             emails_sent_7d=emails_sent_7d,
             recent_activity=activity,
+            upcoming_rdv=upcoming_rdv,
         )
     finally:
         conn.close()
