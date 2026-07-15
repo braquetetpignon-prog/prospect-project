@@ -404,6 +404,54 @@ class SmtpTestError(Exception):
     pass
 
 
+def cancel_send(campaign_id, send_id):
+    """Annule un envoi planifié individuel. N'annule QUE s'il est encore au
+    statut 'planifie' — mise à jour conditionnelle atomique pour éviter une
+    course avec process_due_sends() qui pourrait être en train de le traiter
+    au même moment (SELECT ... FOR UPDATE SKIP LOCKED passe alors à la ligne
+    suivante, donc pas de double-traitement). Renvoie True si annulé, False
+    si l'envoi n'était plus annulable (déjà en cours, envoyé ou en échec)."""
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE campaign_sends SET statut = 'annule'
+                WHERE id = %s AND campaign_id = %s AND statut = 'planifie'
+                RETURNING id
+                """,
+                (send_id, campaign_id),
+            )
+            updated = cur.fetchone()
+        conn.commit()
+        return updated is not None
+    finally:
+        conn.close()
+
+
+def cancel_all_planned(campaign_id):
+    """Annule en masse tous les envois encore planifiés pour une campagne —
+    filet de sécurité en cas d'erreur (mauvaise sélection, mauvais contenu...).
+    Ne touche jamais les envois déjà en cours, envoyés ou en échec. Renvoie
+    le nombre d'envois annulés."""
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE campaign_sends SET statut = 'annule'
+                WHERE campaign_id = %s AND statut = 'planifie'
+                RETURNING id
+                """,
+                (campaign_id,),
+            )
+            cancelled = cur.fetchall()
+        conn.commit()
+        return len(cancelled)
+    finally:
+        conn.close()
+
+
 def send_smtp_test(workspace_id):
     smtp_creds = workspace_settings.get_smtp_credentials_for_sending(workspace_id)
     if not smtp_creds:

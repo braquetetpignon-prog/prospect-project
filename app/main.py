@@ -918,6 +918,34 @@ def campaign_sends_list(campaign_id):
         conn.close()
 
 
+@app.route("/api/campaigns/<int:campaign_id>/sends/<int:send_id>/cancel", methods=["POST"])
+@login_required
+@require_role(*WRITE_ROLES)
+def campaign_send_cancel(campaign_id, send_id):
+    """Annule un envoi planifié individuel — filet de sécurité en cas d'erreur
+    (mauvais destinataire sélectionné, etc.). N'annule que s'il n'a pas déjà
+    démarré."""
+    error = _check_campaign_access(campaign_id)
+    if error:
+        return error
+    cancelled = sending.cancel_send(campaign_id, send_id)
+    if not cancelled:
+        return jsonify(error="Cet envoi n'est plus annulable (déjà en cours, envoyé ou en échec)."), 409
+    return jsonify(status="annule")
+
+
+@app.route("/api/campaigns/<int:campaign_id>/sends/cancel-all", methods=["POST"])
+@login_required
+@require_role(*WRITE_ROLES)
+def campaign_sends_cancel_all(campaign_id):
+    """Annule en masse tous les envois encore planifiés pour cette campagne."""
+    error = _check_campaign_access(campaign_id)
+    if error:
+        return error
+    count = sending.cancel_all_planned(campaign_id)
+    return jsonify(status="ok", cancelled=count)
+
+
 @app.route("/api/admin/process-due-sends", methods=["POST"])
 @login_required
 @require_role("admin")

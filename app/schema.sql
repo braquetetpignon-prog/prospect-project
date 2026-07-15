@@ -262,7 +262,7 @@ CREATE TABLE IF NOT EXISTS campaign_sends (
     campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
     prospect_id INTEGER NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
     canal TEXT NOT NULL DEFAULT 'email',       -- email / sms (réservé, pas encore actif)
-    statut TEXT NOT NULL DEFAULT 'planifie',   -- planifie / envoye / echec
+    statut TEXT NOT NULL DEFAULT 'planifie',   -- planifie / en_cours / envoye / echec / annule
     planifie_pour TIMESTAMPTZ,
     envoye_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
