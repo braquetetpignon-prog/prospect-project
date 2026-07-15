@@ -1211,3 +1211,20 @@ En cas de blocage, contactez votre interlocuteur ClickProspect habituel.',
     10
 ) ON CONFLICT (slug) DO NOTHING;
 
+INSERT INTO kb_articles (slug, title, content, display_order) VALUES (
+    'campagnes-premiere-utilisation',
+    'Avant d''envoyer votre première campagne',
+    'Pour pouvoir envoyer des campagnes (avis, publicité, newsletter), vous devez d''abord configurer votre compte d''envoi.
+
+Étapes :
+
+1. Allez dans Paramètres.
+2. Renseignez votre adresse e-mail et son mot de passe dans le bloc « Configuration SMTP ».
+3. Testez l''envoi depuis cette même page.
+
+Sans cette configuration, le bouton « Configurer & envoyer » ne pourra pas fonctionner.
+
+Si vous utilisez une adresse Microsoft 365 ou Outlook, une étape supplémentaire est parfois nécessaire : voir la procédure dédiée « Configurer le SMTP avec un compte Microsoft 365 / Outlook » depuis l''icône d''aide de la page Paramètres.',
+    20
+) ON CONFLICT (slug) DO NOTHING;
+
