@@ -286,6 +286,83 @@ def logout():
     session.clear()
 
 
+PIN_MIN_LENGTH = 6
+
+
+def _validate_pin(pin):
+    if not pin or not pin.isdigit() or len(pin) < PIN_MIN_LENGTH:
+        raise AuthError(f"Le code PIN doit contenir au moins {PIN_MIN_LENGTH} chiffres (uniquement des chiffres).")
+    if len(set(pin)) == 1:
+        raise AuthError("Le code PIN ne doit pas être une répétition du même chiffre (ex : 111111).")
+    digits = [int(c) for c in pin]
+    ascending = all(b - a == 1 for a, b in zip(digits, digits[1:]))
+    descending = all(a - b == 1 for a, b in zip(digits, digits[1:]))
+    if ascending or descending:
+        raise AuthError("Le code PIN ne doit pas être une suite de chiffres consécutifs (ex : 123456, 654321).")
+
+
+def set_pin(user_id, current_password, pin):
+    """Définit ou change le code PIN de récupération — utilisé ensuite pour
+    réinitialiser le mot de passe sans e-mail. Exige le mot de passe actuel,
+    comme pour tout changement d'identifiant de sécurité (on ne modifie pas
+    un moyen de récupération sans prouver qu'on a déjà accès au compte)."""
+    _validate_pin(pin)
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT password_hash FROM users WHERE id = %s", (user_id,))
+            row = cur.fetchone()
+            if not row or not check_password_hash(row[0], current_password):
+                raise AuthError("Mot de passe actuel incorrect.")
+            cur.execute(
+                "UPDATE users SET pin_hash = %s, pin_set_at = now() WHERE id = %s",
+                (generate_password_hash(pin), user_id),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def has_pin(user_id):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT pin_hash IS NOT NULL FROM users WHERE id = %s", (user_id,))
+            row = cur.fetchone()
+        return bool(row and row[0])
+    finally:
+        conn.close()
+
+
+def reset_password_with_pin(email, pin, new_password):
+    """Réinitialise le mot de passe via le code PIN — auto-service, sans
+    passer par un e-mail. Message d'erreur volontairement générique dans
+    tous les cas d'échec (e-mail inconnu, PIN jamais défini, ou PIN
+    incorrect) pour ne jamais révéler si un compte existe."""
+    if len(new_password) < 8:
+        raise AuthError("Le nouveau mot de passe doit contenir au moins 8 caractères.")
+
+    generic_error = "E-mail ou code PIN incorrect."
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, pin_hash FROM users WHERE email = %s AND is_active",
+                (email.strip().lower(),),
+            )
+            row = cur.fetchone()
+            if not row or not row[1] or not check_password_hash(row[1], pin):
+                raise AuthError(generic_error)
+            user_id = row[0]
+            cur.execute(
+                "UPDATE users SET password_hash = %s, must_change_password = FALSE WHERE id = %s",
+                (hash_password(new_password), user_id),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def current_user():
     if "user_id" not in session:
         return None

@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% set active_page = 'mon-compte' %}
+{% block title %}Mon compte{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div>
+    <h1>Mon compte</h1>
+    <p>Réglages personnels — ton mot de passe et ton code PIN de récupération.</p>
+  </div>
+</div>
+
+<div id="account-root">
+  <div class="panel"><div class="panel-body"><div class="skeleton" style="height:120px;"></div></div></div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+function onAuthReady(me) {
+  renderAccount(me);
+  loadPinStatus();
+}
+
+function renderAccount(me) {
+  document.getElementById('account-root').innerHTML = `
+    <div class="panel">
+      <div class="panel-head"><h2>Changer mon mot de passe</h2></div>
+      <div class="panel-body">
+        <form id="password-form">
+          <div class="field"><label for="current-password">Mot de passe actuel</label><input id="current-password" type="password" required></div>
+          <div class="field"><label for="new-password">Nouveau mot de passe</label><input id="new-password" type="password" minlength="8" required></div>
+          <div class="field"><label for="new-password-confirm">Confirmer le nouveau mot de passe</label><input id="new-password-confirm" type="password" minlength="8" required></div>
+          <button class="btn btn-primary btn-sm" type="submit">Mettre à jour</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Code PIN de récupération</h2>
+        <p>Permet de réinitialiser ton mot de passe sans e-mail, depuis la page de connexion.</p>
+      </div>
+      <div class="panel-body">
+        <div id="pin-status" style="font-size:13.5px; color:var(--text-soft); margin-bottom:16px;"></div>
+        <form id="pin-form">
+          <div class="field"><label for="pin-current-password">Mot de passe actuel</label><input id="pin-current-password" type="password" required></div>
+          <div class="field">
+            <label for="pin-value">Code PIN (6 chiffres minimum)</label>
+            <input id="pin-value" type="password" inputmode="numeric" minlength="6" required>
+            <p style="font-size:12px; color:var(--text-soft); margin:4px 0 0;">Uniquement des chiffres, pas de suite (123456) ni de répétition (111111).</p>
+          </div>
+          <button class="btn btn-primary btn-sm" type="submit">Définir / changer mon code PIN</button>
+        </form>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('password-form').addEventListener('submit', savePassword);
+  document.getElementById('pin-form').addEventListener('submit', savePin);
+}
+
+async function loadPinStatus() {
+  const el = document.getElementById('pin-status');
+  try {
+    const data = await fetchJSON('/api/auth/pin');
+    el.innerHTML = data.has_pin
+      ? `<span class="badge badge-active">Code PIN défini</span>`
+      : `<span class="badge badge-inactive">Aucun code PIN défini</span>`;
+  } catch (e) {
+    el.textContent = '';
+  }
+}
+
+async function savePassword(e) {
+  e.preventDefault();
+  const current = document.getElementById('current-password').value;
+  const next = document.getElementById('new-password').value;
+  const confirm = document.getElementById('new-password-confirm').value;
+  if (next !== confirm) { showToast('Les deux mots de passe ne correspondent pas.', true); return; }
+  try {
+    await fetchJSON('/api/auth/change-password', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ current_password: current, new_password: next }),
+    });
+    showToast('Mot de passe mis à jour.');
+    document.getElementById('password-form').reset();
+  } catch (err) {
+    showToast(err.message, true);
+  }
+}
+
+async function savePin(e) {
+  e.preventDefault();
+  const current = document.getElementById('pin-current-password').value;
+  const pin = document.getElementById('pin-value').value.trim();
+  try {
+    await fetchJSON('/api/auth/pin', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ current_password: current, pin }),
+    });
+    showToast('Code PIN enregistré.');
+    document.getElementById('pin-form').reset();
+    loadPinStatus();
+  } catch (err) {
+    showToast(err.message, true);
+  }
+}
+{% endblock %}

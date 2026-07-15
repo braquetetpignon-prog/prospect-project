@@ -134,6 +134,16 @@ def change_password_page():
     return flask_render_template("change_password.html")
 
 
+@app.route("/mot-de-passe-oublie")
+def forgot_password_page():
+    return flask_render_template("forgot_password.html")
+
+
+@app.route("/mon-compte")
+def my_account_page():
+    return flask_render_template("my_account.html")
+
+
 # --- Superadmin (chemin volontairement non lié depuis le reste du site) ---
 
 @app.route("/supadmin")
@@ -318,6 +328,56 @@ def auth_change_password():
         auth.change_own_password(session["user_id"], current_password, new_password)
     except auth.AuthError as exc:
         return jsonify(error=str(exc)), 400
+    return jsonify(status="ok")
+
+
+@app.route("/api/auth/pin", methods=["GET", "PUT"])
+@login_required
+def auth_pin():
+    """Gestion du code PIN de récupération — strictement personnel, chaque
+    utilisateur gère le sien depuis Mon compte."""
+    if request.method == "GET":
+        return jsonify(has_pin=auth.has_pin(session["user_id"]))
+
+    body = request.get_json(silent=True) or {}
+    current_password = body.get("current_password") or ""
+    pin = (body.get("pin") or "").strip()
+    try:
+        auth.set_pin(session["user_id"], current_password, pin)
+    except auth.AuthError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(status="ok")
+
+
+@app.route("/api/auth/forgot-password", methods=["POST"])
+def auth_forgot_password():
+    """Réinitialisation du mot de passe via code PIN, sans e-mail. Fortement
+    limitée en débit (par e-mail visé ET par IP) — c'est un second chemin
+    d'authentification, donc aussi sensible qu'un login."""
+    body = request.get_json(silent=True) or {}
+    email = (body.get("email") or "").strip()
+    pin = (body.get("pin") or "").strip()
+    new_password = body.get("new_password") or ""
+    if not email or not pin or not new_password:
+        return jsonify(error="email, pin et new_password sont requis"), 400
+
+    ip = _client_ip()
+    identifier = f"pinreset:{email}"
+    limited, retry_after = rate_limit.is_rate_limited(
+        identifier, ip, max_per_identifier=5, max_per_ip=15,
+    )
+    if limited:
+        logger.warning("Réinitialisation par PIN bloquée (trop de tentatives) pour %s depuis %s", email, ip)
+        return jsonify(error="Trop de tentatives. Réessaie dans quelques minutes."), 429
+
+    try:
+        auth.reset_password_with_pin(email, pin, new_password)
+    except auth.AuthError as exc:
+        rate_limit.record_attempt(identifier, ip, success=False)
+        return jsonify(error=str(exc)), 400
+
+    rate_limit.record_attempt(identifier, ip, success=True)
+    logger.warning("Mot de passe réinitialisé via PIN pour %s depuis %s", email, ip)
     return jsonify(status="ok")
 
 
