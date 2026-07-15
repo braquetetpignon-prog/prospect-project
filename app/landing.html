@@ -196,50 +196,22 @@
   }
   .trust-row .avatars span:first-child { margin-left: 0; }
 
-  /* --- Hero product glimpse --- */
-  .glimpse {
+  /* --- Hero product glimpse (vraie capture d'écran) --- */
+  .glimpse-shot-wrap {
     background: var(--white);
     border-radius: 24px;
     box-shadow: var(--shadow);
-    padding: 22px;
+    padding: 10px;
     transform: rotate(1.2deg);
+    line-height: 0;
   }
-  .glimpse-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 16px;
+  .glimpse-shot {
+    display: block;
+    width: 100%;
+    max-width: 480px;
+    height: auto;
+    border-radius: 16px;
   }
-  .glimpse-header .title { font-family: 'Fraunces', serif; font-weight: 600; font-size: 15px; }
-  .glimpse-header .badge {
-    font-size: 12px; font-weight: 600; color: var(--sauge);
-    background: var(--sauge-light); padding: 4px 10px; border-radius: 999px;
-  }
-  .glimpse-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 12px 10px;
-    border-radius: 14px;
-  }
-  .glimpse-row:nth-child(odd) { background: var(--cream); }
-  .glimpse-avatar {
-    width: 36px; height: 36px; border-radius: 50%;
-    flex-shrink: 0;
-  }
-  .glimpse-name { font-weight: 600; font-size: 14px; }
-  .glimpse-sub { font-size: 12.5px; color: var(--text-soft); }
-  .glimpse-status {
-    margin-left: auto;
-    font-size: 11.5px;
-    font-weight: 700;
-    padding: 4px 10px;
-    border-radius: 999px;
-    white-space: nowrap;
-  }
-  .status-nouveau { background: #EAF0FF; color: #3454A8; }
-  .status-qualifie { background: var(--sauge-light); color: #4F6647; }
-  .status-client { background: #FDECE3; color: var(--terracotta-deep); }
 
   /* --- Sections --- */
   section { padding: 88px 0; }
@@ -344,7 +316,7 @@
 
   @media (max-width: 880px) {
     .hero-grid { grid-template-columns: 1fr; }
-    .glimpse { transform: none; }
+    .glimpse-shot-wrap { transform: none; }
     .feature-grid { grid-template-columns: 1fr; }
     .steps { grid-template-columns: 1fr; gap: 40px; }
     .step-connector { display: none; }
@@ -389,35 +361,8 @@
         Déjà utilisé par des artisans du bâtiment et des services de proximité
       </div>
     </div>
-    <div class="glimpse">
-      <div class="glimpse-header">
-        <span class="title">Vos prospects</span>
-        <span class="badge">12 nouveaux</span>
-      </div>
-      <div class="glimpse-row">
-        <span class="glimpse-avatar" style="background:#E7C9B4"></span>
-        <div>
-          <div class="glimpse-name">Boulangerie du Marché</div>
-          <div class="glimpse-sub">Niort · Import CSV</div>
-        </div>
-        <span class="glimpse-status status-nouveau">Nouveau</span>
-      </div>
-      <div class="glimpse-row">
-        <span class="glimpse-avatar" style="background:#C7D6C0"></span>
-        <div>
-          <div class="glimpse-name">Plomberie Dupont</div>
-          <div class="glimpse-sub">La Rochelle · Recherche IA</div>
-        </div>
-        <span class="glimpse-status status-qualifie">Qualifié</span>
-      </div>
-      <div class="glimpse-row">
-        <span class="glimpse-avatar" style="background:#E3B8A4"></span>
-        <div>
-          <div class="glimpse-name">Atelier Rousseau</div>
-          <div class="glimpse-sub">Poitiers · Client</div>
-        </div>
-        <span class="glimpse-status status-client">Client</span>
-      </div>
+    <div class="glimpse-shot-wrap">
+      <img class="glimpse-shot" src="/static/img/dashboard-preview.png" alt="Aperçu du tableau de bord ClickProspect avec une liste de prospects et leur statut (nouveau, qualifié, client)">
     </div>
   </div>
 </header>
