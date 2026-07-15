@@ -138,6 +138,16 @@
       <div class="empty-state">Chargement…</div>
     </div>
   </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Événements de sécurité</h2>
+      <p>Réinitialisations de mot de passe par PIN et blocages anti brute-force (100 derniers) — pour repérer une activité suspecte.</p>
+    </div>
+    <div id="security-events-container">
+      <div class="empty-state">Chargement…</div>
+    </div>
+  </div>
 </div>
 
 <!-- Modal : changer l'abonnement -->
@@ -577,10 +587,51 @@ function renderAuditLog(entries) {
   `;
 }
 
+const securityEventLabels = {
+  password_reset_pin: "Mot de passe réinitialisé (PIN)",
+  pin_rate_limited: "Blocage anti brute-force (PIN)",
+};
+
+async function loadSecurityEvents() {
+  try {
+    const data = await fetchJSON('/api/supadmin/security-events');
+    renderSecurityEvents(data.entries);
+  } catch (err) {
+    document.getElementById('security-events-container').innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderSecurityEvents(entries) {
+  if (!entries.length) {
+    document.getElementById('security-events-container').innerHTML = `<div class="empty-state">Aucun événement pour l'instant.</div>`;
+    return;
+  }
+  document.getElementById('security-events-container').innerHTML = `
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Quand</th><th>Type</th><th>Compte</th><th>Espace</th><th>IP</th><th>Détail</th></tr></thead>
+        <tbody>
+          ${entries.map(e => `
+            <tr>
+              <td class="muted">${formatDateTime(e.created_at)}</td>
+              <td><span class="badge ${e.event_type === 'pin_rate_limited' ? 'badge-flagged' : 'badge-active'}">${escapeHtml(securityEventLabels[e.event_type] || e.event_type)}</span></td>
+              <td>${escapeHtml(e.user_email || '—')}</td>
+              <td>${escapeHtml(e.workspace_name || '—')}</td>
+              <td class="muted">${escapeHtml(e.ip_address || '—')}</td>
+              <td class="muted">${escapeHtml(e.details || '—')}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
 loadWorkspaces();
 loadDbStats();
 loadAuditLog();
 loadFeedback();
+loadSecurityEvents();
 
 // --- Suggestions ---
 

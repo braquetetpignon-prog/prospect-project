@@ -28,6 +28,7 @@ from app import system_mail
 from app import assistant
 from app import rate_limit
 from app import activity
+from app import security_events
 from app.app_logging import logger
 from flask import Response
 
@@ -368,16 +369,18 @@ def auth_forgot_password():
     )
     if limited:
         logger.warning("Réinitialisation par PIN bloquée (trop de tentatives) pour %s depuis %s", email, ip)
+        security_events.notify_pin_rate_limited(email, ip)
         return jsonify(error="Trop de tentatives. Réessaie dans quelques minutes."), 429
 
     try:
-        auth.reset_password_with_pin(email, pin, new_password)
+        workspace_id = auth.reset_password_with_pin(email, pin, new_password)
     except auth.AuthError as exc:
         rate_limit.record_attempt(identifier, ip, success=False)
         return jsonify(error=str(exc)), 400
 
     rate_limit.record_attempt(identifier, ip, success=True)
     logger.warning("Mot de passe réinitialisé via PIN pour %s depuis %s", email, ip)
+    security_events.notify_password_reset_via_pin(workspace_id, email, ip)
     return jsonify(status="ok")
 
 
@@ -1704,6 +1707,16 @@ def auth_end_impersonation():
 @superadmin.login_required
 def supadmin_audit_log():
     return jsonify(entries=superadmin.list_audit_log())
+
+
+@app.route("/api/supadmin/security-events")
+@superadmin.login_required
+def supadmin_security_events():
+    """Réinitialisations de mot de passe par PIN et blocages anti brute-force
+    — pour repérer une activité suspecte (ex: beaucoup de blocages sur un
+    même espace). Distinct du journal d'audit, qui trace les actions DU
+    superadmin lui-même."""
+    return jsonify(entries=security_events.list_recent_events())
 
 
 @app.route("/api/supadmin/feedback")

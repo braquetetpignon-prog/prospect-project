@@ -122,6 +122,23 @@ CREATE TABLE IF NOT EXISTS login_attempts (
 CREATE INDEX IF NOT EXISTS idx_login_attempts_identifier ON login_attempts(identifier, created_at);
 CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON login_attempts(ip_address, created_at);
 
+-- Événements de sécurité "self-service" (réinitialisation de mot de passe
+-- via PIN, blocages anti brute-force...) — distinct de superadmin_audit_log
+-- qui trace les actions DU superadmin. Consultable en lecture seule dans
+-- /supadmin pour repérer une activité suspecte (ex: beaucoup de blocages
+-- sur un même espace).
+CREATE TABLE IF NOT EXISTS security_events (
+    id SERIAL PRIMARY KEY,
+    workspace_id INTEGER REFERENCES workspaces(id) ON DELETE SET NULL,
+    workspace_name TEXT,
+    user_email TEXT,
+    event_type TEXT NOT NULL,  -- password_reset_pin / pin_rate_limited
+    details TEXT,
+    ip_address TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_security_events_created ON security_events(created_at DESC);
+
 -- Prospects
 CREATE TABLE IF NOT EXISTS prospects (
     id SERIAL PRIMARY KEY,

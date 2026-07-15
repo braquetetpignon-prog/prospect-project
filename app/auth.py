@@ -347,18 +347,19 @@ def reset_password_with_pin(email, pin, new_password):
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, pin_hash FROM users WHERE email = %s AND is_active",
+                "SELECT id, pin_hash, workspace_id FROM users WHERE email = %s AND is_active",
                 (email.strip().lower(),),
             )
             row = cur.fetchone()
             if not row or not row[1] or not check_password_hash(row[1], pin):
                 raise AuthError(generic_error)
-            user_id = row[0]
+            user_id, _, workspace_id = row
             cur.execute(
                 "UPDATE users SET password_hash = %s, must_change_password = FALSE WHERE id = %s",
                 (hash_password(new_password), user_id),
             )
         conn.commit()
+        return workspace_id
     finally:
         conn.close()
 
