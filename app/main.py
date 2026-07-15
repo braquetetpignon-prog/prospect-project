@@ -161,6 +161,11 @@ def prospects_page():
     return flask_render_template("prospects.html")
 
 
+@app.route("/clients")
+def clients_page():
+    return flask_render_template("clients.html")
+
+
 @app.route("/campagnes")
 def campagnes_page():
     return flask_render_template("campagnes.html")
@@ -342,19 +347,35 @@ def workspace_users(workspace_id):
     return jsonify(id=user_id, status="created"), 201
 
 
-@app.route("/api/workspaces/<int:workspace_id>/users/<int:user_id>", methods=["PUT"])
+@app.route("/api/workspaces/<int:workspace_id>/users/<int:user_id>", methods=["PUT", "DELETE"])
 @login_required
 @require_own_workspace
 @require_role("admin")
 def workspace_user_update(workspace_id, user_id):
-    body = request.get_json(silent=True) or {}
-    if "is_active" not in body:
-        return jsonify(error="is_active requis"), 400
+    if request.method == "DELETE":
+        if user_id == session.get("user_id"):
+            return jsonify(error="Tu ne peux pas supprimer ton propre compte — demande à un autre administrateur."), 400
+        try:
+            auth.delete_user(workspace_id, user_id)
+        except auth.AuthError as exc:
+            return jsonify(error=str(exc)), 400
+        return jsonify(status="deleted")
 
-    try:
-        auth.set_user_active(workspace_id, user_id, bool(body["is_active"]))
-    except auth.AuthError as exc:
-        return jsonify(error=str(exc)), 404
+    body = request.get_json(silent=True) or {}
+    if not any(k in body for k in ("is_active", "email", "role")):
+        return jsonify(error="Aucun champ reconnu (is_active, email ou role attendu)."), 400
+
+    if "is_active" in body:
+        try:
+            auth.set_user_active(workspace_id, user_id, bool(body["is_active"]))
+        except auth.AuthError as exc:
+            return jsonify(error=str(exc)), 404
+
+    if "email" in body or "role" in body:
+        try:
+            auth.update_user(workspace_id, user_id, body)
+        except auth.AuthError as exc:
+            return jsonify(error=str(exc)), 400
 
     return jsonify(status="updated")
 
@@ -1190,10 +1211,10 @@ def prospects_bulk_delete():
     body = request.get_json(silent=True) or {}
     ids = body.get("ids") or []
     try:
-        deleted = prospects.delete_prospects_bulk(ids, session.get("workspace_id"))
+        deleted, protected_count = prospects.delete_prospects_bulk(ids, session.get("workspace_id"))
     except prospects.ProspectError as exc:
         return jsonify(error=str(exc)), 400
-    return jsonify(status="deleted", deleted_ids=deleted, count=len(deleted))
+    return jsonify(status="deleted", deleted_ids=deleted, count=len(deleted), protected_clients=protected_count)
 
 
 @app.route("/api/prospects/export.csv")
@@ -1205,7 +1226,7 @@ def prospects_export_csv():
         return jsonify(error="workspace_id requis"), 400
     if subscriptions.is_restricted(workspace_id):
         return _restricted_response()
-    csv_content = prospects.export_csv(workspace_id)
+    csv_content = prospects.export_csv(workspace_id, statut=request.args.get("statut"))
     return Response(
         csv_content,
         mimetype="text/csv",

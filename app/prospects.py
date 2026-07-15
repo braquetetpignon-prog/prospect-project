@@ -207,8 +207,8 @@ def search_prospects(workspace_id, query=None, statut=None, prospect_type_id=Non
         conn.close()
 
 
-def export_csv(workspace_id):
-    prospects = search_prospects(workspace_id, limit=100000)
+def export_csv(workspace_id, statut=None):
+    prospects = search_prospects(workspace_id, statut=statut, limit=100000)
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(["Entreprise", "Prénom contact", "Nom contact", "Ville", "Email", "Téléphone", "Statut", "Type", "Source"])
@@ -288,17 +288,27 @@ def delete_prospect(prospect_id, workspace_id):
 
 
 def delete_prospects_bulk(prospect_ids, workspace_id):
+    """Suppression groupée — protège toujours les clients actifs (statut
+    'client') d'un effacement accidentel via une sélection large ('tout
+    sélectionner' puis supprimer) : ils sont silencieusement exclus, jamais
+    supprimés par cette voie. Pour supprimer un client précis, il faut le
+    faire depuis sa fiche (Gestion Client), un geste volontaire et unitaire."""
     if not prospect_ids:
         raise ProspectError("Aucun prospect sélectionné.")
     conn = get_db()
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "DELETE FROM prospects WHERE workspace_id = %s AND id = ANY(%s) RETURNING id",
+                "DELETE FROM prospects WHERE workspace_id = %s AND id = ANY(%s) AND statut != 'client' RETURNING id",
                 (workspace_id, prospect_ids),
             )
             deleted_ids = [r[0] for r in cur.fetchall()]
+            cur.execute(
+                "SELECT count(*) FROM prospects WHERE workspace_id = %s AND id = ANY(%s) AND statut = 'client'",
+                (workspace_id, prospect_ids),
+            )
+            protected_count = cur.fetchone()[0]
         conn.commit()
-        return deleted_ids
+        return deleted_ids, protected_count
     finally:
         conn.close()

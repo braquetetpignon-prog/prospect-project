@@ -133,6 +133,92 @@ def set_user_active(workspace_id, user_id, is_active):
         conn.close()
 
 
+def update_user(workspace_id, user_id, fields):
+    """Modifie l'e-mail et/ou le rôle d'un membre (permet notamment de
+    'changer d'administrateur' — promouvoir un collègue en admin, ou
+    rétrograder l'actuel). Protège toujours contre un espace de travail qui
+    se retrouverait sans aucun administrateur actif."""
+    updates = {}
+    if "email" in fields and fields["email"]:
+        updates["email"] = fields["email"].strip().lower()
+    if "role" in fields and fields["role"]:
+        if fields["role"] not in ROLES:
+            raise AuthError(f"Rôle invalide. Rôles possibles : {', '.join(ROLES)}")
+        updates["role"] = fields["role"]
+
+    if not updates:
+        raise AuthError("Aucune modification valide fournie.")
+
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            if "role" in updates and updates["role"] != "admin":
+                cur.execute(
+                    "SELECT count(*) FROM users WHERE workspace_id = %s AND role = 'admin' AND is_active AND id != %s",
+                    (workspace_id, user_id),
+                )
+                if cur.fetchone()[0] == 0:
+                    raise AuthError("Impossible : ce membre est le dernier administrateur actif de l'espace de travail.")
+
+            if "email" in updates:
+                cur.execute(
+                    "SELECT id FROM users WHERE workspace_id = %s AND email = %s AND id != %s",
+                    (workspace_id, updates["email"], user_id),
+                )
+                if cur.fetchone():
+                    raise AuthError("Cet e-mail est déjà utilisé par un autre membre de l'équipe.")
+
+            set_clause = ", ".join(f"{k} = %s" for k in updates)
+            cur.execute(
+                f"UPDATE users SET {set_clause} WHERE id = %s AND workspace_id = %s RETURNING id",
+                list(updates.values()) + [user_id, workspace_id],
+            )
+            updated = cur.fetchone()
+        conn.commit()
+        if not updated:
+            raise AuthError("Membre introuvable dans cet espace de travail.")
+    finally:
+        conn.close()
+
+
+def delete_user(workspace_id, user_id):
+    """Suppression définitive d'un membre. Protections :
+    - impossible de supprimer le dernier administrateur actif ;
+    - impossible si le membre a des rendez-vous à venir (la suppression les
+      effacerait en cascade — l'admin doit d'abord les réassigner ou les
+      annuler depuis le calendrier, pour ne jamais perdre un rendez-vous
+      sans s'en rendre compte)."""
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT role FROM users WHERE id = %s AND workspace_id = %s", (user_id, workspace_id))
+            row = cur.fetchone()
+            if not row:
+                raise AuthError("Membre introuvable dans cet espace de travail.")
+            role = row[0]
+
+            if role == "admin":
+                cur.execute(
+                    "SELECT count(*) FROM users WHERE workspace_id = %s AND role = 'admin' AND is_active AND id != %s",
+                    (workspace_id, user_id),
+                )
+                if cur.fetchone()[0] == 0:
+                    raise AuthError("Impossible : ce membre est le dernier administrateur actif de l'espace de travail.")
+
+            cur.execute("SELECT count(*) FROM rendez_vous WHERE user_id = %s AND date_heure > now()", (user_id,))
+            upcoming = cur.fetchone()[0]
+            if upcoming:
+                raise AuthError(
+                    f"Ce membre a {upcoming} rendez-vous à venir dans le calendrier — "
+                    f"réassigne-les ou annule-les avant de le supprimer."
+                )
+
+            cur.execute("DELETE FROM users WHERE id = %s AND workspace_id = %s", (user_id, workspace_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def login(email, password):
     conn = get_db()
     try:

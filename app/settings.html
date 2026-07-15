@@ -183,6 +183,29 @@ function renderSettingsShell(workspaceId) {
         </form>
       </div>
     </div>
+
+    <div class="modal-overlay" id="edit-member-modal-overlay">
+      <div class="modal">
+        <h3>Modifier le membre</h3>
+        <p style="font-size:12.5px; color:var(--text-soft); margin-top:-8px;">
+          Change le rôle en « Administrateur » pour transférer les droits d'administration à ce membre.
+        </p>
+        <form id="edit-member-form">
+          <input type="hidden" id="edit-member-id">
+          <div class="field"><label for="edit-member-email">E-mail</label><input id="edit-member-email" type="email" required></div>
+          <div class="field">
+            <label for="edit-member-role">Rôle</label>
+            <select id="edit-member-role">
+              ${ROLE_OPTIONS.map(r => `<option value="${r.value}">${r.label}</option>`).join('')}
+            </select>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn btn-ghost btn-sm" id="edit-member-cancel-btn">Annuler</button>
+            <button type="submit" class="btn btn-primary btn-sm">Enregistrer</button>
+          </div>
+        </form>
+      </div>
+    </div>
   `;
 
   document.getElementById('gbp-form').addEventListener('submit', (e) => saveGbp(e, workspaceId));
@@ -201,6 +224,46 @@ function renderSettingsShell(workspaceId) {
     document.getElementById('member-modal-overlay').classList.remove('show');
   });
   document.getElementById('member-form').addEventListener('submit', (e) => createMember(e, workspaceId));
+  document.getElementById('edit-member-cancel-btn').addEventListener('click', () => {
+    document.getElementById('edit-member-modal-overlay').classList.remove('show');
+  });
+  document.getElementById('edit-member-form').addEventListener('submit', (e) => saveMemberEdit(e, workspaceId));
+}
+
+function openEditMemberModal(userId, email, role, workspaceId) {
+  document.getElementById('edit-member-id').value = userId;
+  document.getElementById('edit-member-email').value = email;
+  document.getElementById('edit-member-role').value = role;
+  document.getElementById('edit-member-modal-overlay').classList.add('show');
+}
+
+async function saveMemberEdit(e, workspaceId) {
+  e.preventDefault();
+  const userId = document.getElementById('edit-member-id').value;
+  const email = document.getElementById('edit-member-email').value.trim();
+  const role = document.getElementById('edit-member-role').value;
+  try {
+    await fetchJSON(`/api/workspaces/${workspaceId}/users/${userId}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, role }),
+    });
+    document.getElementById('edit-member-modal-overlay').classList.remove('show');
+    showToast('Membre mis à jour.');
+    loadMembers(workspaceId);
+  } catch (err) {
+    showToast(err.message, true);
+  }
+}
+
+async function deleteMember(userId, email, workspaceId) {
+  if (!confirm(`Supprimer définitivement le compte de ${email} ? Cette action est irréversible.`)) return;
+  try {
+    await fetchJSON(`/api/workspaces/${workspaceId}/users/${userId}`, { method: 'DELETE' });
+    showToast('Membre supprimé.');
+    loadMembers(workspaceId);
+  } catch (err) {
+    showToast(err.message, true);
+  }
 }
 
 async function loadGoogleProfile(workspaceId) {
@@ -302,10 +365,12 @@ function renderMembers(users, workspaceId) {
             <td class="member-email">${escapeHtml(u.email)}</td>
             <td><span class="badge badge-${u.role}">${roleLabels[u.role] || u.role}</span></td>
             <td><span class="badge badge-${u.is_active ? 'active' : 'inactive'}">${u.is_active ? 'Actif' : 'Désactivé'}</span></td>
-            <td style="text-align:right;">
+            <td style="text-align:right; white-space:nowrap;">
+              <button class="btn btn-ghost btn-sm edit-member-btn" data-user-id="${u.id}" data-email="${escapeHtml(u.email)}" data-role="${u.role}">Modifier</button>
               <button class="btn btn-ghost btn-sm toggle-active-btn" data-user-id="${u.id}" data-active="${u.is_active}">
                 ${u.is_active ? 'Désactiver' : 'Réactiver'}
               </button>
+              <button class="btn btn-ghost btn-sm delete-member-btn" data-user-id="${u.id}" data-email="${escapeHtml(u.email)}" style="color:#9B4646;">Supprimer</button>
             </td>
           </tr>
         `).join('')}
@@ -313,6 +378,12 @@ function renderMembers(users, workspaceId) {
     </table>
   `;
 
+  container.querySelectorAll('.edit-member-btn').forEach(btn => {
+    btn.addEventListener('click', () => openEditMemberModal(btn.dataset.userId, btn.dataset.email, btn.dataset.role, workspaceId));
+  });
+  container.querySelectorAll('.delete-member-btn').forEach(btn => {
+    btn.addEventListener('click', () => deleteMember(btn.dataset.userId, btn.dataset.email, workspaceId));
+  });
   container.querySelectorAll('.toggle-active-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const userId = btn.dataset.userId;

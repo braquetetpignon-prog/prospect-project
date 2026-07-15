@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% set active_page = 'prospects' %}
-{% block title %}Prospects{% endblock %}
+{% set active_page = 'clients' %}
+{% block title %}Gestion Client{% endblock %}
 
 {% block extra_css %}
   .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
@@ -32,18 +32,17 @@
 {% block content %}
 <div class="topbar">
   <div>
-    <h1>Prospects</h1>
-    <p>Toutes les entreprises repérées, quel que soit leur statut.</p>
+    <h1>Gestion Client</h1>
+    <p>Vos clients actifs, à part des prospects — pour pouvoir vider Prospects sans jamais les perdre.</p>
   </div>
 </div>
 
 <div class="toolbar">
   <input type="text" id="search-input" placeholder="Rechercher (entreprise, contact...)">
-  <select id="statut-filter"><option value="">Tous les statuts</option></select>
   <select id="type-filter"><option value="">Tous les types</option></select>
   <span class="spacer"></span>
-  <a id="export-csv-link" class="btn btn-ghost btn-sm" href="#">⬇ Exporter tout (CSV)</a>
-  <button class="btn btn-primary" id="add-prospect-btn">+ Ajouter un prospect</button>
+  <a id="export-csv-link" class="btn btn-ghost btn-sm" href="#">⬇ Exporter les clients (CSV)</a>
+  <button class="btn btn-primary" id="add-prospect-btn">+ Ajouter un client</button>
 </div>
 
 <div class="panel">
@@ -62,7 +61,7 @@
 
 <div class="modal-overlay" id="prospect-modal-overlay">
   <div class="modal modal-wide">
-    <h3 id="modal-title">Fiche prospect</h3>
+    <h3 id="modal-title">Fiche client</h3>
     <form id="prospect-form">
       <div class="field-row">
         <div class="field"><label for="p-nom">Entreprise *</label><input id="p-nom" required></div>
@@ -168,8 +167,6 @@ function onAuthReady(me) {
   canWrite = me.role !== 'lecture_seule';
   if (!canWrite) document.getElementById('add-prospect-btn').style.display = 'none';
 
-  document.getElementById('statut-filter').innerHTML = '<option value="">Tous les statuts</option>' +
-    Object.entries(statusLabels).map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
   document.getElementById('p-statut').innerHTML =
     Object.entries(statusLabels).map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
 
@@ -181,7 +178,6 @@ function onAuthReady(me) {
     clearTimeout(searchDebounce);
     searchDebounce = setTimeout(loadProspects, 300);
   });
-  document.getElementById('statut-filter').addEventListener('change', loadProspects);
   document.getElementById('type-filter').addEventListener('change', loadProspects);
 
   document.getElementById('add-prospect-btn').addEventListener('click', () => openModal(null));
@@ -198,20 +194,18 @@ function onAuthReady(me) {
 async function bulkDelete() {
   const ids = getSelectedIds();
   if (!ids.length) return;
-  if (!confirm(`Supprimer ${ids.length} prospect${ids.length > 1 ? 's' : ''} ? Cette action est irréversible.`)) return;
-  try {
-    const result = await fetchJSON('/api/prospects/bulk-delete', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
-    });
-    let msg = `${result.count} prospect(s) supprimé(s).`;
-    if (result.protected_clients) {
-      msg += ` ${result.protected_clients} client(s) actif(s) protégé(s) (non supprimé — gère-les depuis Gestion Client).`;
+  if (!confirm(`Supprimer définitivement ${ids.length} client${ids.length > 1 ? 's' : ''} ? Cette action est irréversible.`)) return;
+  let deleted = 0, failed = 0;
+  for (const id of ids) {
+    try {
+      await fetchJSON(`/api/prospects/${id}`, { method: 'DELETE' });
+      deleted++;
+    } catch (err) {
+      failed++;
     }
-    showToast(msg);
-    loadProspects();
-  } catch (err) {
-    showToast(err.message, true);
   }
+  showToast(`${deleted} client(s) supprimé(s).${failed ? ` ${failed} échec(s).` : ''}`);
+  loadProspects();
 }
 
 function updateExportLink() {
@@ -220,7 +214,7 @@ function updateExportLink() {
   link.onclick = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch(`/api/prospects/export.csv?workspace_id=${workspaceId}`, { cache: 'no-store' });
+      const res = await fetch(`/api/prospects/export.csv?workspace_id=${workspaceId}&statut=client`, { cache: 'no-store' });
       if (!res.ok) {
         let message = "Impossible d'exporter pour le moment.";
         try {
@@ -234,7 +228,7 @@ function updateExportLink() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'prospects.csv';
+      a.download = 'clients.csv';
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -258,19 +252,9 @@ async function loadProspectTypes() {
 async function loadProspects() {
   const container = document.getElementById('prospects-container');
   const q = document.getElementById('search-input').value.trim();
-  const statut = document.getElementById('statut-filter').value;
   const typeId = document.getElementById('type-filter').value;
-  const params = new URLSearchParams({ workspace_id: workspaceId });
+  const params = new URLSearchParams({ workspace_id: workspaceId, statut: 'client' });
   if (q) params.set('q', q);
-  if (statut) {
-    params.set('statut', statut);
-  } else {
-    // Par défaut, les clients actifs ne s'affichent plus dans Prospects — ils
-    // vivent désormais dans Gestion Client, pour pouvoir vider Prospects sans
-    // jamais risquer de les perdre. Toujours consultables ici en filtrant
-    // explicitement sur "Client" si besoin ponctuel.
-    ['nouveau', 'qualifie', 'recale'].forEach(s => params.append('statut', s));
-  }
   if (typeId) params.set('prospect_type_id', typeId);
 
   try {
@@ -282,13 +266,13 @@ async function loadProspects() {
 }
 
 function renderProspects(list) {
-  document.getElementById('prospect-count').textContent = `${list.length} prospect${list.length > 1 ? 's' : ''}`;
+  document.getElementById('prospect-count').textContent = `${list.length} client${list.length > 1 ? 's' : ''}`;
   const container = document.getElementById('prospects-container');
   if (!list.length) {
     container.innerHTML = `
       <div class="empty-state">
-        <h3>Aucun prospect</h3>
-        <p>Ajoute une fiche manuellement, importe un fichier, ou lance une recherche IA.</p>
+        <h3>Aucun client pour l'instant</h3>
+        <p>Un client apparaît ici dès qu'un prospect passe au statut « Client », ou ajoute-en un directement.</p>
       </div>`;
     updateBulkBar();
     return;
@@ -360,7 +344,7 @@ async function openModal(prospectId) {
   document.getElementById('toggle-rdv-btn').style.display = prospectId ? 'inline-flex' : 'none';
 
   if (prospectId) {
-    document.getElementById('modal-title').textContent = 'Fiche prospect';
+    document.getElementById('modal-title').textContent = 'Fiche client';
     const p = await fetchJSON(`/api/prospects/${prospectId}`);
     document.getElementById('p-nom').value = p.nom_entreprise || '';
     document.getElementById('p-siret').value = p.siret || '';
@@ -376,8 +360,8 @@ async function openModal(prospectId) {
     document.getElementById('p-notes').value = p.notes || '';
     loadActivityTimeline(prospectId);
   } else {
-    document.getElementById('modal-title').textContent = 'Ajouter un prospect';
-    document.getElementById('p-statut').value = 'nouveau';
+    document.getElementById('modal-title').textContent = 'Ajouter un client';
+    document.getElementById('p-statut').value = 'client';
     document.getElementById('p-source').value = 'Manuel';
     document.getElementById('activity-timeline').innerHTML = '';
   }
@@ -451,10 +435,15 @@ async function saveProspect(e) {
       showToast('Fiche mise à jour.');
     } else {
       fields.workspace_id = workspaceId;
-      await fetchJSON('/api/prospects', {
+      const created = await fetchJSON('/api/prospects', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fields),
       });
-      showToast('Prospect ajouté.');
+      // Un nouveau prospect démarre toujours au statut "nouveau" côté serveur —
+      // on le promeut immédiatement en client puisqu'il est ajouté depuis cette page.
+      await fetchJSON(`/api/prospects/${created.id}/statut`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ statut: 'client' }),
+      });
+      showToast('Client ajouté.');
     }
     closeModal();
     loadProspects();
