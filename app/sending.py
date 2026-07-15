@@ -31,9 +31,26 @@ class SendError(Exception):
     pass
 
 
+def _get_workspace_name(workspace_id):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT name FROM workspaces WHERE id = %s", (workspace_id,))
+            row = cur.fetchone()
+        return row[0] if row else ""
+    finally:
+        conn.close()
+
+
 def render_template(content, prospect, workspace_id, google_profile_url=None):
+    """{nom_entreprise} désigne le nom DE L'ESPACE DE TRAVAIL qui envoie la
+    campagne (ex: signature "L'équipe {nom_entreprise}") — pas celui du
+    prospect destinataire, sans quoi une campagne se signerait avec le nom de
+    l'entreprise à qui elle est envoyée. {entreprise_prospect} reste
+    disponible séparément pour personnaliser avec le nom du destinataire."""
     prenom = prospect.get("contact_prenom") or prospect.get("nom_entreprise") or ""
-    nom_entreprise = prospect.get("nom_entreprise") or ""
+    nom_entreprise = _get_workspace_name(workspace_id)
+    entreprise_prospect = prospect.get("nom_entreprise") or ""
     lien_desinscription = consent_module.build_unsubscribe_url(
         prospect["id"], prospect["_campaign_type"]
     )
@@ -42,6 +59,7 @@ def render_template(content, prospect, workspace_id, google_profile_url=None):
     return content.format(
         prenom=prenom,
         nom_entreprise=nom_entreprise,
+        entreprise_prospect=entreprise_prospect,
         lien_avis_google=lien_avis_google,
         lien_desinscription=lien_desinscription,
         image="",
@@ -50,7 +68,8 @@ def render_template(content, prospect, workspace_id, google_profile_url=None):
 
 def render_campaign_body_html(content, prospect, workspace_id, google_profile_url=None, has_image=False):
     prenom = html_module.escape(prospect.get("contact_prenom") or prospect.get("nom_entreprise") or "")
-    nom_entreprise = html_module.escape(prospect.get("nom_entreprise") or "")
+    nom_entreprise = html_module.escape(_get_workspace_name(workspace_id))
+    entreprise_prospect = html_module.escape(prospect.get("nom_entreprise") or "")
     lien_avis_google = html_module.escape(google_profile_url or "")
 
     unsub_url = consent_module.build_unsubscribe_url(prospect["id"], prospect["_campaign_type"])
@@ -67,6 +86,7 @@ def render_campaign_body_html(content, prospect, workspace_id, google_profile_ur
     rendered = with_line_breaks.format(
         prenom=prenom,
         nom_entreprise=nom_entreprise,
+        entreprise_prospect=entreprise_prospect,
         lien_avis_google=lien_avis_google,
         lien_desinscription=lien_desinscription,
         image=image_tag,

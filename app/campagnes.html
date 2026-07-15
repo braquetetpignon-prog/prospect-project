@@ -88,7 +88,11 @@
               <label for="edit-contenu">Message</label>
               <textarea id="edit-contenu" rows="8"></textarea>
               <p style="font-size:12px; color:var(--text-soft); margin:4px 0 0;">
-                Utilise <code>{image}</code> dans le texte pour choisir où l'image apparaît (sinon elle est ajoutée à la fin).
+                Variables disponibles : <code>{prenom}</code> (contact du destinataire),
+                <code>{nom_entreprise}</code> (le nom de <strong>ton</strong> entreprise, pour signer),
+                <code>{entreprise_prospect}</code> (l'entreprise du destinataire),
+                <code>{lien_avis_google}</code>, <code>{lien_desinscription}</code>, <code>{image}</code>
+                (position de l'image — sinon ajoutée à la fin).
               </p>
               <button class="btn btn-ghost btn-sm" type="button" id="improve-ai-btn" style="margin-top:8px;">✨ Améliorer avec l'IA</button>
             </div>

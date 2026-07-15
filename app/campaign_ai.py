@@ -33,7 +33,7 @@ Voici son brouillon actuel :
 Réécris ce message pour le rendre plus clair, chaleureux et professionnel, en gardant un \
 ton simple et sincère (pas de style trop commercial ou too much). Conserve impérativement \
 tous les marqueurs entre accolades tels quels s'ils sont présents dans le brouillon (par \
-exemple {{prenom}}, {{nom_entreprise}}, {{lien_avis_google}}, {{lien_desinscription}}, {{image}}) \
+exemple {{prenom}}, {{nom_entreprise}}, {{entreprise_prospect}}, {{lien_avis_google}}, {{lien_desinscription}}, {{image}}) \
 — ce sont des variables techniques remplacées automatiquement à l'envoi, ne les traduis pas \
 et ne les supprime pas. Réponds uniquement avec le texte du message amélioré, sans commentaire \
 ni introduction, sans guillemets autour."""
