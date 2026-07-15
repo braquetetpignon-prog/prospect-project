@@ -80,6 +80,15 @@ function renderSettingsShell(workspaceId) {
         <p>Le compte d'envoi utilisé pour vos campagnes e-mail.</p>
       </div>
       <div class="panel-body">
+        <div style="background:#F6ECE4; border:1px solid var(--terracotta, #A2502E); border-radius:8px; padding:12px 14px; margin-bottom:16px; font-size:12.5px; line-height:1.5;">
+          <strong>Compte Microsoft 365 / Outlook / Hotmail ?</strong> Ces fournisseurs désactivent
+          souvent l'envoi SMTP classique par défaut, pour des raisons de sécurité — vous obtiendrez
+          une erreur d'authentification même avec les bons identifiants. Il faut l'activer une fois
+          côté Microsoft (« Authentification SMTP authentifiée », dans le centre d'administration
+          Microsoft 365), généralement par un administrateur informatique.
+          <a href="https://aka.ms/smtp_auth_disabled" target="_blank" rel="noopener">Documentation Microsoft</a>.
+          Les autres fournisseurs (Gmail, OVH, IONOS...) ne sont généralement pas concernés.
+        </div>
         <div id="smtp-status" style="font-size:13.5px; color:var(--text-soft); margin-bottom:16px;"></div>
         <form id="smtp-form">
           <div class="field-row">

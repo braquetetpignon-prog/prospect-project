@@ -602,6 +602,17 @@ def send_smtp_test(workspace_id):
     try:
         _send_via_smtp(smtp_creds, smtp_creds["from_email"], subject, body)
     except Exception as exc:  # noqa: BLE001
+        # Cas fréquent avec Microsoft 365/Outlook : l'authentification SMTP
+        # classique est désactivée par défaut côté Microsoft (pas un problème
+        # d'identifiants). On reconnaît ce message précis pour donner une
+        # explication actionnable plutôt que l'erreur technique brute.
+        if "smtpclientauthentication is disabled" in str(exc).lower():
+            raise SmtpTestError(
+                "Ce compte Microsoft 365/Outlook a l'authentification SMTP désactivée par défaut "
+                "(réglage de sécurité côté Microsoft, pas un souci d'identifiants). Un administrateur "
+                "doit l'activer dans le centre d'administration Microsoft 365 (« Authentification SMTP "
+                "authentifiée »). Voir https://aka.ms/smtp_auth_disabled — ou utilisez une autre boîte mail."
+            ) from exc
         raise SmtpTestError(f"Échec de l'envoi de test : {exc}") from exc
 
     workspace_settings.mark_smtp_verified(workspace_id)
