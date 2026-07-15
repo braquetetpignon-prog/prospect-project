@@ -13,6 +13,7 @@ import time
 from app import sending
 from app import ia_search
 from app import lifecycle
+from app.app_logging import logger
 
 SCHEDULER_INTERVAL_SECONDS = int(os.environ.get("SCHEDULER_INTERVAL_SECONDS", "30"))
 _started = False
@@ -26,15 +27,16 @@ def _loop():
         except Exception:
             # On ne laisse jamais le planificateur mourir sur une erreur ponctuelle
             # (ex: base momentanément indisponible) — il réessaiera au prochain tour.
-            pass
+            # Mais on journalise, pour pouvoir diagnostiquer un échec répété.
+            logger.exception("Échec de process_due_sends()")
         try:
             ia_search.run_due_scheduled_searches()
         except Exception:
-            pass
+            logger.exception("Échec de run_due_scheduled_searches()")
         try:
             lifecycle.run_daily_maintenance()
         except Exception:
-            pass
+            logger.exception("Échec de run_daily_maintenance()")
         time.sleep(SCHEDULER_INTERVAL_SECONDS)
 
 

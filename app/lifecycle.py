@@ -18,6 +18,7 @@ via app_settings), pas à chaque passage du planificateur (toutes les 30s).
 from datetime import datetime, timedelta, timezone
 
 from app.db import get_db
+from app import rate_limit
 from app import subscriptions
 from app import system_mail
 
@@ -128,4 +129,5 @@ def run_daily_maintenance():
     if _already_ran_today():
         return
     flag_inactive_free_workspaces()
+    rate_limit.purge_old_attempts()
     _mark_ran_today()

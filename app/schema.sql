@@ -83,6 +83,19 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TR
 -- il doit en choisir un nouveau avant de pouvoir faire quoi que ce soit d'autre.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
 
+-- Anti brute-force : journal des tentatives de connexion (utilisateur normal
+-- ET superadmin), utilisé par app/rate_limit.py pour bloquer temporairement
+-- après trop d'échecs récents (par email ciblé ET par IP source).
+CREATE TABLE IF NOT EXISTS login_attempts (
+    id SERIAL PRIMARY KEY,
+    identifier TEXT,           -- email visé (minuscules), NULL si non fourni
+    ip_address TEXT,
+    success BOOLEAN NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_login_attempts_identifier ON login_attempts(identifier, created_at);
+CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON login_attempts(ip_address, created_at);
+
 -- Prospects
 CREATE TABLE IF NOT EXISTS prospects (
     id SERIAL PRIMARY KEY,

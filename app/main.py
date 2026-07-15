@@ -2,6 +2,7 @@ import os
 from datetime import timedelta
 
 from flask import Flask, jsonify, request, session, redirect, render_template as flask_render_template
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from app.db import get_db
 from app import csv_import
@@ -25,11 +26,21 @@ from app import superadmin
 from app import subscriptions
 from app import system_mail
 from app import assistant
+from app import rate_limit
+from app.app_logging import logger
 from flask import Response
 
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "schema.sql")
 
 app = Flask(__name__, template_folder=os.path.dirname(os.path.abspath(__file__)))
+
+# Coolify place l'app derrière un reverse proxy : sans ProxyFix, toutes les
+# requêtes semblent venir de l'IP du proxy (request.remote_addr), ce qui
+# rendrait la limitation anti brute-force par IP inutile (tout le monde
+# partagerait la même IP apparente). x_for=1 fait confiance à UN seul niveau
+# de X-Forwarded-For (le proxy immédiat) — cohérent avec l'infra actuelle
+# (un seul reverse proxy devant l'app, pas de chaîne de proxies).
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)
 
 app.secret_key = os.environ.get("SECRET_KEY")
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=14)
@@ -39,6 +50,45 @@ app.config["SESSION_COOKIE_SECURE"] = os.environ.get("ENV") == "preproduction"
 
 MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 Mo
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
+
+
+def _client_ip():
+    return request.remote_addr
+
+
+@app.after_request
+def set_security_headers(response):
+    # Durcissement HTTP standard (défense en profondeur). CSP volontairement
+    # permissive sur script-src car tout le JS de l'app est inline (pas de
+    # système de nonce en place) — retirer 'unsafe-inline' demanderait de
+    # réécrire l'injection de JS dans les gabarits, hors périmètre de ce
+    # correctif. object-src/frame-ancestors/base-uri restent stricts.
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com data:; "
+        "img-src 'self' data: https:; "
+        "connect-src 'self'; "
+        "object-src 'none'; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'",
+    )
+    if os.environ.get("ENV") == "preproduction":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
+
+@app.errorhandler(500)
+def handle_internal_error(exc):
+    # Le détail de l'erreur est journalisé côté serveur uniquement — jamais
+    # renvoyé au client, pour ne pas exposer de détails d'implémentation.
+    logger.exception("Erreur serveur non gérée sur %s %s", request.method, request.path)
+    return jsonify(error="Une erreur interne est survenue."), 500
 
 
 def init_db():
@@ -142,8 +192,12 @@ def health():
         conn.cursor().execute("SELECT 1")
         conn.close()
         return jsonify(status="healthy", db="ok")
-    except Exception as e:
-        return jsonify(status="unhealthy", db="error", detail=str(e)), 503
+    except Exception:
+        # Route publique et sans authentification (utilisée par Coolify pour
+        # le health check) : le détail de l'erreur est journalisé côté
+        # serveur uniquement, jamais renvoyé au client.
+        logger.exception("Health check : échec de connexion à la base de données")
+        return jsonify(status="unhealthy", db="error"), 503
 
 
 # --- Authentification -------------------------------------------------
@@ -177,11 +231,20 @@ def auth_login():
     if not email or not password:
         return jsonify(error="email et password sont requis"), 400
 
+    ip = _client_ip()
+    limited, retry_after = rate_limit.is_rate_limited(email, ip)
+    if limited:
+        logger.warning("Connexion bloquée (trop de tentatives) pour %s depuis %s", email, ip)
+        return jsonify(error="Trop de tentatives échouées. Réessaie dans quelques minutes."), 429
+
     try:
         auth.login(email, password)
     except auth.AuthError as exc:
+        rate_limit.record_attempt(email, ip, success=False)
+        logger.warning("Échec de connexion pour %s depuis %s", email, ip)
         return jsonify(error=str(exc)), 401
 
+    rate_limit.record_attempt(email, ip, success=True)
     return jsonify(status="ok")
 
 
@@ -1288,10 +1351,25 @@ def supadmin_login():
     password = body.get("password") or ""
     if not email or not password:
         return jsonify(error="email et password sont requis"), 400
+
+    ip = _client_ip()
+    limited, retry_after = rate_limit.is_rate_limited(
+        email, ip,
+        max_per_identifier=rate_limit.MAX_ATTEMPTS_SUPERADMIN_IDENTIFIER,
+        max_per_ip=rate_limit.MAX_ATTEMPTS_SUPERADMIN_IP,
+    )
+    if limited:
+        logger.warning("Connexion superadmin bloquée (trop de tentatives) pour %s depuis %s", email, ip)
+        return jsonify(error="Trop de tentatives échouées. Réessaie dans quelques minutes."), 429
+
     try:
         superadmin.login(email, password)
     except superadmin.SuperadminError as exc:
+        rate_limit.record_attempt(email, ip, success=False)
+        logger.warning("Échec de connexion superadmin pour %s depuis %s", email, ip)
         return jsonify(error=str(exc)), 401
+
+    rate_limit.record_attempt(email, ip, success=True)
     return jsonify(status="ok")
 
 
