@@ -10,7 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600,0,700&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --cream: #FAF6F0; --terracotta: #C1653D; --terracotta-deep: #A2502E;
+    --cream: #FAF6F0; --terracotta: #C1653D; --terracotta-deep: #A2502E; --terracotta-darker: #894427;
     --sauge: #7A9471; --sauge-light: #E7EDE3; --text: #35302A; --text-soft: #6E6459;
     --white: #FFFFFF; --border: rgba(53,48,42,0.12);
     --shadow: 0 6px 18px rgba(53,40,24,0.06);
@@ -23,8 +23,8 @@
   .topbar h1 { color: var(--white); font-size: 18px; }
   .main { padding: 28px 32px 60px; max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
   .btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 16px; border-radius: 999px; font-weight: 600; font-size: 13.5px; border: none; cursor: pointer; font-family: 'Figtree', sans-serif; }
-  .btn-primary { background: var(--terracotta); color: var(--white); }
-  .btn-primary:hover { background: var(--terracotta-deep); }
+  .btn-primary { background: var(--terracotta-deep); color: var(--white); }
+  .btn-primary:hover { background: var(--terracotta-darker); }
   .btn-ghost { background: var(--white); color: var(--text); border: 1.5px solid var(--border); }
   .btn-ghost:hover { border-color: var(--text); }
   .btn-dark { background: var(--text); color: var(--white); }
@@ -43,7 +43,7 @@
   .badge-trial { background: #EAF0FF; color: #3454A8; }
   .badge-free { background: #F3E3E3; color: #9B4646; }
   .badge-paid { background: var(--sauge-light); color: #4F6647; }
-  .badge-flagged { background: var(--terracotta); color: var(--white); }
+  .badge-flagged { background: var(--terracotta-deep); color: var(--white); }
   .muted { color: var(--text-soft); font-size: 12.5px; }
   .row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
   input, select {
