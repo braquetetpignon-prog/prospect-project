@@ -148,6 +148,45 @@
       <div class="empty-state">Chargement…</div>
     </div>
   </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Base de connaissances</h2>
+      <p>Procédures affichées aux utilisateurs via le panneau d'aide (icône « ? »). L'identifiant (slug) relie une icône dans l'application à son article — ne le change pas sans mettre à jour l'icône correspondante.</p>
+    </div>
+    <div class="panel-body">
+      <button class="btn btn-primary" id="kb-new-btn" type="button">+ Nouvel article</button>
+    </div>
+    <div id="kb-articles-container">
+      <div class="empty-state">Chargement…</div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal : créer/modifier un article de la base de connaissances -->
+<div class="modal-overlay" id="kb-modal-overlay">
+  <div class="modal" style="max-width:560px;">
+    <h3 id="kb-modal-title">Nouvel article</h3>
+    <input type="hidden" id="kb-modal-id">
+
+    <label for="kb-modal-slug">Identifiant (slug)</label>
+    <input id="kb-modal-slug" placeholder="ex: smtp-microsoft-365">
+
+    <label for="kb-modal-order">Ordre d'affichage</label>
+    <input id="kb-modal-order" type="number" value="0" style="max-width:120px;">
+
+    <label for="kb-modal-title-input">Titre</label>
+    <input id="kb-modal-title-input" placeholder="Titre affiché en haut du panneau">
+
+    <label for="kb-modal-content">Contenu</label>
+    <textarea id="kb-modal-content" rows="10" style="width:100%; box-sizing:border-box; font-family:inherit; font-size:13.5px; padding:9px 11px; border:1px solid var(--border, #ddd); border-radius:8px; margin-top:6px;" placeholder="Texte brut, les sauts de ligne sont conservés à l'affichage."></textarea>
+
+    <div id="kb-modal-error" class="muted" style="color:#A2502E; display:none; margin-top:10px;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="kb-modal-cancel-btn" type="button">Annuler</button>
+      <button class="btn btn-primary" id="kb-modal-save-btn" type="button">Enregistrer</button>
+    </div>
+  </div>
 </div>
 
 <!-- Modal : changer l'abonnement -->
@@ -632,6 +671,7 @@ loadDbStats();
 loadAuditLog();
 loadFeedback();
 loadSecurityEvents();
+loadKbArticles();
 
 // --- Suggestions ---
 
@@ -666,6 +706,102 @@ function renderFeedback(entries) {
       </table>
     </div>
   `;
+}
+
+// --- Base de connaissances ---
+
+let kbArticlesCache = [];
+
+async function loadKbArticles() {
+  try {
+    const data = await fetchJSON('/api/supadmin/kb-articles');
+    kbArticlesCache = data.articles;
+    renderKbArticles(kbArticlesCache);
+  } catch (err) {
+    document.getElementById('kb-articles-container').innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderKbArticles(articles) {
+  if (!articles.length) {
+    document.getElementById('kb-articles-container').innerHTML = `<div class="empty-state">Aucun article pour l'instant.</div>`;
+    return;
+  }
+  document.getElementById('kb-articles-container').innerHTML = `
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Ordre</th><th>Titre</th><th>Identifiant (slug)</th><th>Mis à jour</th><th></th></tr></thead>
+        <tbody>
+          ${articles.map(a => `
+            <tr>
+              <td class="muted">${a.display_order}</td>
+              <td>${escapeHtml(a.title)}</td>
+              <td class="muted">${escapeHtml(a.slug)}</td>
+              <td class="muted">${formatDateTime(a.updated_at)}</td>
+              <td style="white-space:nowrap;">
+                <button class="btn btn-ghost" type="button" onclick="openKbModal(${a.id})">Modifier</button>
+                <button class="btn btn-ghost" type="button" onclick="deleteKbArticle(${a.id})">Supprimer</button>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function openKbModal(articleId) {
+  const article = articleId ? kbArticlesCache.find(a => a.id === articleId) : null;
+  document.getElementById('kb-modal-title').textContent = article ? 'Modifier l\'article' : 'Nouvel article';
+  document.getElementById('kb-modal-id').value = article ? article.id : '';
+  document.getElementById('kb-modal-slug').value = article ? article.slug : '';
+  document.getElementById('kb-modal-order').value = article ? article.display_order : 0;
+  document.getElementById('kb-modal-title-input').value = article ? article.title : '';
+  document.getElementById('kb-modal-content').value = article ? article.content : '';
+  document.getElementById('kb-modal-error').style.display = 'none';
+  document.getElementById('kb-modal-overlay').classList.add('show');
+}
+
+function closeKbModal() {
+  document.getElementById('kb-modal-overlay').classList.remove('show');
+}
+
+document.getElementById('kb-new-btn').addEventListener('click', () => openKbModal(null));
+document.getElementById('kb-modal-cancel-btn').addEventListener('click', closeKbModal);
+
+document.getElementById('kb-modal-save-btn').addEventListener('click', async () => {
+  const id = document.getElementById('kb-modal-id').value;
+  const body = {
+    slug: document.getElementById('kb-modal-slug').value.trim(),
+    display_order: parseInt(document.getElementById('kb-modal-order').value, 10) || 0,
+    title: document.getElementById('kb-modal-title-input').value.trim(),
+    content: document.getElementById('kb-modal-content').value.trim(),
+  };
+  const errorEl = document.getElementById('kb-modal-error');
+  errorEl.style.display = 'none';
+  try {
+    await fetchJSON(id ? `/api/supadmin/kb-articles/${id}` : '/api/supadmin/kb-articles', {
+      method: id ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    closeKbModal();
+    loadKbArticles();
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.style.display = 'block';
+  }
+});
+
+async function deleteKbArticle(id) {
+  const article = kbArticlesCache.find(a => a.id === id);
+  if (!confirm(`Supprimer l'article « ${article ? article.title : ''} » ? Les icônes d'aide qui y renvoient afficheront un message d'indisponibilité.`)) return;
+  try {
+    await fetchJSON(`/api/supadmin/kb-articles/${id}`, { method: 'DELETE' });
+    loadKbArticles();
+  } catch (err) {
+    alert(err.message);
+  }
 }
 </script>
 </body>

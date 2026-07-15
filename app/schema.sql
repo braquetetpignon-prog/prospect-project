@@ -1179,3 +1179,35 @@ INSERT INTO naf_synonyms (term, code) VALUES
     ('amenagement paysager', '81.30Z')
 ON CONFLICT DO NOTHING;
 
+-- Base de connaissances (wiki interne) : procédures courtes, éditables
+-- uniquement depuis /supadmin, consultables par tous les utilisateurs via un
+-- panneau latéral ouvert depuis une icône d'aide contextuelle (ex: à côté du
+-- bloc SMTP). Totalement distinct de l'assistant d'aide en ligne (assistant.py).
+CREATE TABLE IF NOT EXISTS kb_articles (
+    id SERIAL PRIMARY KEY,
+    slug TEXT NOT NULL UNIQUE,  -- identifiant stable utilisé par les icônes d'aide, ex: "smtp-microsoft-365"
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,  -- texte brut, sauts de ligne préservés à l'affichage (pas de HTML)
+    display_order INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_kb_articles_order ON kb_articles(display_order, id);
+
+INSERT INTO kb_articles (slug, title, content, display_order) VALUES (
+    'smtp-microsoft-365',
+    'Configurer le SMTP avec un compte Microsoft 365 / Outlook',
+    'Si vous utilisez une adresse Microsoft 365, Outlook ou Hotmail comme compte d''envoi, l''authentification SMTP classique est souvent désactivée par défaut, pour des raisons de sécurité imposées par Microsoft.
+
+Ce que vous devez faire :
+
+1. Contactez votre administrateur informatique (ou Microsoft si vous gérez seul votre compte).
+2. Demandez l''activation de « l''authentification SMTP » pour votre boîte, dans le centre d''administration Microsoft 365.
+3. Une fois activée, revenez sur cette page et testez à nouveau l''envoi.
+
+Si vous ne pouvez pas faire activer cette option, une alternative simple consiste à utiliser un compte Gmail comme adresse d''envoi à la place.
+
+En cas de blocage, contactez votre interlocuteur ClickProspect habituel.',
+    10
+) ON CONFLICT (slug) DO NOTHING;
+

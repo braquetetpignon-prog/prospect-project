@@ -29,6 +29,7 @@ from app import assistant
 from app import rate_limit
 from app import activity
 from app import security_events
+from app import kb
 from app.app_logging import logger
 from flask import Response
 
@@ -1709,6 +1710,15 @@ def supadmin_audit_log():
     return jsonify(entries=superadmin.list_audit_log())
 
 
+@app.route("/api/kb/articles/<slug>")
+@login_required
+def kb_get_article(slug):
+    article = kb.get_article_by_slug(slug)
+    if not article:
+        return jsonify(error="Procédure introuvable."), 404
+    return jsonify(article=article)
+
+
 @app.route("/api/supadmin/security-events")
 @superadmin.login_required
 def supadmin_security_events():
@@ -1717,6 +1727,47 @@ def supadmin_security_events():
     même espace). Distinct du journal d'audit, qui trace les actions DU
     superadmin lui-même."""
     return jsonify(entries=security_events.list_recent_events())
+
+
+@app.route("/api/supadmin/kb-articles", methods=["GET", "POST"])
+@superadmin.login_required
+def supadmin_kb_articles():
+    if request.method == "GET":
+        return jsonify(articles=kb.list_articles())
+
+    body = request.get_json(silent=True) or {}
+    try:
+        new_id = kb.create_article(
+            body.get("slug"), body.get("title"), body.get("content"),
+            display_order=body.get("display_order") or 0,
+        )
+    except kb.KbError as exc:
+        return jsonify(error=str(exc)), 400
+    superadmin._log_action("kb_article_create", details=f"Article « {body.get('title')} » créé.")
+    return jsonify(status="ok", id=new_id)
+
+
+@app.route("/api/supadmin/kb-articles/<int:article_id>", methods=["PUT", "DELETE"])
+@superadmin.login_required
+def supadmin_kb_article_detail(article_id):
+    if request.method == "DELETE":
+        try:
+            kb.delete_article(article_id)
+        except kb.KbError as exc:
+            return jsonify(error=str(exc)), 400
+        superadmin._log_action("kb_article_delete", details=f"Article #{article_id} supprimé.")
+        return jsonify(status="ok")
+
+    body = request.get_json(silent=True) or {}
+    try:
+        kb.update_article(
+            article_id, body.get("slug"), body.get("title"), body.get("content"),
+            display_order=body.get("display_order") or 0,
+        )
+    except kb.KbError as exc:
+        return jsonify(error=str(exc)), 400
+    superadmin._log_action("kb_article_update", details=f"Article « {body.get('title')} » modifié.")
+    return jsonify(status="ok")
 
 
 @app.route("/api/supadmin/feedback")
