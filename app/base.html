@@ -293,7 +293,10 @@ async function initAuth() {
 
   const impBanner = document.getElementById('impersonation-banner');
   if (me.impersonating) {
-    impBanner.innerHTML = `<span>Vue superadmin — connecté en tant que ${me.email} (${me.workspace_name})</span>`;
+    impBanner.innerHTML = '';
+    const label = document.createElement('span');
+    label.textContent = `Vue superadmin — connecté en tant que ${me.email} (${me.workspace_name})`;
+    impBanner.appendChild(label);
     const btn = document.createElement('button');
     btn.textContent = 'Quitter cette vue';
     btn.addEventListener('click', async () => {
