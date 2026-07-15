@@ -128,8 +128,24 @@
         </p>
         <div class="checklist" id="recipient-checklist"></div>
         <div class="panel-body" style="padding-top:12px; border-top:1px solid var(--border);">
+          <div id="unsubscribe-rate-display" style="font-size:12.5px; color:var(--text-soft); margin-bottom:10px;"></div>
           <div class="field"><label for="send-date">Planifier pour (optionnel)</label><input id="send-date" type="datetime-local"></div>
+          <button class="btn btn-ghost btn-sm" type="button" id="preview-send-btn" style="margin-right:8px;">Aperçu du mail</button>
           <button class="btn btn-primary btn-sm" id="trigger-send-btn">Envoyer</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="preview-modal-overlay">
+      <div class="modal" style="max-width:560px;">
+        <h3>Aperçu du mail</h3>
+        <p id="preview-meta" style="font-size:12.5px; color:var(--text-soft); margin-top:-6px;"></p>
+        <div style="border:1px solid var(--border); border-radius:8px; padding:16px; max-height:420px; overflow-y:auto; background:#FBF8F3;">
+          <div id="preview-subject" style="font-weight:600; margin-bottom:10px;"></div>
+          <div id="preview-body"></div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost btn-sm" id="preview-close-btn">Fermer</button>
         </div>
       </div>
     </div>
@@ -198,6 +214,34 @@ function onAuthReady(me) {
   document.getElementById('back-to-list').addEventListener('click', showListView);
   document.getElementById('edit-form').addEventListener('submit', saveCampaignEdits);
   document.getElementById('trigger-send-btn').addEventListener('click', triggerSend);
+  document.getElementById('preview-send-btn').addEventListener('click', showPreview);
+  document.getElementById('preview-close-btn').addEventListener('click', () => document.getElementById('preview-modal-overlay').classList.remove('show'));
+}
+
+async function showPreview() {
+  if (!currentCampaign) return;
+  const checked = document.querySelector('#recipient-checklist input[type="checkbox"]:checked');
+  if (!checked) { showToast('Sélectionne au moins un destinataire pour voir un aperçu.', true); return; }
+  try {
+    const preview = await fetchJSON(`/api/campaigns/${currentCampaign.id}/preview?prospect_id=${checked.value}`);
+    document.getElementById('preview-meta').textContent = `Destinataire : ${preview.to_email || 'sans e-mail'}`;
+    document.getElementById('preview-subject').textContent = preview.subject;
+    document.getElementById('preview-body').innerHTML = preview.body_html;
+    document.getElementById('preview-modal-overlay').classList.add('show');
+  } catch (err) {
+    showToast(err.message, true);
+  }
+}
+
+async function loadUnsubscribeRate(campaignId) {
+  const el = document.getElementById('unsubscribe-rate-display');
+  try {
+    const rate = await fetchJSON(`/api/campaigns/${campaignId}/unsubscribe-rate`);
+    if (!rate.sent) { el.textContent = ''; return; }
+    el.textContent = `Taux de désabonnement (sur cette catégorie) : ${rate.rate}% (${rate.unsubscribed}/${rate.sent} destinataires envoyés).`;
+  } catch (e) {
+    el.textContent = '';
+  }
 }
 
 async function loadCampaigns() {
@@ -289,6 +333,7 @@ async function openCampaign(id) {
   loadRecipientChecklist();
   loadSends(id);
   loadCampaignImage(id);
+  loadUnsubscribeRate(id);
 }
 
 document.getElementById('improve-ai-btn')?.addEventListener('click', async () => {

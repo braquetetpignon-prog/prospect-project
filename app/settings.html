@@ -52,6 +52,8 @@ function onAuthReady(me) {
   loadMembers(me.workspace_id);
   loadProspectTypes(me.workspace_id);
   loadGeminiModel();
+  loadWorkspaceLogo(me.workspace_id);
+  setupLogoHandlers(me.workspace_id);
 }
 
 function renderSettingsShell(workspaceId) {
@@ -133,6 +135,24 @@ function renderSettingsShell(workspaceId) {
           <input id="new-type-input" placeholder="Nouveau type…" style="margin-bottom:0;">
           <button class="btn btn-ghost btn-sm" id="add-type-btn" type="button">+ Ajouter</button>
         </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Logo &amp; conformité</h2>
+        <p>Logo affiché dans l'application, et export du registre de traitement RGPD.</p>
+      </div>
+      <div class="panel-body">
+        <div id="logo-current-preview" style="display:none; margin-bottom:14px;">
+          <img id="logo-current-img" style="max-height:60px; border-radius:6px; border:1px solid var(--border);">
+          <div style="margin-top:8px;"><button class="btn btn-ghost btn-sm" type="button" id="remove-logo-btn">Supprimer le logo</button></div>
+        </div>
+        <input type="file" id="logo-file-input" accept="image/jpeg,image/png,image/webp,image/gif">
+        <p style="font-size:12px; color:var(--text-soft); margin:12px 0 0;">
+          Registre de traitement RGPD (une ligne par campagne — finalité, base légale, destinataires).
+        </p>
+        <a class="btn btn-ghost btn-sm" href="/api/workspaces/${workspaceId}/rgpd-registre.csv" style="margin-top:8px; display:inline-flex;">Exporter le registre (CSV)</a>
       </div>
     </div>
 
@@ -408,5 +428,43 @@ async function saveGeminiModel() {
 async function resetGeminiModel() {
   document.getElementById('gemini-model-input').value = geminiDefault;
   await saveGeminiModel();
+}
+
+function loadWorkspaceLogo(workspaceId) {
+  const previewWrap = document.getElementById('logo-current-preview');
+  const img = document.getElementById('logo-current-img');
+  img.onerror = () => { previewWrap.style.display = 'none'; };
+  img.onload = () => { previewWrap.style.display = 'block'; };
+  img.src = `/api/workspaces/${workspaceId}/logo/preview?t=${Date.now()}`;
+}
+
+function setupLogoHandlers(workspaceId) {
+  document.getElementById('logo-file-input').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('logo', file);
+    try {
+      const res = await fetch(`/api/workspaces/${workspaceId}/logo`, { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Échec de l'envoi.");
+      showToast('Logo mis à jour.');
+      loadWorkspaceLogo(workspaceId);
+    } catch (err) {
+      showToast(err.message, true);
+    } finally {
+      e.target.value = '';
+    }
+  });
+
+  document.getElementById('remove-logo-btn').addEventListener('click', async () => {
+    try {
+      await fetchJSON(`/api/workspaces/${workspaceId}/logo`, { method: 'DELETE' });
+      document.getElementById('logo-current-preview').style.display = 'none';
+      showToast('Logo supprimé.');
+    } catch (err) {
+      showToast(err.message, true);
+    }
+  });
 }
 {% endblock %}

@@ -155,7 +155,7 @@ def list_workspaces():
             cur.execute(
                 """
                 SELECT w.id, w.name, w.created_at, w.plan, w.trial_ends_at, w.paid_until,
-                       w.last_active_at, w.deletion_requested_at,
+                       w.last_active_at, w.deletion_requested_at, w.ia_search_quota_override,
                        (SELECT email FROM users u WHERE u.workspace_id = w.id AND u.role = 'admin'
                         ORDER BY u.created_at LIMIT 1) AS admin_email,
                        (SELECT count(*) FROM users u WHERE u.workspace_id = w.id) AS member_count
@@ -169,7 +169,7 @@ def list_workspaces():
 
     workspaces = []
     for (wid, name, created_at, plan, trial_ends_at, paid_until, last_active_at,
-         deletion_requested_at, admin_email, member_count) in rows:
+         deletion_requested_at, ia_search_quota_override, admin_email, member_count) in rows:
         effective = subscriptions.effective_plan(plan, trial_ends_at, paid_until)
         workspaces.append({
             "id": wid,
@@ -183,6 +183,7 @@ def list_workspaces():
             "paid_until": paid_until,
             "last_active_at": last_active_at,
             "deletion_requested_at": deletion_requested_at,
+            "ia_search_quota_override": ia_search_quota_override,
         })
     return workspaces
 
@@ -223,6 +224,33 @@ def set_plan(workspace_id, plan, paid_until=None):
         workspace_id=workspace_id,
         workspace_name=updated[1],
         details=f"Nouveau statut : {plan}" + (f" jusqu'au {paid_until}" if plan == "paid" else ""),
+    )
+
+
+def set_ia_search_quota_override(workspace_id, quota_override):
+    """quota_override : entier >= 1, ou None pour revenir au quota global par défaut."""
+    if quota_override is not None and (not isinstance(quota_override, int) or quota_override < 1):
+        raise SuperadminError("Le quota doit être un entier positif, ou vide pour revenir au défaut.")
+
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE workspaces SET ia_search_quota_override = %s WHERE id = %s RETURNING id, name",
+                (quota_override, workspace_id),
+            )
+            updated = cur.fetchone()
+        conn.commit()
+        if not updated:
+            raise SuperadminError("Espace de travail introuvable.")
+    finally:
+        conn.close()
+
+    _log_action(
+        "set_ia_search_quota_override",
+        workspace_id=workspace_id,
+        workspace_name=updated[1],
+        details=f"Quota Recherche IA : {quota_override if quota_override is not None else 'défaut global'}",
     )
 
 

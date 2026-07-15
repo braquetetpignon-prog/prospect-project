@@ -97,6 +97,9 @@
         <div class="field"><label for="p-source">Source</label><input id="p-source" class="readonly-field" readonly></div>
         <div class="field"><label for="p-action">Prochaine action</label><input id="p-action" placeholder="Ex : Relancer le 12/07..."></div>
       </div>
+      <div class="field-row">
+        <div class="field"><label for="p-action-date">Date de rappel (optionnel)</label><input id="p-action-date" type="date"></div>
+      </div>
       <div class="field"><label for="p-notes">Notes</label><textarea id="p-notes" rows="3"></textarea></div>
 
       <button type="button" class="btn btn-ghost btn-sm" id="toggle-rdv-btn" style="margin-top:6px;">📅 Fixer un rendez-vous</button>
@@ -106,6 +109,11 @@
           <div class="field"><label for="rdv-date">Date et heure</label><input id="rdv-date" type="datetime-local"></div>
         </div>
         <button type="button" class="btn btn-ghost btn-sm" id="create-rdv-btn">Créer le rendez-vous</button>
+      </div>
+
+      <div class="panel" style="margin-top:16px;">
+        <div class="panel-head"><h3 style="margin:0; font-size:14px;">Historique d'activité</h3></div>
+        <div id="activity-timeline" style="padding:0 20px 16px;"></div>
       </div>
 
       <div class="modal-actions">
@@ -119,6 +127,36 @@
 
 {% block extra_js %}
 const statusLabels = { nouveau: 'Nouveau', qualifie: 'Qualifié', client: 'Client', recale: 'Recalé' };
+const activityEventLabels = {
+  cree: '✨', statut_change: '🔄', rdv_planifie: '📅', campagne_envoyee: '✉️', note: '📝',
+};
+
+function isActionOverdue(p) {
+  if (!p.prochaine_action_date || !['nouveau', 'qualifie'].includes(p.statut)) return false;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  return new Date(p.prochaine_action_date) < today;
+}
+
+async function loadActivityTimeline(prospectId) {
+  const container = document.getElementById('activity-timeline');
+  container.innerHTML = `<div class="skeleton" style="height:60px;"></div>`;
+  try {
+    const data = await fetchJSON(`/api/prospects/${prospectId}/activity`);
+    if (!data.activity.length) {
+      container.innerHTML = `<p style="font-size:12.5px; color:var(--text-soft); margin:0;">Aucun événement enregistré.</p>`;
+      return;
+    }
+    container.innerHTML = data.activity.map(e => `
+      <div style="display:flex; gap:8px; padding:6px 0; font-size:12.5px; border-top:1px solid var(--border);">
+        <span>${activityEventLabels[e.event_type] || '•'}</span>
+        <span style="flex:1;">${escapeHtml(e.description)}</span>
+        <span style="color:var(--text-soft); white-space:nowrap;">${new Date(e.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+      </div>
+    `).join('');
+  } catch (e) {
+    container.innerHTML = `<p style="font-size:12.5px; color:var(--text-soft); margin:0;">Impossible de charger l'historique.</p>`;
+  }
+}
 let workspaceId = null;
 let canWrite = false;
 let currentProspectId = null;
@@ -260,7 +298,11 @@ function renderProspects(list) {
               <td>${escapeHtml(p.telephone || '—')}</td>
               <td>${escapeHtml([p.contact_prenom, p.contact_nom].filter(Boolean).join(' ') || '—')}</td>
               <td>${escapeHtml(p.type_nom || '—')}</td>
-              <td><span class="badge badge-${p.statut}">${statusLabels[p.statut] || p.statut}</span></td>
+              <td>
+                <span class="badge badge-${p.statut}">${statusLabels[p.statut] || p.statut}</span>
+                ${p.has_upcoming_rdv ? `<span class="badge" style="background:#EAF0FF; color:#3454A8; margin-left:4px;" title="Rendez-vous à venir">RDV</span>` : ''}
+                ${isActionOverdue(p) ? `<span class="badge" style="background:#F3E3E3; color:#9B4646; margin-left:4px;" title="Action de suivi en retard">En retard</span>` : ''}
+              </td>
             </tr>
           `).join('')}
         </tbody>
@@ -318,11 +360,14 @@ async function openModal(prospectId) {
     document.getElementById('p-email').value = p.email || '';
     document.getElementById('p-source').value = sourceLabel(p.source);
     document.getElementById('p-action').value = p.prochaine_action || '';
+    document.getElementById('p-action-date').value = p.prochaine_action_date || '';
     document.getElementById('p-notes').value = p.notes || '';
+    loadActivityTimeline(prospectId);
   } else {
     document.getElementById('modal-title').textContent = 'Ajouter un prospect';
     document.getElementById('p-statut').value = 'nouveau';
     document.getElementById('p-source').value = 'Manuel';
+    document.getElementById('activity-timeline').innerHTML = '';
   }
 
   document.getElementById('prospect-form').querySelectorAll('input,select,textarea,button').forEach(el => {
@@ -378,6 +423,7 @@ async function saveProspect(e) {
     telephone: document.getElementById('p-tel').value.trim(),
     email: document.getElementById('p-email').value.trim(),
     prochaine_action: document.getElementById('p-action').value.trim(),
+    prochaine_action_date: document.getElementById('p-action-date').value || '',
     notes: document.getElementById('p-notes').value.trim(),
   };
 

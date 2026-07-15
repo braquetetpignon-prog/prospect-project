@@ -123,7 +123,15 @@ def get_quota_status(workspace_id):
                 (workspace_id,),
             )
             used = cur.fetchone()[0]
-        return {"used": used, "limit": DAILY_QUOTA, "remaining": max(0, DAILY_QUOTA - used)}
+            cur.execute(
+                "SELECT ia_search_quota_override FROM workspaces WHERE id = %s",
+                (workspace_id,),
+            )
+            row = cur.fetchone()
+        # NULL = pas de réglage particulier pour ce client -> quota global par
+        # défaut. Réglable par le superadmin pour un client précis (idée produit).
+        limit_ = row[0] if row and row[0] is not None else DAILY_QUOTA
+        return {"used": used, "limit": limit_, "remaining": max(0, limit_ - used)}
     finally:
         conn.close()
 

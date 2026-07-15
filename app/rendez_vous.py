@@ -13,6 +13,7 @@ from datetime import timedelta
 
 from app.db import get_db
 from app import sending
+from app import activity
 
 
 class RdvError(Exception):
@@ -48,9 +49,15 @@ def create_rendez_vous(workspace_id, user_id, titre, date_heure, duree_minutes=3
             )
             rdv_id = cur.fetchone()[0]
         conn.commit()
-        return rdv_id
     finally:
         conn.close()
+
+    if prospect_id:
+        activity.log_event(
+            prospect_id, workspace_id, "rdv_planifie",
+            f"Rendez-vous « {titre} » planifié pour le {date_heure}.",
+        )
+    return rdv_id
 
 
 def list_rendez_vous(workspace_id, start=None, end=None):

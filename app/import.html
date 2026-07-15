@@ -297,7 +297,7 @@ function renderFileResult(job) {
     ${stepsHtml(['Fichier', 'Correspondance', 'Vérification', 'Résumé'], 3)}
     <div class="panel"><div class="panel-head"><h2>Import terminé</h2></div>
       <div class="panel-body">
-        <p><strong>${job.imported_count}</strong> prospect(s) importé(s) sur ${job.total_rows}. ${job.error_count ? `${job.error_count} ligne(s) avec avertissement ou erreur.` : 'Aucune erreur.'}</p>
+        <p><strong>${job.imported_count}</strong> prospect(s) importé(s) sur ${job.total_rows}. ${job.error_count ? `${job.error_count} ligne(s) avec avertissement ou erreur.` : 'Aucune erreur.'} ${job.duplicate_count ? `<br><strong>${job.duplicate_count}</strong> doublon(s) détecté(s) (SIRET ou nom+ville déjà en base) — ignoré(s).` : ''}</p>
         <div style="display:flex; gap:10px; margin-top:16px;">
           <a href="/prospects" class="btn btn-primary btn-sm">Voir les prospects</a>
           ${job.error_count ? '<button class="btn btn-ghost btn-sm" id="view-errors-btn">Voir le détail</button>' : ''}

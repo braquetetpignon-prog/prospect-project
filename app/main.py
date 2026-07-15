@@ -27,6 +27,7 @@ from app import subscriptions
 from app import system_mail
 from app import assistant
 from app import rate_limit
+from app import activity
 from app.app_logging import logger
 from flask import Response
 
@@ -707,6 +708,49 @@ def smtp_config_test(workspace_id):
     return jsonify(status="ok", verified=True)
 
 
+@app.route("/api/workspaces/<int:workspace_id>/logo", methods=["POST", "DELETE"])
+@login_required
+@require_own_workspace
+@require_role("admin")
+def workspace_logo_route(workspace_id):
+    if request.method == "DELETE":
+        workspace_settings.remove_workspace_logo(workspace_id)
+        return jsonify(status="removed")
+
+    if "logo" not in request.files:
+        return jsonify(error="Aucun fichier reçu (champ 'logo' attendu)."), 400
+    file_bytes = request.files["logo"].read()
+    try:
+        logo_bytes, mimetype = campaign_image.process_upload(file_bytes)
+    except campaign_image.ImageError as exc:
+        return jsonify(error=str(exc)), 400
+    workspace_settings.set_workspace_logo(workspace_id, logo_bytes, mimetype)
+    return jsonify(status="ok"), 201
+
+
+@app.route("/api/workspaces/<int:workspace_id>/logo/preview")
+@login_required
+@require_own_workspace
+def workspace_logo_preview(workspace_id):
+    logo = workspace_settings.get_workspace_logo(workspace_id)
+    if not logo:
+        return jsonify(error="Aucun logo pour cet espace de travail."), 404
+    return Response(logo["data"], mimetype=logo["mimetype"])
+
+
+@app.route("/api/workspaces/<int:workspace_id>/rgpd-registre.csv")
+@login_required
+@require_own_workspace
+@require_role("admin")
+def workspace_rgpd_registre(workspace_id):
+    csv_content = sending.registre_traitement_csv(workspace_id)
+    return Response(
+        csv_content,
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=registre-traitement-rgpd.csv"},
+    )
+
+
 @app.route("/api/campaigns", methods=["GET", "POST"])
 @login_required
 @require_own_workspace
@@ -839,6 +883,34 @@ def campaign_improve_content(campaign_id):
         return jsonify(error=str(exc)), 400
 
     return jsonify(contenu=improved)
+
+
+@app.route("/api/campaigns/<int:campaign_id>/preview")
+@login_required
+def campaign_preview(campaign_id):
+    """Aperçu du mail tel qu'il serait réellement envoyé (avec image et
+    variables remplies) pour un prospect donné, sans envoi réel — filet de
+    sécurité avant un envoi à plusieurs dizaines de destinataires."""
+    error = _check_campaign_access(campaign_id)
+    if error:
+        return error
+    prospect_id = request.args.get("prospect_id", type=int)
+    if not prospect_id:
+        return jsonify(error="prospect_id requis"), 400
+    try:
+        preview = sending.preview_campaign_email(campaign_id, prospect_id, session["workspace_id"])
+    except sending.SendError as exc:
+        return jsonify(error=str(exc)), 404
+    return jsonify(preview)
+
+
+@app.route("/api/campaigns/<int:campaign_id>/unsubscribe-rate")
+@login_required
+def campaign_unsubscribe_rate(campaign_id):
+    error = _check_campaign_access(campaign_id)
+    if error:
+        return error
+    return jsonify(sending.get_unsubscribe_rate(campaign_id) or {})
 
 
 # --- Option 3 : RGPD / Consentement ---------------------------------------
@@ -1017,6 +1089,52 @@ def admin_process_due_sends():
     return jsonify(status="ok", processed=processed)
 
 
+@app.route("/api/search")
+@login_required
+def global_search():
+    """Recherche globale (prospects, campagnes, rendez-vous) — une seule barre
+    plutôt que de devoir savoir où chercher. Résultats limités et strictement
+    filtrés sur l'espace de travail de la session, comme partout ailleurs."""
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 2:
+        return jsonify(results=[])
+    workspace_id = session["workspace_id"]
+    like = f"%{q}%"
+
+    results = []
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, nom_entreprise FROM prospects
+                WHERE workspace_id = %s AND (nom_entreprise ILIKE %s OR email ILIKE %s)
+                ORDER BY created_at DESC LIMIT 5
+                """,
+                (workspace_id, like, like),
+            )
+            for pid, nom in cur.fetchall():
+                results.append({"type": "prospect", "id": pid, "label": nom, "url": f"/prospects?id={pid}"})
+
+            cur.execute(
+                "SELECT id, nom FROM campaigns WHERE workspace_id = %s AND nom ILIKE %s ORDER BY created_at DESC LIMIT 5",
+                (workspace_id, like),
+            )
+            for cid, nom in cur.fetchall():
+                results.append({"type": "campagne", "id": cid, "label": nom, "url": f"/campagnes?id={cid}"})
+
+            cur.execute(
+                "SELECT id, titre FROM rendez_vous WHERE workspace_id = %s AND titre ILIKE %s ORDER BY date_heure DESC LIMIT 5",
+                (workspace_id, like),
+            )
+            for rid, titre in cur.fetchall():
+                results.append({"type": "rendez-vous", "id": rid, "label": titre, "url": f"/calendrier?id={rid}"})
+    finally:
+        conn.close()
+
+    return jsonify(results=results)
+
+
 # --- Données pour le dashboard ---------------------------------------------
 
 @app.route("/api/prospects", methods=["GET", "POST"])
@@ -1136,6 +1254,18 @@ def prospect_update_statut(prospect_id):
     except prospects.ProspectError as exc:
         return jsonify(error=str(exc)), 400
     return jsonify(status="updated")
+
+
+@app.route("/api/prospects/<int:prospect_id>/activity")
+@login_required
+def prospect_activity(prospect_id):
+    """Historique d'activité (timeline) — création, changements de statut,
+    RDV planifiés, campagnes reçues. Vérifie l'appartenance à l'espace de
+    travail via get_prospect (renvoie None si un autre workspace essaie)."""
+    prospect = prospects.get_prospect(prospect_id, session.get("workspace_id"))
+    if not prospect:
+        return jsonify(error="Prospect introuvable"), 404
+    return jsonify(activity=activity.list_activity(prospect_id, session.get("workspace_id")))
 
 
 # --- Types de statut (forme juridique / catégorie) --------------------
@@ -1393,6 +1523,18 @@ def supadmin_set_plan(workspace_id):
     paid_until = body.get("paid_until")  # ISO 8601, requis si plan == 'paid'
     try:
         superadmin.set_plan(workspace_id, plan, paid_until=paid_until)
+    except superadmin.SuperadminError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(status="ok")
+
+
+@app.route("/api/supadmin/workspaces/<int:workspace_id>/ia-quota", methods=["PUT"])
+@superadmin.login_required
+def supadmin_set_ia_quota(workspace_id):
+    body = request.get_json(silent=True) or {}
+    quota = body.get("quota")  # entier, ou None/absent pour revenir au défaut global
+    try:
+        superadmin.set_ia_search_quota_override(workspace_id, quota)
     except superadmin.SuperadminError as exc:
         return jsonify(error=str(exc)), 400
     return jsonify(status="ok")

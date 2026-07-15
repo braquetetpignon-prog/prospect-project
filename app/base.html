@@ -175,9 +175,16 @@
     <a href="/" class="logo"><span class="logo-mark"></span>ClickProspect</a>
 
     <div class="workspace-picker">
+      <img id="workspace-logo-img" style="display:none; max-height:32px; max-width:100%; margin-bottom:8px; border-radius:4px;">
       <label>Espace de travail</label>
       <div id="workspace-name-display" style="font-weight:600; font-size:14.5px;">Chargement…</div>
       <div id="user-role-display" style="font-size:12px; color:var(--text-soft); margin-top:2px;"></div>
+    </div>
+
+    <div class="global-search" style="position:relative;">
+      <input id="global-search-input" type="search" placeholder="Rechercher…" autocomplete="off"
+             style="width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid var(--border); border-radius:8px; font-size:13px; font-family:inherit;">
+      <div id="global-search-results" style="display:none; position:absolute; top:100%; left:0; right:0; z-index:30; background:var(--white); border:1px solid var(--border); border-radius:8px; margin-top:4px; box-shadow:0 4px 16px rgba(0,0,0,0.08); max-height:280px; overflow-y:auto;"></div>
     </div>
 
     <nav class="side-nav">
@@ -290,6 +297,8 @@ async function initAuth() {
   currentUser = me;
   document.getElementById('workspace-name-display').textContent = me.workspace_name;
   document.getElementById('user-role-display').textContent = `${me.email} · ${roleLabels[me.role] || me.role}`;
+  loadWorkspaceLogoSidebar(me.workspace_id);
+  setupGlobalSearch();
 
   const impBanner = document.getElementById('impersonation-banner');
   if (me.impersonating) {
@@ -327,6 +336,52 @@ async function initAuth() {
 
   if (typeof onAuthReady === 'function') onAuthReady(me);
   return me;
+}
+
+function loadWorkspaceLogoSidebar(workspaceId) {
+  const img = document.getElementById('workspace-logo-img');
+  img.onload = () => { img.style.display = 'block'; };
+  img.onerror = () => { img.style.display = 'none'; };
+  img.src = `/api/workspaces/${workspaceId}/logo/preview?t=${Date.now()}`;
+}
+
+let globalSearchSetup = false;
+function setupGlobalSearch() {
+  if (globalSearchSetup) return;
+  globalSearchSetup = true;
+
+  const input = document.getElementById('global-search-input');
+  const results = document.getElementById('global-search-results');
+  const typeLabels = { prospect: 'Prospect', campagne: 'Campagne', 'rendez-vous': 'Rendez-vous' };
+  let debounceTimer = null;
+
+  input.addEventListener('input', () => {
+    clearTimeout(debounceTimer);
+    const q = input.value.trim();
+    if (q.length < 2) { results.style.display = 'none'; return; }
+    debounceTimer = setTimeout(async () => {
+      try {
+        const data = await fetchJSON(`/api/search?q=${encodeURIComponent(q)}`);
+        if (!data.results.length) {
+          results.innerHTML = `<div style="padding:10px 12px; font-size:12.5px; color:var(--text-soft);">Aucun résultat.</div>`;
+        } else {
+          results.innerHTML = data.results.map(r => `
+            <a href="${r.url}" style="display:block; padding:8px 12px; font-size:13px; text-decoration:none; color:inherit; border-bottom:1px solid var(--border);">
+              <span style="font-size:11px; color:var(--text-soft); text-transform:uppercase;">${typeLabels[r.type] || r.type}</span><br>
+              ${escapeHtml(r.label)}
+            </a>
+          `).join('');
+        }
+        results.style.display = 'block';
+      } catch (e) {
+        results.style.display = 'none';
+      }
+    }, 250);
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.global-search')) results.style.display = 'none';
+  });
 }
 
 initAuth();

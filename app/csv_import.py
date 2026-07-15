@@ -117,7 +117,7 @@ def get_job(job_id):
             cur.execute(
                 """
                 SELECT id, workspace_id, filename, status, mapping, total_rows,
-                       processed_rows, imported_count, error_count,
+                       processed_rows, imported_count, error_count, duplicate_count,
                        created_at, started_at, finished_at
                 FROM import_jobs WHERE id = %s
                 """,
@@ -127,7 +127,7 @@ def get_job(job_id):
             if not row:
                 return None
             cols = ["id", "workspace_id", "filename", "status", "mapping", "total_rows",
-                    "processed_rows", "imported_count", "error_count",
+                    "processed_rows", "imported_count", "error_count", "duplicate_count",
                     "created_at", "started_at", "finished_at"]
             return dict(zip(cols, row))
     finally:
@@ -189,6 +189,39 @@ def start_import(job_id, mapping):
     thread.start()
 
 
+def _find_duplicate(conn, workspace_id, mapped):
+    """Recherche un prospect déjà en base pour cet espace de travail : d'abord
+    par SIRET (le plus fiable), sinon par nom d'entreprise + ville (correspondance
+    insensible à la casse). Renvoie l'id du doublon trouvé, ou None."""
+    siret = mapped.get("siret")
+    if siret:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id FROM prospects WHERE workspace_id = %s AND siret = %s LIMIT 1",
+                (workspace_id, siret),
+            )
+            row = cur.fetchone()
+            if row:
+                return row[0]
+
+    nom = mapped.get("nom_entreprise")
+    ville = mapped.get("ville")
+    if nom and ville:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id FROM prospects
+                WHERE workspace_id = %s AND lower(nom_entreprise) = lower(%s) AND lower(ville) = lower(%s)
+                LIMIT 1
+                """,
+                (workspace_id, nom, ville),
+            )
+            row = cur.fetchone()
+            if row:
+                return row[0]
+    return None
+
+
 def _process_job(job_id, mapping):
     conn = get_db()
     try:
@@ -210,7 +243,7 @@ def _process_job(job_id, mapping):
             if col_name in mapping:
                 col_index_to_field[idx] = mapping[col_name]
 
-        processed = imported = errors = 0
+        processed = imported = errors = duplicates = 0
 
         for row_number, raw_row in enumerate(data_rows, start=1):
             mapped = {}
@@ -223,6 +256,12 @@ def _process_job(job_id, mapping):
             if is_blocking:
                 _log_error(conn, job_id, row_number, "error", "; ".join(messages), raw_row)
                 errors += 1
+            elif _find_duplicate(conn, workspace_id, mapped) is not None:
+                _log_error(
+                    conn, job_id, row_number, "warning",
+                    "Doublon détecté (SIRET ou nom+ville déjà en base) — ligne ignorée.", raw_row,
+                )
+                duplicates += 1
             else:
                 _insert_prospect(conn, workspace_id, mapped)
                 imported += 1
@@ -233,9 +272,9 @@ def _process_job(job_id, mapping):
             processed += 1
 
             if processed % CHUNK_SIZE == 0:
-                _update_progress(conn, job_id, processed, imported, errors)
+                _update_progress(conn, job_id, processed, imported, errors, duplicates)
 
-        _update_progress(conn, job_id, processed, imported, errors)
+        _update_progress(conn, job_id, processed, imported, errors, duplicates)
 
         with conn.cursor() as cur:
             cur.execute(
@@ -298,14 +337,14 @@ def _log_error(conn, job_id, row_number, severity, message, raw_row):
     conn.commit()
 
 
-def _update_progress(conn, job_id, processed, imported, errors):
+def _update_progress(conn, job_id, processed, imported, errors, duplicates=0):
     with conn.cursor() as cur:
         cur.execute(
             """
             UPDATE import_jobs
-            SET processed_rows = %s, imported_count = %s, error_count = %s
+            SET processed_rows = %s, imported_count = %s, error_count = %s, duplicate_count = %s
             WHERE id = %s
             """,
-            (processed, imported, errors, job_id),
+            (processed, imported, errors, duplicates, job_id),
         )
     conn.commit()

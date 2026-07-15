@@ -13,13 +13,14 @@ import requests
 
 from app.db import get_db
 from app import csv_import
+from app import activity
 
 STATUTS = ("nouveau", "qualifie", "client", "recale")
 
 EDITABLE_FIELDS = [
     "nom_entreprise", "contact_prenom", "contact_nom", "siren", "siret", "naf_code",
     "adresse", "code_postal", "ville", "telephone", "email", "site_web",
-    "prospect_type_id", "prochaine_action", "notes",
+    "prospect_type_id", "prochaine_action", "prochaine_action_date", "notes",
 ]
 
 SIRENE_SEARCH_URL = "https://recherche-entreprises.api.gouv.fr/search"
@@ -53,9 +54,11 @@ def create_prospect(workspace_id, fields, source="manuel"):
             )
             prospect_id = cur.fetchone()[0]
         conn.commit()
-        return prospect_id, messages  # messages = avertissements non bloquants éventuels
     finally:
         conn.close()
+
+    activity.log_event(prospect_id, workspace_id, "cree", f"Fiche créée (source : {source}).")
+    return prospect_id, messages  # messages = avertissements non bloquants éventuels
 
 
 def get_prospect(prospect_id, workspace_id):
@@ -67,7 +70,7 @@ def get_prospect(prospect_id, workspace_id):
                 SELECT id, nom_entreprise, contact_prenom, contact_nom, siren, siret,
                        naf_code, adresse, code_postal, ville, telephone, email, site_web,
                        statut, source, motif_recalage, prospect_type_id, prochaine_action,
-                       notes, created_at
+                       prochaine_action_date, notes, created_at
                 FROM prospects WHERE id = %s AND workspace_id = %s
                 """,
                 (prospect_id, workspace_id),
@@ -78,7 +81,7 @@ def get_prospect(prospect_id, workspace_id):
         cols = ["id", "nom_entreprise", "contact_prenom", "contact_nom", "siren", "siret",
                 "naf_code", "adresse", "code_postal", "ville", "telephone", "email", "site_web",
                 "statut", "source", "motif_recalage", "prospect_type_id", "prochaine_action",
-                "notes", "created_at"]
+                "prochaine_action_date", "notes", "created_at"]
         return dict(zip(cols, row))
     finally:
         conn.close()
@@ -149,6 +152,11 @@ def update_statut(prospect_id, workspace_id, statut, motif=None):
     finally:
         conn.close()
 
+    description = f"Statut changé en « {statut} »"
+    if motif:
+        description += f" (motif : {motif})"
+    activity.log_event(prospect_id, workspace_id, "statut_change", description + ".")
+
 
 def search_prospects(workspace_id, query=None, statut=None, prospect_type_id=None, limit=500):
     conditions = ["p.workspace_id = %s"]
@@ -177,7 +185,12 @@ def search_prospects(workspace_id, query=None, statut=None, prospect_type_id=Non
             cur.execute(
                 f"""
                 SELECT p.id, p.nom_entreprise, p.contact_prenom, p.contact_nom, p.ville, p.email,
-                       p.telephone, p.statut, p.source, pt.nom AS type_nom, p.created_at
+                       p.telephone, p.statut, p.source, pt.nom AS type_nom, p.created_at,
+                       p.prochaine_action, p.prochaine_action_date,
+                       EXISTS (
+                           SELECT 1 FROM rendez_vous rv
+                           WHERE rv.prospect_id = p.id AND rv.date_heure > now()
+                       ) AS has_upcoming_rdv
                 FROM prospects p
                 LEFT JOIN prospect_types pt ON pt.id = p.prospect_type_id
                 WHERE {' AND '.join(conditions)}
@@ -187,7 +200,8 @@ def search_prospects(workspace_id, query=None, statut=None, prospect_type_id=Non
             )
             rows = cur.fetchall()
         cols = ["id", "nom_entreprise", "contact_prenom", "contact_nom", "ville", "email",
-                "telephone", "statut", "source", "type_nom", "created_at"]
+                "telephone", "statut", "source", "type_nom", "created_at",
+                "prochaine_action", "prochaine_action_date", "has_upcoming_rdv"]
         return [dict(zip(cols, r)) for r in rows]
     finally:
         conn.close()
@@ -236,6 +250,25 @@ def verify_siret(siret):
                 }
 
     return {"found": False}
+
+
+def count_overdue_actions(workspace_id):
+    """Prospects qualifiés/en attente avec une prochaine_action_date dépassée
+    et non recalés/déjà clients — sert au badge liste + au résumé hebdomadaire."""
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT count(*) FROM prospects
+                WHERE workspace_id = %s AND statut IN ('nouveau', 'qualifie')
+                  AND prochaine_action_date IS NOT NULL AND prochaine_action_date < CURRENT_DATE
+                """,
+                (workspace_id,),
+            )
+            return cur.fetchone()[0]
+    finally:
+        conn.close()
 
 
 def delete_prospect(prospect_id, workspace_id):

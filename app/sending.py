@@ -22,6 +22,7 @@ from app.db import get_db
 from app import campaigns as campaigns_module
 from app import consent as consent_module
 from app import workspace_settings
+from app import activity
 
 ALLOWED_SEND_STATUTS = ("qualifie", "client")
 
@@ -207,6 +208,29 @@ def queue_send(campaign_id, prospect_ids, planifie_pour=None):
     return {"queued": queued, "skipped": skipped}
 
 
+def preview_campaign_email(campaign_id, prospect_id, workspace_id):
+    """Rendu du mail tel qu'il serait effectivement envoyé (sujet + corps HTML,
+    avec l'image si présente), pour relecture avant un envoi réel — aucun
+    e-mail n'est envoyé ici. Le prospect doit appartenir à l'espace de travail
+    demandeur, comme partout ailleurs."""
+    campaign = _get_campaign(campaign_id)
+    if not campaign or campaign["workspace_id"] != workspace_id:
+        raise SendError("Campagne introuvable.")
+    prospect = _get_prospect(prospect_id)
+    if not prospect or prospect["workspace_id"] != workspace_id:
+        raise SendError("Prospect introuvable.")
+
+    gbp = workspace_settings.get_google_business_profile(workspace_id)
+    image = campaigns_module.get_campaign_image(workspace_id, campaign_id)
+    prospect["_campaign_type"] = campaign["type"]
+
+    subject = render_template(campaign["sujet"], prospect, workspace_id, gbp.get("profile_url"))
+    body_html = render_campaign_body_html(
+        campaign["contenu"], prospect, workspace_id, gbp.get("profile_url"), has_image=bool(image)
+    )
+    return {"subject": subject, "body_html": body_html, "to_email": prospect.get("email")}
+
+
 def _send_via_smtp(smtp_creds, to_email, subject, body, attachments=None):
     if attachments:
         msg = MIMEMultipart()
@@ -332,6 +356,10 @@ def _process_one_send(conn, send_row):
         return
 
     _mark_send(conn, send_id, "envoye", None)
+    activity.log_event(
+        prospect["id"], campaign["workspace_id"], "campagne_envoyee",
+        f"Campagne « {campaign['nom']} » envoyée.",
+    )
 
 
 def _mark_send(conn, send_id, statut, error_message):
@@ -387,6 +415,95 @@ def process_due_sends(batch_size=20, stale_after_minutes=5):
         conn.close()
 
     return processed
+
+
+def get_unsubscribe_rate(campaign_id):
+    """Parmi les prospects à qui cette campagne a été effectivement envoyée,
+    quelle proportion s'est désabonnée depuis du type de communication
+    concerné (avis/publicitaire/newsletter). Le consentement est suivi par
+    (prospect, type) et non par campagne individuelle (cf. schema.sql) : deux
+    campagnes du même type partagent le même opt-out — cohérent avec le
+    fonctionnement RGPD actuel (désinscription globale par type de
+    communication, pas campagne par campagne)."""
+    campaign = _get_campaign(campaign_id)
+    if not campaign:
+        return None
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT count(DISTINCT prospect_id) FROM campaign_sends WHERE campaign_id = %s AND statut = 'envoye'",
+                (campaign_id,),
+            )
+            sent_count = cur.fetchone()[0]
+            if sent_count == 0:
+                return {"sent": 0, "unsubscribed": 0, "rate": None}
+            cur.execute(
+                """
+                SELECT count(DISTINCT cs.prospect_id)
+                FROM campaign_sends cs
+                JOIN consents c ON c.prospect_id = cs.prospect_id AND c.type = %s AND c.statut = 'opt_out'
+                WHERE cs.campaign_id = %s AND cs.statut = 'envoye'
+                """,
+                (campaign["type"], campaign_id),
+            )
+            unsub_count = cur.fetchone()[0]
+        return {"sent": sent_count, "unsubscribed": unsub_count, "rate": round(100 * unsub_count / sent_count, 1)}
+    finally:
+        conn.close()
+
+
+FINALITES = {
+    "avis": "Demande d'avis client sur une fiche Google Business",
+    "publicitaire": "Communication publicitaire (offres, actualités commerciales)",
+    "newsletter": "Newsletter d'actualités",
+}
+BASES_LEGALES = {
+    "avis": "Intérêt légitime (client déjà servi)",
+    "publicitaire": "Consentement (opt-in)",
+    "newsletter": "Consentement (opt-in)",
+}
+
+
+def registre_traitement_csv(workspace_id):
+    """Génère le registre de traitement RGPD (une ligne par campagne) au
+    format CSV, pour export depuis Paramètres — évite d'avoir à le
+    reconstituer à la main en cas de contrôle."""
+    import csv
+    import io
+
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT c.id, c.nom, c.type, c.created_at,
+                       count(DISTINCT cs.prospect_id) FILTER (WHERE cs.statut = 'envoye') AS destinataires
+                FROM campaigns c
+                LEFT JOIN campaign_sends cs ON cs.campaign_id = c.id
+                WHERE c.workspace_id = %s
+                GROUP BY c.id, c.nom, c.type, c.created_at
+                ORDER BY c.created_at DESC
+                """,
+                (workspace_id,),
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "Campagne", "Type", "Finalité", "Base légale", "Créée le",
+        "Nombre de destinataires effectifs", "Durée de conservation des preuves de consentement",
+    ])
+    for campaign_id, nom, type_, created_at, destinataires in rows:
+        writer.writerow([
+            nom, type_, FINALITES.get(type_, type_), BASES_LEGALES.get(type_, ""),
+            created_at, destinataires,
+            "Voir politique de conservation de l'espace de travail (Paramètres)",
+        ])
+    return buf.getvalue()
 
 
 class EmailSendError(Exception):

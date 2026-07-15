@@ -41,6 +41,21 @@ simplement à cet e-mail.
 — L'équipe ClickProspect
 """
 
+WEEKLY_SUMMARY_SUBJECT = "Votre résumé de la semaine — {workspace_name}"
+WEEKLY_SUMMARY_TEMPLATE = """Bonjour,
+
+Voici le résumé de la semaine pour « {workspace_name} » :
+
+- Nouveaux prospects ajoutés : {nouveaux_prospects}
+- Rendez-vous à venir (7 prochains jours) : {rdv_a_venir}
+- Envois de campagnes en attente : {campagnes_en_attente}
+- Actions de suivi en retard : {actions_en_retard}
+
+Retrouvez le détail sur https://clickprospect.fr/dashboard
+
+— L'équipe ClickProspect
+"""
+
 
 def _already_ran_today():
     conn = get_db()
@@ -125,9 +140,101 @@ def flag_inactive_free_workspaces():
     return flagged
 
 
+def send_weekly_summaries():
+    """Envoie un résumé hebdomadaire à l'admin de chaque espace de travail
+    actif, jamais plus d'une fois tous les 7 jours par espace (contrôlé par
+    weekly_summary_last_sent_at, indépendamment de la porte quotidienne
+    globale de run_daily_maintenance — chaque espace a son propre rythme).
+    Utilise le SMTP système (ClickProspect qui informe), pas celui du client."""
+    if not system_mail.is_configured():
+        return
+
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, name FROM workspaces
+                WHERE weekly_summary_last_sent_at IS NULL
+                   OR weekly_summary_last_sent_at < now() - interval '7 days'
+                """
+            )
+            due = cur.fetchall()
+    finally:
+        conn.close()
+
+    for workspace_id, name in due:
+        _send_one_weekly_summary(workspace_id, name)
+
+
+def _send_one_weekly_summary(workspace_id, workspace_name):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT email FROM users WHERE workspace_id = %s AND role = 'admin' AND is_active",
+                (workspace_id,),
+            )
+            admin_emails = [r[0] for r in cur.fetchall()]
+
+            cur.execute(
+                "SELECT count(*) FROM prospects WHERE workspace_id = %s AND created_at > now() - interval '7 days'",
+                (workspace_id,),
+            )
+            nouveaux_prospects = cur.fetchone()[0]
+
+            cur.execute(
+                """
+                SELECT count(*) FROM rendez_vous
+                WHERE workspace_id = %s AND date_heure BETWEEN now() AND now() + interval '7 days'
+                """,
+                (workspace_id,),
+            )
+            rdv_a_venir = cur.fetchone()[0]
+
+            cur.execute(
+                "SELECT count(*) FROM campaign_sends cs JOIN campaigns c ON c.id = cs.campaign_id "
+                "WHERE c.workspace_id = %s AND cs.statut = 'planifie'",
+                (workspace_id,),
+            )
+            campagnes_en_attente = cur.fetchone()[0]
+    finally:
+        conn.close()
+
+    from app import prospects as prospects_module
+    actions_en_retard = prospects_module.count_overdue_actions(workspace_id)
+
+    body = WEEKLY_SUMMARY_TEMPLATE.format(
+        workspace_name=workspace_name,
+        nouveaux_prospects=nouveaux_prospects,
+        rdv_a_venir=rdv_a_venir,
+        campagnes_en_attente=campagnes_en_attente,
+        actions_en_retard=actions_en_retard,
+    )
+    subject = WEEKLY_SUMMARY_SUBJECT.format(workspace_name=workspace_name)
+
+    for email in admin_emails:
+        try:
+            system_mail.send_system_email(email, subject, body)
+        except system_mail.SystemMailError:
+            pass  # ne bloque jamais les autres espaces pour un souci d'envoi ponctuel
+
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE workspaces SET weekly_summary_last_sent_at = now() WHERE id = %s",
+                (workspace_id,),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def run_daily_maintenance():
     if _already_ran_today():
         return
     flag_inactive_free_workspaces()
     rate_limit.purge_old_attempts()
+    send_weekly_summaries()
     _mark_ran_today()

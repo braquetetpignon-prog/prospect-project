@@ -83,6 +83,10 @@
       <h2>Espaces de travail</h2>
       <p>Les lignes surlignées ont été signalées automatiquement pour inactivité prolongée (gratuit, 30 jours+) — à valider ou ignorer manuellement.</p>
     </div>
+    <div style="padding:0 20px 14px;">
+      <input id="workspace-search-input" type="search" placeholder="Rechercher un espace ou un e-mail admin…"
+             style="width:100%; max-width:360px; box-sizing:border-box; padding:8px 10px; border:1px solid var(--border, #ddd); border-radius:8px; font-size:13px; font-family:inherit;">
+    </div>
     <div id="table-container">
       <div class="empty-state">Chargement…</div>
     </div>
@@ -236,21 +240,29 @@ async function loadWorkspaces() {
     const data = await fetchJSON('/api/supadmin/workspaces');
     workspaces = data.workspaces;
     renderTable();
+    document.getElementById('workspace-search-input').addEventListener('input', (e) => {
+      const q = e.target.value.trim().toLowerCase();
+      const filtered = !q ? workspaces : workspaces.filter(w =>
+        w.name.toLowerCase().includes(q) || (w.admin_email || '').toLowerCase().includes(q)
+      );
+      renderTable(filtered);
+    });
   } catch (err) {
     document.getElementById('table-container').innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
   }
 }
 
-function renderTable() {
-  if (!workspaces.length) {
-    document.getElementById('table-container').innerHTML = `<div class="empty-state">Aucun espace de travail pour l'instant.</div>`;
+function renderTable(list) {
+  list = list || workspaces;
+  if (!list.length) {
+    document.getElementById('table-container').innerHTML = `<div class="empty-state">Aucun espace de travail trouvé.</div>`;
     return;
   }
   document.getElementById('table-container').innerHTML = `
     <table>
-      <thead><tr><th>Espace</th><th>Admin</th><th>Membres</th><th>Créé le</th><th>Dernière activité</th><th>Statut</th><th></th></tr></thead>
+      <thead><tr><th>Espace</th><th>Admin</th><th>Membres</th><th>Créé le</th><th>Dernière activité</th><th>Statut</th><th>Quota IA</th><th></th></tr></thead>
       <tbody>
-        ${workspaces.map(w => `
+        ${list.map(w => `
           <tr class="${w.deletion_requested_at ? 'flagged' : ''}">
             <td>
               <strong>${escapeHtml(w.name)}</strong>
@@ -264,9 +276,11 @@ function renderTable() {
               <span class="badge badge-${w.plan_effective}">${planLabels[w.plan_effective]}</span>
               <div class="muted" style="margin-top:4px;">${planEndLabel(w)}</div>
             </td>
+            <td class="muted">${w.ia_search_quota_override != null ? `${w.ia_search_quota_override}/jour` : 'défaut (3/jour)'}</td>
             <td>
               <div class="row-actions">
                 <button class="btn btn-ghost" data-action="plan" data-id="${w.id}">Abonnement</button>
+                <button class="btn btn-ghost" data-action="ia-quota" data-id="${w.id}">Quota IA</button>
                 <button class="btn btn-ghost" data-action="reset" data-id="${w.id}">Réinit. mot de passe</button>
                 ${w.admin_email ? `<button class="btn btn-ghost" data-action="login-as" data-id="${w.id}">Se connecter en tant que</button>` : ''}
                 ${w.deletion_requested_at ? `<button class="btn btn-ghost" data-action="dismiss" data-id="${w.id}">Ignorer la demande</button>` : ''}
@@ -282,6 +296,9 @@ function renderTable() {
   document.querySelectorAll('[data-action="plan"]').forEach(btn => {
     btn.addEventListener('click', () => openPlanModal(parseInt(btn.dataset.id, 10)));
   });
+  document.querySelectorAll('[data-action="ia-quota"]').forEach(btn => {
+    btn.addEventListener('click', () => setIaQuota(parseInt(btn.dataset.id, 10)));
+  });
   document.querySelectorAll('[data-action="reset"]').forEach(btn => {
     btn.addEventListener('click', () => resetPassword(parseInt(btn.dataset.id, 10)));
   });
@@ -294,6 +311,27 @@ function renderTable() {
   document.querySelectorAll('[data-action="delete"]').forEach(btn => {
     btn.addEventListener('click', () => openDeleteModal(parseInt(btn.dataset.id, 10)));
   });
+}
+
+async function setIaQuota(workspaceId) {
+  const w = workspaces.find(x => x.id === workspaceId);
+  const current = w && w.ia_search_quota_override != null ? String(w.ia_search_quota_override) : '';
+  const input = prompt("Quota Recherche IA par jour pour cet espace (laisser vide pour revenir au défaut global de 3/jour) :", current);
+  if (input === null) return;  // annulé
+  const trimmed = input.trim();
+  const quota = trimmed === '' ? null : parseInt(trimmed, 10);
+  if (trimmed !== '' && (!Number.isInteger(quota) || quota < 1)) {
+    alert("Le quota doit être un nombre entier positif, ou vide pour le défaut.");
+    return;
+  }
+  try {
+    await fetchJSON(`/api/supadmin/workspaces/${workspaceId}/ia-quota`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quota }),
+    });
+    await loadWorkspaces();
+  } catch (err) {
+    alert(err.message);
+  }
 }
 
 async function loginAs(workspaceId) {

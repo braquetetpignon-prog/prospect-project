@@ -144,3 +144,53 @@ def get_smtp_credentials_for_sending(workspace_id, require_verified=False):
         }
     finally:
         conn.close()
+
+
+# --- Logo d'entreprise (Paramètres) ---------------------------------------
+# Même logique de ré-encodage/compression sécurisée que l'image de campagne
+# (voir app/campaign_image.py) : jamais le fichier brut envoyé par
+# l'utilisateur, toujours ré-encodé avant stockage.
+
+def set_workspace_logo(workspace_id, logo_bytes, mimetype):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE workspaces SET logo_data = %s, logo_mimetype = %s WHERE id = %s RETURNING id",
+                (logo_bytes, mimetype, workspace_id),
+            )
+            updated = cur.fetchone()
+        conn.commit()
+        if not updated:
+            raise ValueError("Espace de travail introuvable.")
+    finally:
+        conn.close()
+
+
+def remove_workspace_logo(workspace_id):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE workspaces SET logo_data = NULL, logo_mimetype = NULL WHERE id = %s RETURNING id",
+                (workspace_id,),
+            )
+            updated = cur.fetchone()
+        conn.commit()
+        if not updated:
+            raise ValueError("Espace de travail introuvable.")
+    finally:
+        conn.close()
+
+
+def get_workspace_logo(workspace_id):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT logo_data, logo_mimetype FROM workspaces WHERE id = %s", (workspace_id,))
+            row = cur.fetchone()
+        if not row or row[0] is None:
+            return None
+        return {"data": bytes(row[0]), "mimetype": row[1]}
+    finally:
+        conn.close()

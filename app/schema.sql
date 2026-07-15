@@ -32,6 +32,17 @@ ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMPTZ NOT N
 -- l'espace apparaît alors dans la file de validation du superadmin, qui décide de
 -- supprimer ou d'ignorer — jamais de suppression automatique sans validation humaine.
 ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS deletion_requested_at TIMESTAMPTZ;
+-- Quota Recherche IA personnalisé (idée produit) : NULL = quota global par défaut
+-- (ia_search.DAILY_QUOTA, 3/jour), sinon override réglable par le superadmin
+-- pour un client précis (ex: gros volume de prospection).
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS ia_search_quota_override INTEGER;
+-- Logo d'entreprise (Paramètres), même logique de ré-encodage/compression que
+-- l'image de campagne (voir app/campaign_image.py, réutilisé ici).
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS logo_data BYTEA;
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS logo_mimetype TEXT;
+-- Date du dernier résumé hebdomadaire envoyé à l'admin — évite de renvoyer
+-- deux fois dans la même semaine si la tâche de fond passe plusieurs fois.
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS weekly_summary_last_sent_at TIMESTAMPTZ;
 
 -- Comptes superadmin — totalement séparés des comptes utilisateurs normaux (table
 -- 'users'), qui sont eux toujours rattachés à un espace de travail. Un superadmin
@@ -140,6 +151,25 @@ CREATE INDEX IF NOT EXISTS idx_prospect_types_workspace ON prospect_types(worksp
 
 ALTER TABLE prospects ADD COLUMN IF NOT EXISTS prospect_type_id INTEGER REFERENCES prospect_types(id) ON DELETE SET NULL;
 ALTER TABLE prospects ADD COLUMN IF NOT EXISTS prochaine_action TEXT;
+-- Date structurée associée à prochaine_action (le texte reste libre, cette
+-- date optionnelle sert uniquement au rappel automatique "en retard" — liste
+-- prospects + résumé hebdomadaire). NULL si aucune date n'a été précisée.
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS prochaine_action_date DATE;
+
+-- Historique d'activité par prospect (idée produit "timeline") : trace les
+-- événements clés (création, changement de statut, RDV pris, campagne
+-- reçue...) pour reconstituer le fil d'un dossier sans avoir à recouper
+-- plusieurs écrans. Alimenté au fil de l'eau par les modules concernés
+-- (prospects.py, rendez_vous.py, sending.py) — jamais modifiable a posteriori.
+CREATE TABLE IF NOT EXISTS prospect_activity (
+    id SERIAL PRIMARY KEY,
+    prospect_id INTEGER NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL,   -- cree / statut_change / rdv_planifie / campagne_envoyee / note
+    description TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_prospect_activity_prospect ON prospect_activity(prospect_id, created_at DESC);
 ALTER TABLE prospects ADD COLUMN IF NOT EXISTS notes TEXT;
 CREATE INDEX IF NOT EXISTS idx_prospects_type ON prospects(prospect_type_id);
 
@@ -314,6 +344,9 @@ CREATE TABLE IF NOT EXISTS import_jobs (
     finished_at TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_import_jobs_workspace ON import_jobs(workspace_id);
+-- Doublons détectés (SIRET ou nom+ville déjà présent) et ignorés à l'import —
+-- comptés à part des erreurs, ce n'est pas une ligne invalide.
+ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS duplicate_count INTEGER NOT NULL DEFAULT 0;
 
 -- Rapport d'erreurs / avertissements ligne par ligne pour un import
 CREATE TABLE IF NOT EXISTS import_errors (
