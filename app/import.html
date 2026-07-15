@@ -79,7 +79,7 @@ const FIELD_LABELS = {
   ville: 'Ville', telephone: 'Téléphone', email: 'E-mail', site_web: 'Site web', description: 'Description',
 };
 const REVIEW_FIELDS = ['adresse', 'ville', 'telephone', 'email', 'site_web'];
-const SUGGESTED_PROMPT = `Tu es mon assistant de prospection commerciale. Utilise la recherche web (annuaires professionnels, PagesJaunes, Google Maps, Societe.com, Infogreffe, Pappers.fr) pour trouver jusqu'à 15 entreprises réelles du secteur [TYPE D'ENTREPRISE, ex : menuiserie, plomberie, électricité...] situées à [VILLE OU ZONE, ex : Surgères et communes alentours].
+const SUGGESTED_PROMPT = `Tu es mon assistant de prospection commerciale. Utilise la recherche web (annuaires professionnels, PagesJaunes, Google Maps, Societe.com, Infogreffe, Pappers.fr et le bulletin officiel (BODACC) pour trouver jusqu'à 15 entreprises réelles situées à [VILLE OU ZONE, ex : Surgères et communes alentours]. tu ne sélectionnes que les entreprises actives.
 
 Ne renseigne un champ que si tu es raisonnablement certain de son exactitude d'après ce que tu as trouvé. Laisse-le vide plutôt que d'inventer une information.
 
