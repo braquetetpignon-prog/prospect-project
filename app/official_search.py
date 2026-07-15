@@ -71,16 +71,58 @@ def _fetch_page(zone, secteur_params, page):
         raise OfficialSearchError("Réponse inattendue du registre officiel.") from exc
 
 
-def _to_prospect_fields(result):
+def _to_prospect_fields(result, zone=None):
+    """Choisit l'établissement à afficher. Piège fréquent avec cette API :
+    une grande entreprise multi-sites (ex: une enseigne nationale) remonte
+    dans les résultats dès qu'UN de ses établissements correspond à la zone
+    recherchée — mais le JSON renvoie toujours l'adresse du SIÈGE SOCIAL en
+    premier plan, qui peut être à l'autre bout de la France. Sans ce
+    correctif, une recherche sur un code postal donné pouvait afficher des
+    adresses ailleurs (ex: recherche en Charente-Maritime affichant une
+    adresse en Normandie ou à Paris).
+
+    On ne retient que l'établissement (siège ou secondaire, via
+    `matching_etablissements`) qui est à la fois (a) dans la zone demandée
+    et (b) actif — c'est précisément ce qui a fait matcher ce résultat sur
+    le filtre `code_postal` envoyé à l'API. Si aucun établissement de ce
+    type n'est trouvé (cas normalement impossible puisque le filtre
+    `code_postal` est déjà appliqué côté API, mais gardé par prudence),
+    renvoie None : mieux vaut exclure un résultat que d'afficher une adresse
+    hors zone, cohérent avec le principe « jamais de donnée approximative »."""
+    if not zone:
+        siege = result.get("siege") or {}
+        return {
+            "nom_entreprise": result.get("nom_complet") or result.get("nom_raison_sociale"),
+            "siren": result.get("siren"),
+            "siret": siege.get("siret"),
+            "naf_code": siege.get("activite_principale"),
+            "adresse": siege.get("adresse"),
+            "code_postal": siege.get("code_postal"),
+            "ville": siege.get("libelle_commune"),
+        }
+
     siege = result.get("siege") or {}
+    matching = result.get("matching_etablissements") or []
+
+    etab = None
+    if siege.get("code_postal") == zone and siege.get("etat_administratif") == "A":
+        etab = siege
+    if etab is None:
+        etab = next(
+            (e for e in matching if e.get("code_postal") == zone and e.get("etat_administratif") == "A"),
+            None,
+        )
+    if etab is None:
+        return None
+
     return {
         "nom_entreprise": result.get("nom_complet") or result.get("nom_raison_sociale"),
         "siren": result.get("siren"),
-        "siret": siege.get("siret"),
-        "naf_code": siege.get("activite_principale"),
-        "adresse": siege.get("adresse"),
-        "code_postal": siege.get("code_postal"),
-        "ville": siege.get("libelle_commune"),
+        "siret": etab.get("siret"),
+        "naf_code": etab.get("activite_principale"),
+        "adresse": etab.get("adresse"),
+        "code_postal": etab.get("code_postal"),
+        "ville": etab.get("libelle_commune"),
     }
 
 
@@ -178,10 +220,15 @@ def search_by_legal_forms(zone, secteur, forms_with_quantities):
                         break
             page += 1
 
-        counts[form_key] = len(matched)
+        usable = []
         for result in matched[:quantity]:
-            fields = _to_prospect_fields(result)
+            fields = _to_prospect_fields(result, zone=zone)
+            if fields is None:
+                continue  # pas d'établissement actif confirmé dans la zone — exclu plutôt qu'approximatif
             fields["forme_juridique"] = group["label"]
-            all_results.append(fields)
+            usable.append(fields)
+
+        counts[form_key] = len(usable)
+        all_results.extend(usable)
 
     return {"results": all_results, "counts": counts}
