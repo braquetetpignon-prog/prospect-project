@@ -80,6 +80,16 @@
 <div class="main">
   <div class="panel">
     <div class="panel-head">
+      <h2>Vue d'ensemble</h2>
+      <p>Calculé à partir des espaces de travail actuels — se met à jour à chaque chargement de la page.</p>
+    </div>
+    <div class="panel-body" id="kpi-container">
+      <div class="empty-state">Chargement…</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
       <h2>Espaces de travail</h2>
       <p>Les lignes surlignées ont été signalées automatiquement pour inactivité prolongée (gratuit, 30 jours+) — à valider ou ignorer manuellement.</p>
     </div>
@@ -292,11 +302,52 @@ function billingIntervalLabel(w) {
 
 // --- Espaces de travail ---
 
+function renderKpis(list) {
+  const container = document.getElementById('kpi-container');
+  if (!list.length) {
+    container.innerHTML = `<div class="empty-state">Aucun espace de travail pour l'instant.</div>`;
+    return;
+  }
+
+  const total = list.length;
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const actifs = list.filter(w => w.last_active_at && new Date(w.last_active_at) >= thirtyDaysAgo).length;
+  const inactifs = total - actifs;
+
+  const nbEssai = list.filter(w => w.plan_effective === 'trial').length;
+  const nbGratuit = list.filter(w => w.plan_effective === 'free').length;
+  const nbPayant = list.filter(w => w.plan_effective === 'paid').length;
+
+  const nbMensuel = list.filter(w => w.plan_effective === 'paid' && w.billing_interval === 'monthly').length;
+  const nbAnnuel = list.filter(w => w.plan_effective === 'paid' && w.billing_interval === 'annual').length;
+  const nbPayantManuel = nbPayant - nbMensuel - nbAnnuel; // passé en payant à la main par le superadmin, hors Mollie
+
+  const mrr = nbMensuel * 12 + nbAnnuel * 9;
+
+  // Taux de conversion essai -> payant : parmi les espaces qui ont déjà quitté
+  // l'essai (donc payant OU gratuit), quelle proportion a choisi de payer.
+  // Les essais toujours en cours sont volontairement exclus du calcul.
+  const decides = nbPayant + nbGratuit;
+  const tauxConversion = decides > 0 ? Math.round((nbPayant / decides) * 100) : null;
+
+  container.innerHTML = `
+    <div class="stats-grid">
+      <div class="stat-card"><div class="value">${total}</div><div class="label">Espaces de travail</div></div>
+      <div class="stat-card"><div class="value">${actifs} / ${inactifs}</div><div class="label">Actifs / inactifs (30j)</div></div>
+      <div class="stat-card"><div class="value">${nbEssai} / ${nbGratuit} / ${nbPayant}</div><div class="label">Essai / Gratuit / Payant</div></div>
+      <div class="stat-card"><div class="value">${nbMensuel} / ${nbAnnuel}</div><div class="label">Mensuel / Annuel${nbPayantManuel > 0 ? ` <span class="muted">(+${nbPayantManuel} manuel)</span>` : ''}</div></div>
+      <div class="stat-card"><div class="value">${mrr}€</div><div class="label">MRR estimé (récurrent Mollie)</div></div>
+      <div class="stat-card"><div class="value">${tauxConversion !== null ? tauxConversion + '%' : '—'}</div><div class="label">Taux de conversion essai → payant</div></div>
+    </div>
+  `;
+}
+
 async function loadWorkspaces() {
   try {
     const data = await fetchJSON('/api/supadmin/workspaces');
     workspaces = data.workspaces;
     renderTable();
+    renderKpis(workspaces);
     document.getElementById('workspace-search-input').addEventListener('input', (e) => {
       const q = e.target.value.trim().toLowerCase();
       const filtered = !q ? workspaces : workspaces.filter(w =>
