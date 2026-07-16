@@ -184,6 +184,65 @@
   #kb-panel-body { flex: 1; overflow-y: auto; padding: 22px 24px; font-size: 14px; line-height: 1.6; white-space: pre-wrap; color: var(--text); }
   #kb-panel-body.loading, #kb-panel-body.error { color: var(--text-soft); font-style: italic; white-space: normal; }
 
+  /* --- Visite guidée (carrousel) --- */
+  #tour-overlay { display: none; position: fixed; inset: 0; background: rgba(53,48,42,0.45); z-index: 120; }
+  #tour-overlay.show { display: block; }
+  #tour-modal {
+    display: none;
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 480px; max-width: calc(100vw - 32px);
+    background: var(--white); border-radius: 24px; box-shadow: var(--shadow, 0 12px 32px rgba(53,40,24,0.18));
+    padding: 40px 32px 28px; z-index: 121;
+  }
+  #tour-modal.show { display: block; }
+  #tour-close-btn {
+    position: absolute; top: 16px; right: 16px;
+    background: none; border: none; font-size: 16px; color: var(--text-soft); cursor: pointer;
+    width: 30px; height: 30px; border-radius: 50%;
+  }
+  #tour-close-btn:hover { background: var(--cream); color: var(--text); }
+  #tour-track { position: relative; min-height: 260px; }
+  .tour-slide {
+    position: absolute; inset: 0;
+    text-align: center;
+    opacity: 0; visibility: hidden; transform: translateY(6px);
+    transition: opacity 0.35s ease, transform 0.35s ease, visibility 0s linear 0.35s;
+  }
+  .tour-slide.is-active {
+    position: relative;
+    opacity: 1; visibility: visible; transform: translateY(0);
+    transition: opacity 0.35s ease, transform 0.35s ease;
+  }
+  .tour-slide-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 56px; height: 56px; border-radius: 16px;
+    background: var(--sauge-light, #E7EDE3); color: var(--sauge, #7A9471);
+    margin-bottom: 18px;
+  }
+  .tour-slide-icon svg { width: 28px; height: 28px; }
+  .tour-slide h3 { font-family: 'Fraunces', serif; font-size: 20px; margin: 0 0 10px; }
+  .tour-slide p { font-size: 14.5px; line-height: 1.55; color: var(--text-soft); margin: 0 0 18px; }
+  .tour-slide-link { font-size: 13.5px; font-weight: 600; color: var(--terracotta-deep); text-decoration: none; }
+  .tour-slide-link:hover { text-decoration: underline; }
+  .tour-controls { display: flex; align-items: center; justify-content: center; gap: 18px; margin-top: 10px; }
+  .tour-arrow {
+    background: var(--cream); border: none; color: var(--text);
+    width: 32px; height: 32px; border-radius: 50%; font-size: 16px; line-height: 1; cursor: pointer;
+    transition: background 0.2s ease;
+  }
+  .tour-arrow:hover { background: var(--sauge-light, #E7EDE3); }
+  .tour-dots { display: flex; gap: 7px; }
+  .tour-dot {
+    width: 7px; height: 7px; border-radius: 50%; border: none;
+    background: var(--border, #E5DDD0); padding: 0; cursor: pointer;
+    transition: background 0.2s ease, transform 0.2s ease;
+  }
+  .tour-dot.is-active { background: var(--terracotta-deep); transform: scale(1.25); }
+  @media (prefers-reduced-motion: reduce) {
+    .tour-slide { transition: opacity 0.01s linear, visibility 0s linear; transform: none; }
+    .tour-slide.is-active { transition: opacity 0.01s linear; }
+  }
+
   @media (max-width: 980px) {
     .shell { grid-template-columns: 1fr; }
     .sidebar { position: sticky; top: 0; flex-direction: row; align-items: center; overflow-x: auto; z-index: 20; }
@@ -247,7 +306,11 @@
       </a>
     </nav>
 
-    <button id="logout-btn" type="button" class="side-link" style="border:none; background:none; width:100%; text-align:left; cursor:pointer; margin-top:auto; font-family:'Figtree',sans-serif;">
+    <button id="tour-open-btn" type="button" class="side-link" style="border:none; background:none; width:100%; text-align:left; cursor:pointer; margin-top:auto; font-family:'Figtree',sans-serif;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      Visite guidée
+    </button>
+    <button id="logout-btn" type="button" class="side-link" style="border:none; background:none; width:100%; text-align:left; cursor:pointer; font-family:'Figtree',sans-serif;">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
       Déconnexion
     </button>
@@ -287,6 +350,61 @@
     <button id="kb-panel-close-btn" type="button" aria-label="Fermer">✕</button>
   </div>
   <div id="kb-panel-body"></div>
+</div>
+
+<div id="tour-overlay"></div>
+<div id="tour-modal" role="dialog" aria-modal="true" aria-label="Visite guidée de ClickProspect">
+  <button id="tour-close-btn" type="button" aria-label="Fermer la visite guidée">✕</button>
+  <div id="tour-track">
+
+    <div class="tour-slide is-active">
+      <span class="tour-slide-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg></span>
+      <h3>Tableau de bord</h3>
+      <p>Ta vue d'ensemble. En arrivant, tu vois d'un coup d'œil combien de prospects tu as, lesquels sont nouveaux, tes prochains rendez-vous et ce qui vient de se passer.</p>
+      <a href="/dashboard" class="tour-slide-link">Voir cette page →</a>
+    </div>
+
+    <div class="tour-slide">
+      <span class="tour-slide-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+      <h3>Prospects &amp; Gestion Client</h3>
+      <p><strong>Prospects</strong> regroupe toutes les entreprises que tu as repérées, quel que soit leur statut. Dès qu'un prospect devient client, il bascule dans <strong>Gestion Client</strong> — ta liste Prospects reste propre, et tu ne perds jamais personne de vue.</p>
+      <a href="/prospects" class="tour-slide-link">Voir cette page →</a>
+    </div>
+
+    <div class="tour-slide">
+      <span class="tour-slide-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>
+      <h3>Prospection</h3>
+      <p>Pour remplir ta liste de prospects : importe un fichier, laisse l'IA chercher pour toi, ou vérifie en un clic si une entreprise existe encore.</p>
+      <a href="/import" class="tour-slide-link">Voir cette page →</a>
+    </div>
+
+    <div class="tour-slide">
+      <span class="tour-slide-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg></span>
+      <h3>Campagnes</h3>
+      <p>Pour envoyer un message à plusieurs prospects ou clients en une fois : demande d'avis, offre commerciale, newsletter. Tu choisis qui reçoit quoi.</p>
+      <a href="/campagnes" class="tour-slide-link">Voir cette page →</a>
+    </div>
+
+    <div class="tour-slide">
+      <span class="tour-slide-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+      <h3>Calendrier</h3>
+      <p>Tous les rendez-vous de l'équipe, au même endroit, reliés directement à tes fiches prospects.</p>
+      <a href="/calendrier" class="tour-slide-link">Voir cette page →</a>
+    </div>
+
+    <div class="tour-slide">
+      <span class="tour-slide-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
+      <h3>Paramètres</h3>
+      <p>Ta fiche Google, ta messagerie pour les campagnes, et les membres de ton équipe. À régler une fois, en début d'utilisation.</p>
+      <a href="/parametres" class="tour-slide-link">Voir cette page →</a>
+    </div>
+
+  </div>
+  <div class="tour-controls">
+    <button type="button" class="tour-arrow" id="tour-prev" aria-label="Diapositive précédente">‹</button>
+    <div class="tour-dots" id="tour-dots" role="tablist" aria-label="Choisir une diapositive"></div>
+    <button type="button" class="tour-arrow" id="tour-next" aria-label="Diapositive suivante">›</button>
+  </div>
 </div>
 
 <script>
@@ -358,6 +476,58 @@ function closeKbPanel() {
 
 document.getElementById('kb-panel-close-btn').addEventListener('click', closeKbPanel);
 document.getElementById('kb-overlay').addEventListener('click', closeKbPanel);
+
+// --- Visite guidée (carrousel) ---
+(function () {
+  var openBtn = document.getElementById('tour-open-btn');
+  var overlay = document.getElementById('tour-overlay');
+  var modal = document.getElementById('tour-modal');
+  var closeBtn = document.getElementById('tour-close-btn');
+  var prevBtn = document.getElementById('tour-prev');
+  var nextBtn = document.getElementById('tour-next');
+  var slides = modal.querySelectorAll('.tour-slide');
+  var dotsWrap = document.getElementById('tour-dots');
+  var index = 0;
+
+  slides.forEach(function (_, n) {
+    var dot = document.createElement('button');
+    dot.type = 'button';
+    dot.className = 'tour-dot' + (n === 0 ? ' is-active' : '');
+    dot.setAttribute('role', 'tab');
+    dot.setAttribute('aria-label', 'Diapositive ' + (n + 1));
+    dot.addEventListener('click', function () { show(n); });
+    dotsWrap.appendChild(dot);
+  });
+  var dots = dotsWrap.querySelectorAll('.tour-dot');
+
+  function show(i) {
+    index = (i + slides.length) % slides.length;
+    slides.forEach(function (el, n) { el.classList.toggle('is-active', n === index); });
+    dots.forEach(function (el, n) { el.classList.toggle('is-active', n === index); });
+  }
+
+  function openTour() {
+    show(0);
+    overlay.className = 'show';
+    modal.className = 'show';
+  }
+  function closeTour() {
+    overlay.className = '';
+    modal.className = '';
+  }
+
+  openBtn.addEventListener('click', openTour);
+  closeBtn.addEventListener('click', closeTour);
+  overlay.addEventListener('click', closeTour);
+  prevBtn.addEventListener('click', function () { show(index - 1); });
+  nextBtn.addEventListener('click', function () { show(index + 1); });
+  document.addEventListener('keydown', function (e) {
+    if (modal.className !== 'show') return;
+    if (e.key === 'Escape') closeTour();
+    if (e.key === 'ArrowRight') show(index + 1);
+    if (e.key === 'ArrowLeft') show(index - 1);
+  });
+})();
 
 function escapeHtml(str) {
   if (str == null) return '';
