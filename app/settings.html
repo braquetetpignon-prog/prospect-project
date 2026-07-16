@@ -47,6 +47,7 @@ function onAuthReady(me) {
     return;
   }
   renderSettingsShell(me.workspace_id);
+  renderBillingPanel(me);
   loadGoogleProfile(me.workspace_id);
   loadSmtpConfig(me.workspace_id);
   loadMembers(me.workspace_id);
@@ -58,6 +59,13 @@ function onAuthReady(me) {
 
 function renderSettingsShell(workspaceId) {
   document.getElementById('settings-root').innerHTML = `
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Abonnement</h2>
+        <p>Ton offre actuelle et le paiement de ClickProspect.</p>
+      </div>
+      <div id="billing-panel-body" class="panel-body"><div class="skeleton" style="height:60px;"></div></div>
+    </div>
     <div class="panel">
       <div class="panel-head">
         <h2>Fiche Google Business Profile</h2>
@@ -270,6 +278,89 @@ async function deleteMember(userId, email, workspaceId) {
     await fetchJSON(`/api/workspaces/${workspaceId}/users/${userId}`, { method: 'DELETE' });
     showToast('Membre supprimé.');
     loadMembers(workspaceId);
+  } catch (err) {
+    showToast(err.message, true);
+  }
+}
+
+const PLAN_LABELS = { trial: 'Essai', free: 'Gratuit', paid: 'Premium' };
+const INTERVAL_LABELS = { monthly: 'mensuel', annual: 'annuel' };
+
+function formatDateFr(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+function renderBillingPanel(me) {
+  const body = document.getElementById('billing-panel-body');
+  const effective = me.plan_effective;
+  const justPaid = new URLSearchParams(window.location.search).get('paiement') === 'confirmation';
+
+  if (justPaid && effective !== 'paid') {
+    renderBillingPanel._pollCount = (renderBillingPanel._pollCount || 0) + 1;
+    body.innerHTML = `<p class="muted">Paiement en cours de confirmation… cette page se met à jour automatiquement.</p>`;
+    if (renderBillingPanel._pollCount <= 8) {
+      setTimeout(async () => {
+        try {
+          const fresh = await fetchJSON('/api/auth/me');
+          currentUser = fresh;
+          renderBillingPanel(fresh);
+        } catch (e) { /* silencieux, on retentera */ }
+      }, 2500);
+    } else {
+      body.innerHTML = `<p class="muted">La confirmation prend plus de temps que prévu. Recharge la page dans une minute — si le souci persiste, contacte-nous.</p>`;
+    }
+    return;
+  }
+
+  if (effective === 'paid') {
+    body.innerHTML = `
+      <p><strong>Premium</strong> (${INTERVAL_LABELS[me.billing_interval] || ''}) — actif jusqu'au ${formatDateFr(me.paid_until)}.</p>
+      <button class="btn btn-ghost" id="billing-cancel-btn" type="button">Résilier mon abonnement</button>
+    `;
+    document.getElementById('billing-cancel-btn').addEventListener('click', onBillingCancel);
+    return;
+  }
+
+  const statusLine = effective === 'trial'
+    ? `<p><strong>Essai</strong> — encore ${me.trial_days_left ?? 0} jour(s). Passe au Premium à tout moment pour continuer sans interruption.</p>`
+    : `<p><strong>Version gratuite</strong> — export et campagnes non inclus. Passe au Premium pour débloquer l'accès complet.</p>`;
+
+  body.innerHTML = `
+    ${statusLine}
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:6px;">
+      <button class="btn btn-primary" type="button" data-billing-interval="monthly">Passer au Premium — 12€/mois</button>
+      <button class="btn btn-ghost" type="button" data-billing-interval="annual">Passer au Premium — annuel (9€/mois)</button>
+    </div>
+  `;
+  body.querySelectorAll('[data-billing-interval]').forEach(btn => {
+    btn.addEventListener('click', () => onBillingSubscribe(btn.getAttribute('data-billing-interval'), btn));
+  });
+}
+
+async function onBillingSubscribe(interval, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Redirection…';
+  try {
+    const data = await fetchJSON('/api/billing/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ interval }),
+    });
+    window.location.href = data.checkout_url;
+  } catch (err) {
+    showToast(err.message, true);
+    btn.disabled = false;
+    renderBillingPanel(currentUser || {});
+  }
+}
+
+async function onBillingCancel() {
+  if (!confirm("Résilier ton abonnement Premium ? Tu garderas l'accès jusqu'à la fin de la période déjà payée, puis ton espace repassera en version gratuite.")) return;
+  try {
+    await fetchJSON('/api/billing/cancel', { method: 'POST' });
+    showToast('Abonnement résilié — accès conservé jusqu\'à la fin de la période en cours.');
   } catch (err) {
     showToast(err.message, true);
   }

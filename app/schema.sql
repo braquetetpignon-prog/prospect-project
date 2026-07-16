@@ -44,6 +44,31 @@ ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS logo_mimetype TEXT;
 -- deux fois dans la même semaine si la tâche de fond passe plusieurs fois.
 ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS weekly_summary_last_sent_at TIMESTAMPTZ;
 
+-- Facturation Mollie (paiement CB / abonnement récurrent). Ces colonnes ne
+-- pilotent jamais l'accès directement — c'est toujours `plan` / `paid_until`
+-- (via effective_plan) qui font foi pour l'accès aux fonctionnalités. Elles
+-- servent à piloter/retrouver l'abonnement côté Mollie et à l'afficher dans
+-- le rapport superadmin.
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS billing_interval TEXT; -- 'monthly' / 'annual'
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS mollie_customer_id TEXT;
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS mollie_subscription_id TEXT;
+-- Reflet du dernier statut connu côté Mollie ('active', 'canceled', 'suspended',
+-- 'pending_first_payment'...) — permet de repérer un paiement en échec avant
+-- même que paid_until n'expire, sans attendre le prochain webhook.
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS mollie_subscription_status TEXT;
+
+-- Journal des événements de paiement Mollie reçus par webhook — utile pour
+-- déboguer un souci de facturation sans avoir à recouper les logs applicatifs.
+CREATE TABLE IF NOT EXISTS mollie_events (
+    id SERIAL PRIMARY KEY,
+    workspace_id INTEGER REFERENCES workspaces(id) ON DELETE SET NULL,
+    mollie_payment_id TEXT,
+    event_type TEXT NOT NULL, -- ex: payment_paid, payment_failed, subscription_canceled
+    details TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_mollie_events_workspace ON mollie_events(workspace_id, created_at DESC);
+
 -- Comptes superadmin — totalement séparés des comptes utilisateurs normaux (table
 -- 'users'), qui sont eux toujours rattachés à un espace de travail. Un superadmin
 -- n'appartient à aucun espace de travail : il gère l'ensemble des clients depuis

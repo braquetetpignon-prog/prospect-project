@@ -156,6 +156,7 @@ def list_workspaces():
                 """
                 SELECT w.id, w.name, w.created_at, w.plan, w.trial_ends_at, w.paid_until,
                        w.last_active_at, w.deletion_requested_at, w.ia_search_quota_override,
+                       w.billing_interval, w.mollie_subscription_status,
                        (SELECT email FROM users u WHERE u.workspace_id = w.id AND u.role = 'admin'
                         ORDER BY u.created_at LIMIT 1) AS admin_email,
                        (SELECT count(*) FROM users u WHERE u.workspace_id = w.id) AS member_count
@@ -169,7 +170,8 @@ def list_workspaces():
 
     workspaces = []
     for (wid, name, created_at, plan, trial_ends_at, paid_until, last_active_at,
-         deletion_requested_at, ia_search_quota_override, admin_email, member_count) in rows:
+         deletion_requested_at, ia_search_quota_override, billing_interval,
+         mollie_subscription_status, admin_email, member_count) in rows:
         effective = subscriptions.effective_plan(plan, trial_ends_at, paid_until)
         workspaces.append({
             "id": wid,
@@ -181,6 +183,8 @@ def list_workspaces():
             "plan_effective": effective,
             "trial_ends_at": trial_ends_at,
             "paid_until": paid_until,
+            "billing_interval": billing_interval,
+            "mollie_subscription_status": mollie_subscription_status,
             "last_active_at": last_active_at,
             "deletion_requested_at": deletion_requested_at,
             "ia_search_quota_override": ia_search_quota_override,

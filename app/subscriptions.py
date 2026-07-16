@@ -49,7 +49,7 @@ def get_workspace_subscription(workspace_id):
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT plan, trial_ends_at, paid_until FROM workspaces WHERE id = %s",
+                "SELECT plan, trial_ends_at, paid_until, billing_interval FROM workspaces WHERE id = %s",
                 (workspace_id,),
             )
             row = cur.fetchone()
@@ -59,7 +59,7 @@ def get_workspace_subscription(workspace_id):
     if not row:
         return None
 
-    plan, trial_ends_at, paid_until = row
+    plan, trial_ends_at, paid_until, billing_interval = row
     effective = effective_plan(plan, trial_ends_at, paid_until)
 
     days_left = None
@@ -71,6 +71,7 @@ def get_workspace_subscription(workspace_id):
         "plan_effective": effective,
         "trial_ends_at": trial_ends_at,
         "paid_until": paid_until,
+        "billing_interval": billing_interval,
         "trial_days_left": days_left,
         "restricted": effective == RESTRICTED_PLAN,
     }

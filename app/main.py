@@ -30,6 +30,7 @@ from app import rate_limit
 from app import activity
 from app import security_events
 from app import kb
+from app import mollie_billing
 from app.app_logging import logger
 from flask import Response
 
@@ -119,6 +120,11 @@ def _restricted_response():
 @app.route("/")
 def index():
     return flask_render_template("landing.html")
+
+
+@app.route("/tarifs")
+def pricing_page():
+    return flask_render_template("pricing.html")
 
 
 @app.route("/signup")
@@ -299,6 +305,8 @@ def auth_me():
         plan=sub.get("plan"),
         plan_effective=sub.get("plan_effective"),
         trial_days_left=sub.get("trial_days_left"),
+        paid_until=sub.get("paid_until").isoformat() if sub.get("paid_until") else None,
+        billing_interval=sub.get("billing_interval"),
         restricted=sub.get("restricted", False),
         impersonating=bool(session.get("impersonation_superadmin_id")),
     )
@@ -349,6 +357,62 @@ def auth_pin():
     except auth.AuthError as exc:
         return jsonify(error=str(exc)), 400
     return jsonify(status="ok")
+
+
+@app.route("/api/billing/subscribe", methods=["POST"])
+@login_required
+@require_role("admin")
+def billing_subscribe():
+    body = request.get_json(silent=True) or {}
+    interval = body.get("interval")
+    if interval not in ("monthly", "annual"):
+        return jsonify(error="Intervalle de facturation invalide."), 400
+
+    workspace_id = session["workspace_id"]
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT name FROM workspaces WHERE id = %s", (workspace_id,))
+            row = cur.fetchone()
+    finally:
+        conn.close()
+    workspace_name = row[0] if row else "ClickProspect"
+
+    try:
+        checkout_url = mollie_billing.create_first_payment(
+            workspace_id, workspace_name, session.get("email", ""), interval
+        )
+    except mollie_billing.MollieError as exc:
+        return jsonify(error=str(exc)), 502
+
+    return jsonify(checkout_url=checkout_url)
+
+
+@app.route("/api/billing/cancel", methods=["POST"])
+@login_required
+@require_role("admin")
+def billing_cancel():
+    try:
+        mollie_billing.cancel_subscription(session["workspace_id"])
+    except mollie_billing.MollieError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(status="ok")
+
+
+@app.route("/webhook/mollie", methods=["POST"])
+def webhook_mollie():
+    """Appelé par Mollie, jamais par le navigateur. Ne recevra que
+    l'identifiant du paiement — on recharge systématiquement l'état réel
+    depuis l'API Mollie avant d'agir (voir mollie_billing.py)."""
+    payment_id = request.form.get("id")
+    if not payment_id:
+        return "", 400
+    try:
+        mollie_billing.handle_webhook_payment(payment_id)
+    except mollie_billing.MollieError as exc:
+        logger.error(f"Webhook Mollie en erreur pour {payment_id} : {exc}")
+        return "", 200  # on répond 200 quand même pour éviter un flood de retries Mollie sur une erreur de config
+    return "", 200
 
 
 @app.route("/api/auth/forgot-password", methods=["POST"])

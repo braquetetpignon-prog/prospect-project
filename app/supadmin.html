@@ -278,8 +278,16 @@ const planLabels = { trial: 'Essai', free: 'Gratuit', paid: 'Payant' };
 
 function planEndLabel(w) {
   if (w.plan_effective === 'trial') return `Essai jusqu'au ${formatDate(w.trial_ends_at)}`;
-  if (w.plan_effective === 'paid') return `Payant jusqu'au ${formatDate(w.paid_until)}`;
+  if (w.plan_effective === 'paid') {
+    const canceled = w.mollie_subscription_status === 'canceled' ? ' <span class="badge badge-flagged">Résilié</span>' : '';
+    return `Payant jusqu'au ${formatDate(w.paid_until)}${canceled}`;
+  }
   return 'Gratuit (restreint)';
+}
+
+function billingIntervalLabel(w) {
+  if (w.plan_effective !== 'paid' || !w.billing_interval) return '—';
+  return w.billing_interval === 'annual' ? 'Annuel' : 'Mensuel';
 }
 
 // --- Espaces de travail ---
@@ -309,7 +317,7 @@ function renderTable(list) {
   }
   document.getElementById('table-container').innerHTML = `
     <table>
-      <thead><tr><th>Espace</th><th>Admin</th><th>Membres</th><th>Créé le</th><th>Dernière activité</th><th>Statut</th><th>Quota IA</th><th></th></tr></thead>
+      <thead><tr><th>Espace</th><th>Admin</th><th>Membres</th><th>Créé le</th><th>Dernière activité</th><th>Statut</th><th>Formule</th><th>Quota IA</th><th></th></tr></thead>
       <tbody>
         ${list.map(w => `
           <tr class="${w.deletion_requested_at ? 'flagged' : ''}">
@@ -325,6 +333,7 @@ function renderTable(list) {
               <span class="badge badge-${w.plan_effective}">${planLabels[w.plan_effective]}</span>
               <div class="muted" style="margin-top:4px;">${planEndLabel(w)}</div>
             </td>
+            <td class="muted">${billingIntervalLabel(w)}</td>
             <td class="muted">${w.ia_search_quota_override != null ? `${w.ia_search_quota_override}/jour` : 'défaut (3/jour)'}</td>
             <td>
               <div class="row-actions">
