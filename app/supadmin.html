@@ -64,6 +64,17 @@
   .stat-card { background: var(--cream); border-radius: 14px; padding: 16px 18px; }
   .stat-card .value { font-family: 'Fraunces', serif; font-size: 26px; font-weight: 600; }
   .stat-card .label { font-size: 12.5px; color: var(--text-soft); margin-top: 2px; }
+  .stat-card.is-clickable { cursor: pointer; transition: background .15s ease, transform .15s ease; }
+  .stat-card.is-clickable:hover { background: var(--sauge-light, #E7EDE3); transform: translateY(-1px); }
+  .kpi-donut-wrap { display: flex; align-items: center; gap: 28px; flex-wrap: wrap; margin: 16px 0; }
+  .kpi-donut-wrap svg { width: 160px; height: 160px; flex-shrink: 0; }
+  .kpi-legend { list-style: none; margin: 0; padding: 0; font-size: 13.5px; }
+  .kpi-legend li { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+  .kpi-legend .swatch { width: 11px; height: 11px; border-radius: 3px; flex-shrink: 0; }
+  .kpi-legend .count { margin-left: auto; font-weight: 600; padding-left: 14px; }
+  .kpi-detail-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13.5px; }
+  .kpi-detail-table th, .kpi-detail-table td { text-align: left; padding: 7px 4px; border-top: 1px solid var(--border, #eee); }
+  .kpi-detail-table th { color: var(--text-soft); font-weight: 600; font-size: 12px; }
   .purge-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-top: 1px solid var(--border); }
   .purge-row:first-of-type { border-top: none; }
   .table-scroll { max-height: 480px; overflow-y: auto; }
@@ -249,6 +260,17 @@
   </div>
 </div>
 
+<!-- Modal : détail d'un indicateur (camembert + tableau) -->
+<div class="modal-overlay" id="kpi-modal-overlay">
+  <div class="modal" style="max-width:640px;">
+    <h3 id="kpi-modal-title">Détail</h3>
+    <div id="kpi-modal-body"></div>
+    <div class="modal-actions">
+      <button class="btn btn-dark" id="kpi-modal-close-btn" type="button">Fermer</button>
+    </div>
+  </div>
+</div>
+
 <script>
 let workspaces = [];
 let currentPlanWorkspaceId = null;
@@ -302,8 +324,11 @@ function billingIntervalLabel(w) {
 
 // --- Espaces de travail ---
 
+let lastKpiList = [];
+
 function renderKpis(list) {
   const container = document.getElementById('kpi-container');
+  lastKpiList = list;
   if (!list.length) {
     container.innerHTML = `<div class="empty-state">Aucun espace de travail pour l'instant.</div>`;
     return;
@@ -332,15 +357,180 @@ function renderKpis(list) {
 
   container.innerHTML = `
     <div class="stats-grid">
-      <div class="stat-card"><div class="value">${total}</div><div class="label">Espaces de travail</div></div>
-      <div class="stat-card"><div class="value">${actifs} / ${inactifs}</div><div class="label">Actifs / inactifs (30j)</div></div>
-      <div class="stat-card"><div class="value">${nbEssai} / ${nbGratuit} / ${nbPayant}</div><div class="label">Essai / Gratuit / Payant</div></div>
-      <div class="stat-card"><div class="value">${nbMensuel} / ${nbAnnuel}</div><div class="label">Mensuel / Annuel${nbPayantManuel > 0 ? ` <span class="muted">(+${nbPayantManuel} manuel)</span>` : ''}</div></div>
-      <div class="stat-card"><div class="value">${mrr}€</div><div class="label">MRR estimé (récurrent Mollie)</div></div>
-      <div class="stat-card"><div class="value">${tauxConversion !== null ? tauxConversion + '%' : '—'}</div><div class="label">Taux de conversion essai → payant</div></div>
+      <div class="stat-card is-clickable" data-kpi="total"><div class="value">${total}</div><div class="label">Espaces de travail</div></div>
+      <div class="stat-card is-clickable" data-kpi="activity"><div class="value">${actifs} / ${inactifs}</div><div class="label">Actifs / inactifs (30j)</div></div>
+      <div class="stat-card is-clickable" data-kpi="plan"><div class="value">${nbEssai} / ${nbGratuit} / ${nbPayant}</div><div class="label">Essai / Gratuit / Payant</div></div>
+      <div class="stat-card is-clickable" data-kpi="interval"><div class="value">${nbMensuel} / ${nbAnnuel}</div><div class="label">Mensuel / Annuel${nbPayantManuel > 0 ? ` <span class="muted">(+${nbPayantManuel} manuel)</span>` : ''}</div></div>
+      <div class="stat-card is-clickable" data-kpi="mrr"><div class="value">${mrr}€</div><div class="label">MRR estimé (récurrent Mollie)</div></div>
+      <div class="stat-card is-clickable" data-kpi="conversion"><div class="value">${tauxConversion !== null ? tauxConversion + '%' : '—'}</div><div class="label">Taux de conversion essai → payant</div></div>
     </div>
   `;
+
+  container.querySelectorAll('[data-kpi]').forEach(card => {
+    card.addEventListener('click', () => openKpiModal(card.dataset.kpi));
+  });
 }
+
+function buildPieSvg(segments) {
+  const total = segments.reduce((s, seg) => s + seg.value, 0);
+  const r = 15.91549430918954; // rayon choisi pour que la circonférence = 100 (correspond directement aux %)
+  if (total === 0) {
+    return `<svg viewBox="0 0 42 42"><circle cx="21" cy="21" r="${r}" fill="transparent" stroke="var(--border, #E5DDD0)" stroke-width="6"/></svg>`;
+  }
+  let cumulative = 0;
+  const circles = segments.filter(s => s.value > 0).map(seg => {
+    const pct = (seg.value / total) * 100;
+    const dashArray = `${pct} ${100 - pct}`;
+    const dashOffset = 25 - cumulative; // démarre en haut (12h) plutôt qu'à 3h
+    cumulative += pct;
+    return `<circle cx="21" cy="21" r="${r}" fill="transparent" stroke="${seg.color}" stroke-width="6" stroke-dasharray="${dashArray}" stroke-dashoffset="${dashOffset}"></circle>`;
+  }).join('');
+  return `<svg viewBox="0 0 42 42">${circles}</svg>`;
+}
+
+function computeKpiDetail(kind, list) {
+  const COLORS = { terracotta: '#A2502E', terracottaLight: '#C1653D', sauge: '#7A9471', muted: '#B8AE9E' };
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+  if (kind === 'total') return null; // géré à part : défilement vers le tableau
+
+  if (kind === 'activity') {
+    const inactive = list.filter(w => !w.last_active_at || new Date(w.last_active_at) < thirtyDaysAgo)
+      .sort((a, b) => new Date(a.last_active_at || 0) - new Date(b.last_active_at || 0));
+    const active = list.length - inactive.length;
+    return {
+      title: 'Activité (30 derniers jours)',
+      segments: [
+        { label: 'Actifs', value: active, color: COLORS.sauge },
+        { label: 'Inactifs', value: inactive.length, color: COLORS.terracotta },
+      ],
+      tableHead: ['Espace inactif', 'Admin', 'Dernière activité'],
+      tableRows: inactive.map(w => [w.name, w.admin_email || '—', formatDateTime(w.last_active_at)]),
+      emptyNote: 'Aucun espace inactif — tout le monde est venu dans les 30 derniers jours.',
+    };
+  }
+
+  if (kind === 'plan') {
+    const essai = list.filter(w => w.plan_effective === 'trial').length;
+    const gratuit = list.filter(w => w.plan_effective === 'free').length;
+    const payant = list.filter(w => w.plan_effective === 'paid').length;
+    return {
+      title: 'Répartition Essai / Gratuit / Payant',
+      segments: [
+        { label: 'Essai', value: essai, color: COLORS.terracottaLight },
+        { label: 'Gratuit', value: gratuit, color: COLORS.muted },
+        { label: 'Payant', value: payant, color: COLORS.sauge },
+      ],
+      tableHead: ['Statut', 'Nombre', 'Part'],
+      tableRows: [
+        ['Essai', essai, pct(essai, list.length)],
+        ['Gratuit', gratuit, pct(gratuit, list.length)],
+        ['Payant', payant, pct(payant, list.length)],
+      ],
+    };
+  }
+
+  if (kind === 'interval') {
+    const mensuel = list.filter(w => w.plan_effective === 'paid' && w.billing_interval === 'monthly').length;
+    const annuel = list.filter(w => w.plan_effective === 'paid' && w.billing_interval === 'annual').length;
+    const manuel = list.filter(w => w.plan_effective === 'paid' && !w.billing_interval).length;
+    const segments = [
+      { label: 'Mensuel', value: mensuel, color: COLORS.terracotta },
+      { label: 'Annuel', value: annuel, color: COLORS.sauge },
+    ];
+    if (manuel > 0) segments.push({ label: 'Passé payant manuellement', value: manuel, color: COLORS.muted });
+    return {
+      title: 'Formule des abonnements payants',
+      segments,
+      tableHead: ['Formule', 'Nombre'],
+      tableRows: segments.map(s => [s.label, s.value]),
+      emptyNote: 'Aucun abonnement payant pour l\'instant.',
+    };
+  }
+
+  if (kind === 'mrr') {
+    const mensuel = list.filter(w => w.plan_effective === 'paid' && w.billing_interval === 'monthly').length;
+    const annuel = list.filter(w => w.plan_effective === 'paid' && w.billing_interval === 'annual').length;
+    const revMensuel = mensuel * 12;
+    const revAnnuel = annuel * 9;
+    return {
+      title: 'Composition du MRR estimé',
+      segments: [
+        { label: 'Abonnements mensuels', value: revMensuel, color: COLORS.terracotta },
+        { label: 'Abonnements annuels', value: revAnnuel, color: COLORS.sauge },
+      ],
+      tableHead: ['Origine', 'Contribution au MRR'],
+      tableRows: [
+        [`Mensuel (${mensuel} × 12€)`, `${revMensuel}€`],
+        [`Annuel (${annuel} × 9€ éq./mois)`, `${revAnnuel}€`],
+        ['Total', `${revMensuel + revAnnuel}€`],
+      ],
+      emptyNote: 'Aucun revenu récurrent pour l\'instant.',
+    };
+  }
+
+  if (kind === 'conversion') {
+    const payant = list.filter(w => w.plan_effective === 'paid').length;
+    const gratuit = list.filter(w => w.plan_effective === 'free').length;
+    return {
+      title: 'Conversion essai → payant',
+      segments: [
+        { label: 'Passés payants', value: payant, color: COLORS.sauge },
+        { label: 'Restés gratuits', value: gratuit, color: COLORS.muted },
+      ],
+      tableHead: ['Issue de l\'essai', 'Nombre'],
+      tableRows: [['Passés payants', payant], ['Restés gratuits (non convertis)', gratuit]],
+      emptyNote: 'Aucun essai terminé pour l\'instant — pas encore de taux calculable.',
+    };
+  }
+
+  return null;
+}
+
+function pct(value, total) {
+  return total > 0 ? Math.round((value / total) * 100) + '%' : '—';
+}
+
+function openKpiModal(kind) {
+  if (kind === 'total') {
+    document.getElementById('table-container').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+
+  const detail = computeKpiDetail(kind, lastKpiList);
+  if (!detail) return;
+
+  document.getElementById('kpi-modal-title').textContent = detail.title;
+
+  const totalValue = detail.segments.reduce((s, seg) => s + seg.value, 0);
+  const legendHtml = detail.segments.map(seg => `
+    <li><span class="swatch" style="background:${seg.color};"></span>${escapeHtml(seg.label)}<span class="count">${seg.value}</span></li>
+  `).join('');
+
+  const tableHtml = detail.tableRows.length ? `
+    <table class="kpi-detail-table">
+      <thead><tr>${detail.tableHead.map(h => `<th>${escapeHtml(h)}</th>`).join('')}</tr></thead>
+      <tbody>${detail.tableRows.map(row => `<tr>${row.map(c => `<td>${escapeHtml(String(c))}</td>`).join('')}</tr>`).join('')}</tbody>
+    </table>
+  ` : `<p class="muted">${escapeHtml(detail.emptyNote || 'Aucune donnée.')}</p>`;
+
+  document.getElementById('kpi-modal-body').innerHTML = `
+    <div class="kpi-donut-wrap">
+      ${buildPieSvg(detail.segments)}
+      <ul class="kpi-legend">${legendHtml}</ul>
+    </div>
+    ${totalValue > 0 ? tableHtml : `<p class="muted">${escapeHtml(detail.emptyNote || 'Aucune donnée.')}</p>`}
+  `;
+
+  document.getElementById('kpi-modal-overlay').classList.add('show');
+}
+
+document.getElementById('kpi-modal-close-btn').addEventListener('click', () => {
+  document.getElementById('kpi-modal-overlay').classList.remove('show');
+});
+document.getElementById('kpi-modal-overlay').addEventListener('click', (e) => {
+  if (e.target.id === 'kpi-modal-overlay') document.getElementById('kpi-modal-overlay').classList.remove('show');
+});
 
 async function loadWorkspaces() {
   try {
