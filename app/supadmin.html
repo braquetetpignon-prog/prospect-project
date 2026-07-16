@@ -411,7 +411,12 @@ function openPlanModal(workspaceId) {
   document.getElementById('plan-modal-workspace-name').textContent = w.name;
   document.getElementById('plan-select').value = w.plan_effective;
   document.getElementById('paid-until-field').style.display = w.plan_effective === 'paid' ? 'block' : 'none';
-  if (w.paid_until) document.getElementById('paid-until-input').value = w.paid_until.slice(0, 10);
+  if (w.paid_until) {
+    const d = new Date(w.paid_until);
+    document.getElementById('paid-until-input').value = d.toISOString().slice(0, 10);
+  } else {
+    document.getElementById('paid-until-input').value = '';
+  }
   document.getElementById('plan-modal-overlay').classList.add('show');
 }
 
