@@ -20,6 +20,19 @@
   h1 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 24px; margin: 0; }
   h2 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 17px; margin: 0; }
   .topbar { display: flex; justify-content: space-between; align-items: center; padding: 22px 32px; background: var(--text); color: var(--white); }
+  .quick-nav {
+    position: sticky; top: 0; z-index: 30;
+    display: flex; gap: 4px; overflow-x: auto;
+    background: var(--white); border-bottom: 1px solid var(--border, #E5DDD0);
+    padding: 10px 28px; box-shadow: 0 2px 8px rgba(53,40,24,0.05);
+  }
+  .quick-nav a {
+    white-space: nowrap; text-decoration: none; color: var(--text-soft);
+    font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 999px;
+    transition: background .15s ease, color .15s ease;
+  }
+  .quick-nav a:hover { background: var(--cream); color: var(--text); }
+  .panel { scroll-margin-top: 64px; }
   .topbar h1 { color: var(--white); font-size: 18px; }
   .main { padding: 28px 32px 60px; max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
   .btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 16px; border-radius: 999px; font-weight: 600; font-size: 13.5px; border: none; cursor: pointer; font-family: 'Figtree', sans-serif; }
@@ -88,8 +101,19 @@
   <button class="btn btn-ghost" id="logout-btn" type="button">Déconnexion</button>
 </div>
 
+<nav class="quick-nav">
+  <a href="#vue-ensemble">Vue d'ensemble</a>
+  <a href="#espaces-travail">Espaces de travail</a>
+  <a href="#base-donnees">Base de données</a>
+  <a href="#email-systeme">E-mail système</a>
+  <a href="#suggestions">Suggestions</a>
+  <a href="#journal-audit">Journal d'audit</a>
+  <a href="#evenements-securite">Événements de sécurité</a>
+  <a href="#base-connaissances">Base de connaissances</a>
+</nav>
+
 <div class="main">
-  <div class="panel">
+  <div class="panel" id="vue-ensemble">
     <div class="panel-head">
       <h2>Vue d'ensemble</h2>
       <p>Calculé à partir des espaces de travail actuels — se met à jour à chaque chargement de la page.</p>
@@ -99,7 +123,7 @@
     </div>
   </div>
 
-  <div class="panel">
+  <div class="panel" id="espaces-travail">
     <div class="panel-head">
       <h2>Espaces de travail</h2>
       <p>Les lignes surlignées ont été signalées automatiquement pour inactivité prolongée (gratuit, 30 jours+) — à valider ou ignorer manuellement.</p>
@@ -113,7 +137,7 @@
     </div>
   </div>
 
-  <div class="panel">
+  <div class="panel" id="base-donnees">
     <div class="panel-head">
       <h2>Base de données</h2>
       <p>Nettoyage des données obsolètes — n'affecte jamais les prospects ni les comptes.</p>
@@ -123,7 +147,7 @@
     </div>
   </div>
 
-  <div class="panel">
+  <div class="panel" id="email-systeme">
     <div class="panel-head">
       <h2>E-mail système</h2>
       <p>Vérifie que SYSTEM_SMTP_* est bien configuré (alertes d'inactivité, futures annonces) sans toucher à un vrai espace client.</p>
@@ -140,7 +164,7 @@
     </div>
   </div>
 
-  <div class="panel">
+  <div class="panel" id="suggestions">
     <div class="panel-head">
       <h2>Suggestions</h2>
       <p>Idées et retours envoyés volontairement par les utilisateurs depuis l'assistant d'aide.</p>
@@ -150,7 +174,7 @@
     </div>
   </div>
 
-  <div class="panel">
+  <div class="panel" id="journal-audit">
     <div class="panel-head">
       <h2>Journal d'audit</h2>
       <p>Historique des actions sensibles effectuées depuis cette console (200 dernières).</p>
@@ -160,7 +184,7 @@
     </div>
   </div>
 
-  <div class="panel">
+  <div class="panel" id="evenements-securite">
     <div class="panel-head">
       <h2>Événements de sécurité</h2>
       <p>Réinitialisations de mot de passe par PIN et blocages anti brute-force (100 derniers) — pour repérer une activité suspecte.</p>
@@ -170,7 +194,7 @@
     </div>
   </div>
 
-  <div class="panel">
+  <div class="panel" id="base-connaissances">
     <div class="panel-head">
       <h2>Base de connaissances</h2>
       <p>Procédures affichées aux utilisateurs via le panneau d'aide (icône « ? »). L'identifiant (slug) relie une icône dans l'application à son article — ne le change pas sans mettre à jour l'icône correspondante.</p>
