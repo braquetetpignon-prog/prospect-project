@@ -42,6 +42,24 @@ CSV_INJECTION_LEAD_CHARS = ("=", "+", "-", "@")
 CHUNK_SIZE = 500  # lignes traitées par lot avant mise à jour de la progression
 
 
+def _sniff_delimiter(text):
+    """Détecte automatiquement le séparateur du CSV (virgule, point-virgule
+    ou tabulation). Nécessaire car les exports Excel en français utilisent
+    le point-virgule par défaut (la virgule étant déjà le séparateur
+    décimal) — sans cette détection, csv.reader utilisait toujours la
+    virgule et lisait chaque ligne entière comme une seule colonne, ce qui
+    faisait échouer silencieusement le mapping (toutes les colonnes sauf la
+    première restaient vides à l'import).
+    Repli sur la virgule (comportement Python standard) si la détection
+    échoue, par exemple sur un fichier à une seule colonne."""
+    sample = text[:8192]
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
+        return dialect.delimiter
+    except csv.Error:
+        return ","
+
+
 def sanitize_cell(value):
     """Neutralise une valeur pouvant être interprétée comme une formule
     par un tableur (protection contre l'injection CSV)."""
@@ -81,7 +99,8 @@ def validate_row(mapped_row):
 def parse_preview(file_bytes, max_sample_rows=5):
     """Lit l'en-tête et un échantillon de lignes pour construire l'interface de mapping."""
     text = file_bytes.decode("utf-8-sig", errors="replace")
-    reader = csv.reader(io.StringIO(text))
+    delimiter = _sniff_delimiter(text)
+    reader = csv.reader(io.StringIO(text), delimiter=delimiter)
     rows = list(reader)
     if not rows:
         raise ValueError("Fichier CSV vide")
@@ -232,7 +251,8 @@ def _process_job(job_id, mapping):
         conn.commit()
 
         text = bytes(raw_content).decode("utf-8-sig", errors="replace")
-        reader = csv.reader(io.StringIO(text))
+        delimiter = _sniff_delimiter(text)
+        reader = csv.reader(io.StringIO(text), delimiter=delimiter)
         rows = list(reader)
         header = [h.strip() for h in rows[0]]
         data_rows = rows[1:]
