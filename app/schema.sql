@@ -125,6 +125,14 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TR
 -- Forcé à TRUE quand un superadmin réinitialise le mot de passe de cet utilisateur :
 -- il doit en choisir un nouveau avant de pouvoir faire quoi que ce soit d'autre.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
+-- Traçabilité du consentement donné à l'inscription (CGV + traitement des
+-- données RGPD, cases séparées — voir app/signup.html et app/auth.py). NULL
+-- pour les comptes créés avant l'ajout de ces cases (aucune valeur inventée
+-- a posteriori). consent_ip capture une seule adresse, les deux cases étant
+-- cochées dans le même envoi de formulaire.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS cgv_accepted_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS rgpd_accepted_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS consent_ip TEXT;
 -- Code PIN de récupération (auto-service, sans e-mail) — haché comme un mot
 -- de passe, jamais stocké en clair. NULL tant que l'utilisateur ne l'a pas
 -- défini lui-même (depuis Mon compte, avec son mot de passe actuel).

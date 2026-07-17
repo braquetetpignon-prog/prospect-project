@@ -38,9 +38,12 @@ def hash_password(password):
     return generate_password_hash(password)
 
 
-def create_workspace_with_admin(workspace_name, admin_email, admin_password):
+def create_workspace_with_admin(workspace_name, admin_email, admin_password, consent_ip=None):
     """Inscription d'un nouvel artisan : crée l'espace de travail et son premier
-    utilisateur, administrateur de celui-ci."""
+    utilisateur, administrateur de celui-ci. L'acceptation des CGV et du
+    traitement RGPD est vérifiée en amont (voir app/main.py::auth_signup) —
+    cette fonction se contente d'horodater les deux consentements, toujours
+    ensemble puisqu'ils sont cochés dans le même envoi de formulaire."""
     if len(admin_password) < 8:
         raise AuthError("Le mot de passe doit contenir au moins 8 caractères.")
 
@@ -54,11 +57,12 @@ def create_workspace_with_admin(workspace_name, admin_email, admin_password):
             workspace_id = cur.fetchone()[0]
             cur.execute(
                 """
-                INSERT INTO users (workspace_id, email, password_hash, role)
-                VALUES (%s, %s, %s, 'admin')
+                INSERT INTO users (workspace_id, email, password_hash, role,
+                                    cgv_accepted_at, rgpd_accepted_at, consent_ip)
+                VALUES (%s, %s, %s, 'admin', now(), now(), %s)
                 RETURNING id
                 """,
-                (workspace_id, admin_email.lower().strip(), hash_password(admin_password)),
+                (workspace_id, admin_email.lower().strip(), hash_password(admin_password), consent_ip),
             )
             user_id = cur.fetchone()[0]
         prospect_types.seed_default_types(workspace_id, conn=conn)

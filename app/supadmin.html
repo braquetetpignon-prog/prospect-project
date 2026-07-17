@@ -105,7 +105,11 @@
 
 <div class="topbar">
   <h1>Superadmin — ClickProspect</h1>
-  <button class="btn btn-ghost" id="logout-btn" type="button">Déconnexion</button>
+  <div style="display:flex; align-items:center; gap:12px;">
+    <span class="badge" id="maintenance-badge" style="display:none;"></span>
+    <button class="btn btn-ghost" id="maintenance-toggle-btn" type="button">Mode maintenance</button>
+    <button class="btn btn-ghost" id="logout-btn" type="button">Déconnexion</button>
+  </div>
 </div>
 
 <nav class="quick-nav">
@@ -980,6 +984,49 @@ document.getElementById('logout-btn').addEventListener('click', async () => {
   await fetch('/api/supadmin/logout', { method: 'POST' });
   window.location.href = '/supadmin/login';
 });
+
+// --- Mode maintenance ---
+
+const maintenanceBtn = document.getElementById('maintenance-toggle-btn');
+const maintenanceBadge = document.getElementById('maintenance-badge');
+
+function renderMaintenanceState(enabled) {
+  if (enabled) {
+    maintenanceBadge.textContent = 'Maintenance active';
+    maintenanceBadge.className = 'badge badge-flagged';
+    maintenanceBadge.style.display = 'inline-block';
+    maintenanceBtn.textContent = 'Désactiver la maintenance';
+  } else {
+    maintenanceBadge.style.display = 'none';
+    maintenanceBtn.textContent = 'Activer le mode maintenance';
+  }
+}
+
+async function loadMaintenanceState() {
+  const res = await fetch('/api/supadmin/maintenance');
+  const data = await res.json();
+  renderMaintenanceState(data.enabled);
+}
+
+maintenanceBtn.addEventListener('click', async () => {
+  const currentlyEnabled = maintenanceBadge.style.display !== 'none';
+  const next = !currentlyEnabled;
+  if (next && !confirm("Activer le mode maintenance ? Le site public sera inaccessible pour tous les visiteurs jusqu'à ce que tu le désactives.")) return;
+  maintenanceBtn.disabled = true;
+  try {
+    const res = await fetch('/api/supadmin/maintenance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: next }),
+    });
+    const data = await res.json();
+    renderMaintenanceState(data.enabled);
+  } finally {
+    maintenanceBtn.disabled = false;
+  }
+});
+
+loadMaintenanceState();
 
 // --- Journal d'audit ---
 
