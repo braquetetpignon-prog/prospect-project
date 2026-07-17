@@ -27,8 +27,25 @@ from datetime import datetime, timedelta, timezone
 import requests
 
 from app.db import get_db
+from app import system_mail
 
 MOLLIE_API_BASE = "https://api.mollie.com/v2"
+
+PAYMENT_FAILED_SUBJECT = "Un problème est survenu avec votre paiement ClickProspect"
+PAYMENT_FAILED_BODY_TEMPLATE = """Bonjour,
+
+Le dernier prélèvement pour votre espace de travail « {workspace_name} » n'a
+pas abouti (paiement {status}).
+
+Votre accès reste actif pour le moment, mais nous vous invitons à vérifier
+vos informations de paiement dès que possible pour éviter toute interruption
+de service :
+{app_base_url}/parametres
+
+Si le problème persiste, n'hésitez pas à répondre à cet e-mail.
+
+— L'équipe ClickProspect
+"""
 
 PLAN_AMOUNTS = {
     "monthly": {"value": "12.00", "currency": "EUR", "label": "ClickProspect Premium — mensuel"},
@@ -197,6 +214,37 @@ def _period_end(interval, start=None):
     return start + timedelta(days=31)  # légèrement généreux, le prochain paiement Mollie corrige de toute façon
 
 
+def _notify_payment_failed(workspace_id, status):
+    """Prévient le(s) administrateur(s) de l'espace par e-mail système. Ne
+    lève jamais d'exception : un souci d'envoi ne doit jamais faire échouer
+    le traitement du webhook (même principe que lifecycle.py)."""
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT name FROM workspaces WHERE id = %s", (workspace_id,))
+            row = cur.fetchone()
+            workspace_name = row[0] if row else "votre espace"
+
+            cur.execute(
+                "SELECT email FROM users WHERE workspace_id = %s AND role = 'admin' AND is_active",
+                (workspace_id,),
+            )
+            admin_emails = [r[0] for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+    body = PAYMENT_FAILED_BODY_TEMPLATE.format(
+        workspace_name=workspace_name,
+        status=status,
+        app_base_url=_app_base_url(),
+    )
+    for email in admin_emails:
+        try:
+            system_mail.send_system_email(email, PAYMENT_FAILED_SUBJECT, body)
+        except system_mail.SystemMailError:
+            pass  # ne bloque jamais le traitement du webhook pour un souci d'envoi ponctuel
+
+
 def handle_webhook_payment(payment_id):
     """Appelé depuis la route /webhook/mollie. Ne fait jamais confiance au
     contenu de la requête entrante : recharge systématiquement le paiement
@@ -229,6 +277,11 @@ def handle_webhook_payment(payment_id):
 
     if status != "paid":
         _log_event(workspace_id, payment_id, f"payment_{status}")
+        if status in ("failed", "expired"):
+            # "expired" couvre le cas d'un prélèvement automatique resté sans
+            # réponse (ex: 3D Secure non validé) — même situation concrète
+            # pour l'utilisateur qu'un échec direct, donc même notification.
+            _notify_payment_failed(workspace_id, status)
         return
 
     if sequence_type == "first":
