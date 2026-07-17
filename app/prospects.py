@@ -19,7 +19,7 @@ STATUTS = ("nouveau", "qualifie", "client", "recale")
 
 EDITABLE_FIELDS = [
     "nom_entreprise", "contact_prenom", "contact_nom", "siren", "siret", "naf_code",
-    "adresse", "code_postal", "ville", "telephone", "email", "site_web",
+    "adresse", "batiment", "etage", "code_postal", "ville", "telephone", "email", "site_web",
     "prospect_type_id", "prochaine_action", "prochaine_action_date", "notes",
 ]
 
@@ -68,7 +68,7 @@ def get_prospect(prospect_id, workspace_id):
             cur.execute(
                 """
                 SELECT id, nom_entreprise, contact_prenom, contact_nom, siren, siret,
-                       naf_code, adresse, code_postal, ville, telephone, email, site_web,
+                       naf_code, adresse, batiment, etage, code_postal, ville, telephone, email, site_web,
                        statut, source, motif_recalage, prospect_type_id, prochaine_action,
                        prochaine_action_date, notes, created_at
                 FROM prospects WHERE id = %s AND workspace_id = %s
@@ -79,7 +79,7 @@ def get_prospect(prospect_id, workspace_id):
         if not row:
             return None
         cols = ["id", "nom_entreprise", "contact_prenom", "contact_nom", "siren", "siret",
-                "naf_code", "adresse", "code_postal", "ville", "telephone", "email", "site_web",
+                "naf_code", "adresse", "batiment", "etage", "code_postal", "ville", "telephone", "email", "site_web",
                 "statut", "source", "motif_recalage", "prospect_type_id", "prochaine_action",
                 "prochaine_action_date", "notes", "created_at"]
         return dict(zip(cols, row))

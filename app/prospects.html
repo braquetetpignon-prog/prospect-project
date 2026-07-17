@@ -90,6 +90,14 @@
         <div class="field"><label for="p-ville">Ville</label><input id="p-ville"></div>
       </div>
       <div class="field-row">
+        <div class="field"><label for="p-adresse">Adresse</label><input id="p-adresse" placeholder="N° et nom de rue"></div>
+        <div class="field"><label for="p-cp">Code postal</label><input id="p-cp"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label for="p-batiment">Bâtiment</label><input id="p-batiment"></div>
+        <div class="field"><label for="p-etage">Étage</label><input id="p-etage"></div>
+      </div>
+      <div class="field-row">
         <div class="field"><label for="p-tel">Téléphone</label><input id="p-tel"></div>
         <div class="field"><label for="p-email">E-mail</label><input id="p-email" type="email"></div>
       </div>
@@ -368,6 +376,10 @@ async function openModal(prospectId) {
     document.getElementById('p-statut').value = p.statut;
     document.getElementById('p-type').value = p.prospect_type_id || '';
     document.getElementById('p-ville').value = p.ville || '';
+    document.getElementById('p-adresse').value = p.adresse || '';
+    document.getElementById('p-cp').value = p.code_postal || '';
+    document.getElementById('p-batiment').value = p.batiment || '';
+    document.getElementById('p-etage').value = p.etage || '';
     document.getElementById('p-tel').value = p.telephone || '';
     document.getElementById('p-email').value = p.email || '';
     document.getElementById('p-source').value = sourceLabel(p.source);
@@ -432,6 +444,10 @@ async function saveProspect(e) {
     contact_nom: contactParts.slice(1).join(' '),
     prospect_type_id: document.getElementById('p-type').value || null,
     ville: document.getElementById('p-ville').value.trim(),
+    adresse: document.getElementById('p-adresse').value.trim(),
+    code_postal: document.getElementById('p-cp').value.trim(),
+    batiment: document.getElementById('p-batiment').value.trim(),
+    etage: document.getElementById('p-etage').value.trim(),
     telephone: document.getElementById('p-tel').value.trim(),
     email: document.getElementById('p-email').value.trim(),
     prochaine_action: document.getElementById('p-action').value.trim(),
