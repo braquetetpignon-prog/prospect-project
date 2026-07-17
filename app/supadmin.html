@@ -79,6 +79,13 @@
   .stat-card .label { font-size: 12.5px; color: var(--text-soft); margin-top: 2px; }
   .stat-card.is-clickable { cursor: pointer; transition: background .15s ease, transform .15s ease; }
   .stat-card.is-clickable:hover { background: var(--sauge-light, #E7EDE3); transform: translateY(-1px); }
+  .detail-row td { background: var(--cream); padding: 18px 22px; }
+  .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+  .detail-grid h4 { font-size: 13px; text-transform: uppercase; letter-spacing: .03em; color: var(--text-soft); margin: 0 0 10px; }
+  .detail-mini-table { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--white); border-radius: 10px; overflow: hidden; }
+  .detail-mini-table th, .detail-mini-table td { text-align: left; padding: 7px 10px; border-top: 1px solid var(--border, #eee); }
+  .detail-mini-table th { color: var(--text-soft); font-weight: 600; font-size: 11.5px; background: var(--cream-warm, #F1E9DC); }
+  @media (max-width: 760px) { .detail-grid { grid-template-columns: 1fr; } }
   .kpi-donut-wrap { display: flex; align-items: center; gap: 28px; flex-wrap: wrap; margin: 16px 0; }
   .kpi-donut-wrap svg { width: 160px; height: 160px; flex-shrink: 0; }
   .kpi-legend { list-style: none; margin: 0; padding: 0; font-size: 13.5px; }
@@ -624,6 +631,7 @@ function renderTable(list) {
             <td class="muted">${w.ia_search_quota_override != null ? `${w.ia_search_quota_override}/jour` : 'défaut (3/jour)'}</td>
             <td>
               <div class="row-actions">
+                <button class="btn btn-ghost" data-action="detail" data-id="${w.id}">Détails</button>
                 <button class="btn btn-ghost" data-action="plan" data-id="${w.id}">Abonnement</button>
                 <button class="btn btn-ghost" data-action="ia-quota" data-id="${w.id}">Quota IA</button>
                 <button class="btn btn-ghost" data-action="reset" data-id="${w.id}">Réinit. mot de passe</button>
@@ -633,11 +641,17 @@ function renderTable(list) {
               </div>
             </td>
           </tr>
+          <tr class="detail-row" id="detail-row-${w.id}" style="display:none;">
+            <td colspan="9"><div class="detail-body" id="detail-body-${w.id}"></div></td>
+          </tr>
         `).join('')}
       </tbody>
     </table>
   `;
 
+  document.querySelectorAll('[data-action="detail"]').forEach(btn => {
+    btn.addEventListener('click', () => toggleWorkspaceDetail(parseInt(btn.dataset.id, 10), btn));
+  });
   document.querySelectorAll('[data-action="plan"]').forEach(btn => {
     btn.addEventListener('click', () => openPlanModal(parseInt(btn.dataset.id, 10)));
   });
@@ -656,6 +670,92 @@ function renderTable(list) {
   document.querySelectorAll('[data-action="delete"]').forEach(btn => {
     btn.addEventListener('click', () => openDeleteModal(parseInt(btn.dataset.id, 10)));
   });
+}
+
+const workspaceDetailCache = {};
+
+async function toggleWorkspaceDetail(workspaceId, btn) {
+  const row = document.getElementById(`detail-row-${workspaceId}`);
+  const body = document.getElementById(`detail-body-${workspaceId}`);
+  const isOpen = row.style.display !== 'none';
+
+  if (isOpen) {
+    row.style.display = 'none';
+    btn.textContent = 'Détails';
+    return;
+  }
+
+  row.style.display = '';
+  btn.textContent = 'Masquer';
+
+  if (workspaceDetailCache[workspaceId]) {
+    body.innerHTML = workspaceDetailCache[workspaceId];
+    return;
+  }
+
+  body.innerHTML = `<p class="muted">Chargement…</p>`;
+  try {
+    const detail = await fetchJSON(`/api/supadmin/workspaces/${workspaceId}/detail`);
+    const html = renderWorkspaceDetailHtml(detail);
+    workspaceDetailCache[workspaceId] = html;
+    body.innerHTML = html;
+  } catch (err) {
+    body.innerHTML = `<p class="muted">${escapeHtml(err.message)}</p>`;
+  }
+}
+
+const roleLabelsSupadmin = { admin: 'Administrateur', commercial: 'Commercial', lecture_seule: 'Lecture seule' };
+
+function renderWorkspaceDetailHtml(detail) {
+  const membersHtml = detail.members.length ? `
+    <table class="detail-mini-table">
+      <thead><tr><th>Utilisateur</th><th>Rôle</th><th>Actif</th><th>Depuis</th></tr></thead>
+      <tbody>
+        ${detail.members.map(m => `
+          <tr>
+            <td>${escapeHtml(m.email)}</td>
+            <td class="muted">${roleLabelsSupadmin[m.role] || m.role}</td>
+            <td class="muted">${m.is_active ? 'Oui' : 'Non'}</td>
+            <td class="muted">${formatDate(m.created_at)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  ` : `<p class="muted">Aucun utilisateur.</p>`;
+
+  const billingHtml = detail.billing_events.length ? `
+    <table class="detail-mini-table">
+      <thead><tr><th>Événement</th><th>Détail</th><th>Quand</th></tr></thead>
+      <tbody>
+        ${detail.billing_events.map(e => `
+          <tr>
+            <td class="muted">${escapeHtml(e.event_type)}</td>
+            <td class="muted">${escapeHtml(e.details || '—')}</td>
+            <td class="muted">${formatDateTime(e.created_at)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  ` : `<p class="muted">Aucun événement de facturation pour cet espace.</p>`;
+
+  return `
+    <div class="detail-grid">
+      <div>
+        <h4>Utilisateurs</h4>
+        ${membersHtml}
+      </div>
+      <div>
+        <h4>Usage de l'application</h4>
+        <div class="stats-grid">
+          <div class="stat-card"><div class="value">${detail.prospect_count}</div><div class="label">Prospects</div></div>
+          <div class="stat-card"><div class="value">${detail.client_count}</div><div class="label">Clients</div></div>
+          <div class="stat-card"><div class="value">${detail.active_campaign_count}</div><div class="label">Campagnes actives</div></div>
+        </div>
+        <h4 style="margin-top:18px;">Historique de facturation (Mollie)</h4>
+        ${billingHtml}
+      </div>
+    </div>
+  `;
 }
 
 async function setIaQuota(workspaceId) {

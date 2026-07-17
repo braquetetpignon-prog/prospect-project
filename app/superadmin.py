@@ -478,6 +478,57 @@ def login_as(workspace_id):
 
 # --- Suggestions remontées par les utilisateurs via l'assistant ------------
 
+def get_workspace_detail(workspace_id):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT email, role, is_active, created_at FROM users WHERE workspace_id = %s ORDER BY created_at",
+                (workspace_id,),
+            )
+            members = [
+                {"email": r[0], "role": r[1], "is_active": r[2], "created_at": r[3]}
+                for r in cur.fetchall()
+            ]
+
+            cur.execute("SELECT count(*) FROM prospects WHERE workspace_id = %s", (workspace_id,))
+            prospect_count = cur.fetchone()[0]
+
+            cur.execute(
+                "SELECT count(*) FROM prospects WHERE workspace_id = %s AND statut = 'client'",
+                (workspace_id,),
+            )
+            client_count = cur.fetchone()[0]
+
+            cur.execute(
+                "SELECT count(*) FROM campaigns WHERE workspace_id = %s AND statut = 'active'",
+                (workspace_id,),
+            )
+            active_campaign_count = cur.fetchone()[0]
+
+            cur.execute(
+                """
+                SELECT event_type, details, created_at FROM mollie_events
+                WHERE workspace_id = %s ORDER BY created_at DESC LIMIT 10
+                """,
+                (workspace_id,),
+            )
+            billing_events = [
+                {"event_type": r[0], "details": r[1], "created_at": r[2]}
+                for r in cur.fetchall()
+            ]
+    finally:
+        conn.close()
+
+    return {
+        "members": members,
+        "prospect_count": prospect_count,
+        "client_count": client_count,
+        "active_campaign_count": active_campaign_count,
+        "billing_events": billing_events,
+    }
+
+
 def list_feedback(limit=200):
     conn = get_db()
     try:

@@ -1694,6 +1694,12 @@ def supadmin_workspaces():
     return jsonify(workspaces=superadmin.list_workspaces())
 
 
+@app.route("/api/supadmin/workspaces/<int:workspace_id>/detail")
+@superadmin.login_required
+def supadmin_workspace_detail(workspace_id):
+    return jsonify(**superadmin.get_workspace_detail(workspace_id))
+
+
 @app.route("/api/supadmin/workspaces/<int:workspace_id>/plan", methods=["PUT"])
 @superadmin.login_required
 def supadmin_set_plan(workspace_id):
