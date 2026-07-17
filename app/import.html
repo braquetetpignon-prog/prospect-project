@@ -75,8 +75,9 @@ let activeTab = 'fichier';
 
 const FIELD_LABELS = {
   nom_entreprise: "Nom de l'entreprise", contact_prenom: 'Prénom du contact', contact_nom: 'Nom du contact',
-  siren: 'SIREN', siret: 'SIRET', naf_code: 'Code NAF', adresse: 'Adresse', code_postal: 'Code postal',
-  ville: 'Ville', telephone: 'Téléphone', email: 'E-mail', site_web: 'Site web', description: 'Description',
+  siren: 'SIREN', siret: 'SIRET', naf_code: 'Code NAF', adresse: 'Adresse', batiment: 'Bâtiment', etage: 'Étage',
+  code_postal: 'Code postal', ville: 'Ville', telephone: 'Téléphone', email: 'E-mail', site_web: 'Site web',
+  notes: 'Notes',
 };
 const REVIEW_FIELDS = ['adresse', 'ville', 'telephone', 'email', 'site_web'];
 const SUGGESTED_PROMPT = `Tu es mon assistant de prospection commerciale. Utilise la recherche web (annuaires professionnels, PagesJaunes, Google Maps, Societe.com, Infogreffe, Pappers.fr et le bulletin officiel (BODACC) pour trouver jusqu'à 15 entreprises réelles situées à [VILLE OU ZONE, ex : Surgères et communes alentours]. tu ne sélectionnes que les entreprises actives.
@@ -98,9 +99,11 @@ const AUTO_MATCH = {
   nom_entreprise: ['nom', 'entreprise', 'societe', 'société', 'company'],
   contact_prenom: ['prenom', 'prénom', 'firstname'], contact_nom: ['nomcontact', 'lastname'],
   siren: ['siren'], siret: ['siret'], naf_code: ['naf', 'ape'],
-  adresse: ['adresse', 'address'], code_postal: ['codepostal', 'cp', 'zip'],
+  adresse: ['adresse', 'address'], batiment: ['batiment', 'bâtiment'], etage: ['etage', 'étage'],
+  code_postal: ['codepostal', 'cp', 'zip'],
   ville: ['ville', 'city'], telephone: ['telephone', 'tel', 'phone'],
   email: ['email', 'mail'], site_web: ['site', 'web', 'url'],
+  notes: ['notes', 'note', 'commentaire', 'remarque'],
 };
 function normalize(s) { return (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, ''); }
 function guessField(columnName) {

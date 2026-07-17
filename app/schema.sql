@@ -45,6 +45,11 @@ ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS logo_mimetype TEXT;
 -- Date du dernier résumé hebdomadaire envoyé à l'admin — évite de renvoyer
 -- deux fois dans la même semaine si la tâche de fond passe plusieurs fois.
 ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS weekly_summary_last_sent_at TIMESTAMPTZ;
+-- Horodatage du rappel "J-2 avant fin d'essai" envoyé à l'admin (voir
+-- app/lifecycle.py::send_trial_ending_reminders) — NULL tant qu'il n'a pas
+-- encore été envoyé, évite tout doublon même si la tâche de fond repasse
+-- plusieurs fois pendant la fenêtre des 2 derniers jours d'essai.
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS trial_ending_reminder_sent_at TIMESTAMPTZ;
 
 -- Facturation Mollie (paiement CB / abonnement récurrent). Ces colonnes ne
 -- pilotent jamais l'accès directement — c'est toujours `plan` / `paid_until`
@@ -196,6 +201,11 @@ CREATE INDEX IF NOT EXISTS idx_prospects_siren ON prospects(siren);
 -- production, un CREATE TABLE IF NOT EXISTS ne la modifierait pas.
 ALTER TABLE prospects ADD COLUMN IF NOT EXISTS contact_prenom TEXT;
 ALTER TABLE prospects ADD COLUMN IF NOT EXISTS contact_nom TEXT;
+-- Complément d'adresse (bâtiment, étage), en plus de `adresse` (rue) et
+-- `code_postal` déjà existants — ces deux derniers étaient déjà en base
+-- mais absents du formulaire manuel d'ajout/édition, corrigé au même moment.
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS batiment TEXT;
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS etage TEXT;
 
 -- Types de statut personnalisables (forme juridique / catégorie), pour classer
 -- les prospects et cibler des campagnes par type.

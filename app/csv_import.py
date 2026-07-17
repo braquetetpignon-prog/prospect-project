@@ -29,12 +29,24 @@ PROSPECT_FIELDS = {
     "siret": {"required": False, "pattern": re.compile(r"^\d{14}$")},
     "naf_code": {"required": False, "max_length": 10},
     "adresse": {"required": False, "max_length": 500},
+    "batiment": {"required": False, "max_length": 100},
+    "etage": {"required": False, "max_length": 50},
     "code_postal": {"required": False, "pattern": re.compile(r"^\d{5}$")},
     "ville": {"required": False, "max_length": 255},
     "telephone": {"required": False, "max_length": 30},
     "email": {"required": False, "pattern": re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")},
     "site_web": {"required": False, "max_length": 500},
+    # Pas de max_length : notes peut légitimement combiner plusieurs colonnes
+    # sources lors d'un import CSV (voir _process_job / NOTES_FIELD).
+    "notes": {"required": False},
 }
+
+# Champ recevant, en cas d'import CSV, la combinaison de toutes les colonnes
+# sources qui lui sont mappées (contrairement aux autres champs, où seule la
+# dernière colonne mappée l'emporte — concaténer plusieurs numéros de
+# téléphone ou e-mails dans le même champ n'aurait pas de sens, alors que
+# regrouper plusieurs informations complémentaires dans les notes en a un).
+NOTES_FIELD = "notes"
 
 # Caractères déclenchant une formule dans Excel/Sheets à l'ouverture d'un export.
 CSV_INJECTION_LEAD_CHARS = ("=", "+", "-", "@")
@@ -241,6 +253,41 @@ def _find_duplicate(conn, workspace_id, mapped):
     return None
 
 
+def _build_mapped_row(header, raw_row, field_to_indexes):
+    """Construit le dict {champ_prospect: valeur} pour une ligne.
+
+    Pour la plupart des champs, si plusieurs colonnes du fichier ont été
+    mappées par erreur (ou par choix) sur la même cible, seule la dernière
+    valeur non vide est conservée — concaténer par exemple deux numéros de
+    téléphone n'aurait pas de sens.
+
+    Exception : le champ `notes`, où combiner plusieurs colonnes sources a
+    du sens (ex: Secteur, Action, Accroche personnalisée réunis en un seul
+    endroit). Chaque valeur non vide est alors préfixée du nom de sa colonne
+    d'origine et les lignes sont jointes par un saut de ligne, dans l'ordre
+    des colonnes du fichier."""
+    mapped = {}
+    for field, indexes in field_to_indexes.items():
+        if field == NOTES_FIELD:
+            parts = []
+            for idx in indexes:
+                if idx >= len(raw_row):
+                    continue
+                value = sanitize_cell(raw_row[idx])
+                if value:
+                    parts.append(f"{header[idx]}: {value}")
+            if parts:
+                mapped[field] = "\n".join(parts)
+        else:
+            for idx in indexes:
+                if idx >= len(raw_row):
+                    continue
+                value = sanitize_cell(raw_row[idx])
+                if value:
+                    mapped[field] = value  # la dernière colonne non vide l'emporte
+    return mapped
+
+
 def _process_job(job_id, mapping):
     conn = get_db()
     try:
@@ -257,19 +304,19 @@ def _process_job(job_id, mapping):
         header = [h.strip() for h in rows[0]]
         data_rows = rows[1:]
 
-        # index des colonnes source -> champ cible
-        col_index_to_field = {}
+        # index des colonnes source -> champ cible, regroupées par champ pour
+        # gérer le cas où plusieurs colonnes visent la même cible (ordre des
+        # colonnes du fichier préservé, utile pour le champ notes ci-dessous).
+        field_to_indexes = {}
         for idx, col_name in enumerate(header):
-            if col_name in mapping:
-                col_index_to_field[idx] = mapping[col_name]
+            target_field = mapping.get(col_name)
+            if target_field:
+                field_to_indexes.setdefault(target_field, []).append(idx)
 
         processed = imported = errors = duplicates = 0
 
         for row_number, raw_row in enumerate(data_rows, start=1):
-            mapped = {}
-            for idx, field in col_index_to_field.items():
-                if idx < len(raw_row):
-                    mapped[field] = sanitize_cell(raw_row[idx])
+            mapped = _build_mapped_row(header, raw_row, field_to_indexes)
 
             is_blocking, messages = validate_row(mapped)
 
