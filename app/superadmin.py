@@ -484,7 +484,7 @@ def list_feedback(limit=200):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT workspace_name, user_email, message, created_at
+                SELECT id, workspace_name, user_email, message, created_at, replied_at
                 FROM admin_feedback
                 ORDER BY created_at DESC
                 LIMIT %s
@@ -496,6 +496,39 @@ def list_feedback(limit=200):
         conn.close()
 
     return [
-        {"workspace_name": r[0], "user_email": r[1], "message": r[2], "created_at": r[3]}
+        {"id": r[0], "workspace_name": r[1], "user_email": r[2], "message": r[3],
+         "created_at": r[4], "replied_at": r[5]}
         for r in rows
     ]
+
+
+def get_feedback(feedback_id):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, workspace_name, user_email, message FROM admin_feedback WHERE id = %s",
+                (feedback_id,),
+            )
+            row = cur.fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return None
+    return {"id": row[0], "workspace_name": row[1], "user_email": row[2], "message": row[3]}
+
+
+def mark_feedback_replied(feedback_id):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE admin_feedback SET replied_at = now() WHERE id = %s RETURNING id",
+                (feedback_id,),
+            )
+            updated = cur.fetchone()
+        conn.commit()
+    finally:
+        conn.close()
+    if not updated:
+        raise SuperadminError("Suggestion introuvable.")

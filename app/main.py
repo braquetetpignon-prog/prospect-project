@@ -1834,6 +1834,42 @@ def supadmin_kb_article_detail(article_id):
     return jsonify(status="ok")
 
 
+@app.route("/api/supadmin/feedback/<int:feedback_id>/reply", methods=["POST"])
+@superadmin.login_required
+def supadmin_feedback_reply(feedback_id):
+    body = request.get_json(silent=True) or {}
+    subject = (body.get("subject") or "").strip()
+    message_body = (body.get("body") or "").strip()
+    if not subject or not message_body:
+        return jsonify(error="Objet et message requis."), 400
+
+    feedback = superadmin.get_feedback(feedback_id)
+    if not feedback:
+        return jsonify(error="Suggestion introuvable."), 404
+    if not feedback["user_email"]:
+        return jsonify(error="Cette suggestion n'a pas d'adresse e-mail associée."), 400
+
+    if not system_mail.is_configured():
+        return jsonify(error=(
+            "SYSTEM_SMTP_* n'est pas configuré (ou incomplet) sur le serveur. "
+            "Vérifie les 5 variables sur Coolify puis redéploie."
+        )), 400
+
+    try:
+        system_mail.send_system_email(feedback["user_email"], subject, message_body)
+    except system_mail.SystemMailError as exc:
+        return jsonify(error=str(exc)), 400
+    except Exception as exc:
+        return jsonify(error=f"Erreur inattendue : {exc}"), 400
+
+    superadmin.mark_feedback_replied(feedback_id)
+    superadmin._log_action(
+        "feedback_reply",
+        details=f"Réponse envoyée à {feedback['user_email']} (suggestion #{feedback_id}).",
+    )
+    return jsonify(status="ok")
+
+
 @app.route("/api/supadmin/feedback")
 @superadmin.login_required
 def supadmin_feedback():

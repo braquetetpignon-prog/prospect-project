@@ -275,6 +275,9 @@ CREATE TABLE IF NOT EXISTS admin_feedback (
     message TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Renseigné quand le superadmin envoie une réponse/remerciement depuis la
+-- console (voir app/main.py: supadmin_feedback_reply). NULL = pas encore répondu.
+ALTER TABLE admin_feedback ADD COLUMN IF NOT EXISTS replied_at TIMESTAMPTZ;
 
 -- Paramètres techniques globaux modifiables sans redéploiement (ex: modèle Gemini
 -- en cas de retrait par Google). Portée globale, pas par espace de travail —

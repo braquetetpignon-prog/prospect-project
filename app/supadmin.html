@@ -284,7 +284,28 @@
   </div>
 </div>
 
-<!-- Modal : détail d'un indicateur (camembert + tableau) -->
+<!-- Modal : répondre/remercier une suggestion -->
+<div class="modal-overlay" id="feedback-reply-modal-overlay">
+  <div class="modal" style="max-width:560px;">
+    <h3>Répondre</h3>
+    <p class="muted">À : <strong id="feedback-reply-to"></strong></p>
+    <p class="muted" style="font-style:italic; background:var(--cream); padding:10px 12px; border-radius:8px;" id="feedback-reply-original"></p>
+
+    <label for="feedback-reply-subject">Objet</label>
+    <input id="feedback-reply-subject" type="text">
+
+    <label for="feedback-reply-body">Message</label>
+    <textarea id="feedback-reply-body" rows="8" style="width:100%; box-sizing:border-box; font-family:inherit; font-size:13.5px; padding:9px 11px; border:1px solid var(--border, #ddd); border-radius:8px; margin-top:6px;"></textarea>
+
+    <p class="muted" style="margin-top:8px;">Envoyé depuis l'adresse système ClickProspect (SYSTEM_SMTP_FROM_EMAIL) — jamais depuis ta propre boîte.</p>
+
+    <div id="feedback-reply-error" class="muted" style="color:#A2502E; display:none; margin-top:6px;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="feedback-reply-cancel-btn" type="button">Annuler</button>
+      <button class="btn btn-primary" id="feedback-reply-send-btn" type="button">Envoyer</button>
+    </div>
+  </div>
+</div>
 <div class="modal-overlay" id="kpi-modal-overlay">
   <div class="modal" style="max-width:640px;">
     <h3 id="kpi-modal-title">Détail</h3>
@@ -298,6 +319,7 @@
 <script>
 let workspaces = [];
 let currentPlanWorkspaceId = null;
+let currentFeedbackReplyId = null;
 let currentDeleteWorkspaceId = null;
 
 async function fetchJSON(url, options) {
@@ -971,7 +993,7 @@ function renderFeedback(entries) {
   document.getElementById('feedback-container').innerHTML = `
     <div class="table-scroll">
       <table>
-        <thead><tr><th>Quand</th><th>Espace</th><th>Utilisateur</th><th>Message</th></tr></thead>
+        <thead><tr><th>Quand</th><th>Espace</th><th>Utilisateur</th><th>Message</th><th></th></tr></thead>
         <tbody>
           ${entries.map(e => `
             <tr>
@@ -979,13 +1001,67 @@ function renderFeedback(entries) {
               <td>${escapeHtml(e.workspace_name || '—')}</td>
               <td>${escapeHtml(e.user_email || '—')}</td>
               <td>${escapeHtml(e.message)}</td>
+              <td style="white-space:nowrap;">
+                ${e.replied_at
+                  ? `<span class="muted">Répondu le ${formatDate(e.replied_at)}</span>`
+                  : `<button class="btn btn-ghost" type="button" data-reply-id="${e.id}" ${e.user_email ? '' : 'disabled title="Pas d\'adresse e-mail"'}>Répondre</button>`}
+              </td>
             </tr>
           `).join('')}
         </tbody>
       </table>
     </div>
   `;
+  feedbackEntries = entries;
+  document.querySelectorAll('[data-reply-id]').forEach(btn => {
+    btn.addEventListener('click', () => openFeedbackReplyModal(parseInt(btn.dataset.replyId, 10)));
+  });
 }
+
+let feedbackEntries = [];
+
+function openFeedbackReplyModal(feedbackId) {
+  const entry = feedbackEntries.find(e => e.id === feedbackId);
+  if (!entry) return;
+  currentFeedbackReplyId = feedbackId;
+  document.getElementById('feedback-reply-to').textContent = entry.user_email;
+  document.getElementById('feedback-reply-original').textContent = entry.message;
+  document.getElementById('feedback-reply-subject').value = 'Merci pour ton retour — ClickProspect';
+  document.getElementById('feedback-reply-body').value =
+`Bonjour,
+
+Merci d'avoir pris le temps de nous écrire — chaque suggestion nous aide à améliorer ClickProspect.
+
+On a bien noté ta remarque et on la garde en tête pour la suite.
+
+Belle journée,
+L'équipe ClickProspect`;
+  document.getElementById('feedback-reply-error').style.display = 'none';
+  document.getElementById('feedback-reply-modal-overlay').classList.add('show');
+}
+
+document.getElementById('feedback-reply-cancel-btn').addEventListener('click', () => {
+  document.getElementById('feedback-reply-modal-overlay').classList.remove('show');
+});
+
+document.getElementById('feedback-reply-send-btn').addEventListener('click', async () => {
+  const subject = document.getElementById('feedback-reply-subject').value.trim();
+  const bodyText = document.getElementById('feedback-reply-body').value.trim();
+  const errorEl = document.getElementById('feedback-reply-error');
+  errorEl.style.display = 'none';
+  try {
+    await fetchJSON(`/api/supadmin/feedback/${currentFeedbackReplyId}/reply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subject, body: bodyText }),
+    });
+    document.getElementById('feedback-reply-modal-overlay').classList.remove('show');
+    loadFeedback();
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.style.display = 'block';
+  }
+});
 
 // --- Base de connaissances ---
 
