@@ -1,13 +1,22 @@
 """
 Gestion des campagnes (Option 3, onglet Configuration) : avis, publicitaire,
-newsletter. Templates préremplis modifiables, limite de 10 campagnes actives
-par espace de travail.
+newsletter, relance. Templates préremplis modifiables, limite de 10 campagnes
+actives par espace de travail (1 seule en version gratuite, réservée au type
+"relance" — voir _plan_limits ci-dessous).
 """
 from app.db import get_db
+from app import subscriptions
 
 MAX_ACTIVE_CAMPAIGNS = 10
 
-CAMPAIGN_TYPES = ("avis", "publicitaire", "newsletter")
+# Version gratuite : une seule campagne active, exclusivement de type "relance"
+# (les autres types restent créables/visibles mais pas envoyables — cf. la
+# vérification faite dans main.py au moment de l'envoi, pas ici à la création,
+# pour ne pas bloquer un essai qui redeviendrait payant entre-temps).
+FREE_PLAN_MAX_ACTIVE = 1
+FREE_PLAN_ALLOWED_TYPES = ("relance",)
+
+CAMPAIGN_TYPES = ("avis", "publicitaire", "newsletter", "relance")
 
 DEFAULT_TEMPLATES = {
     "avis": {
@@ -39,6 +48,19 @@ DEFAULT_TEMPLATES = {
             "Bonjour {prenom},\n\n"
             "[Vos actualités du mois]\n\n"
             "À bientôt,\n"
+            "L'équipe {nom_entreprise}\n\n"
+            "{lien_desinscription}"
+        ),
+    },
+    "relance": {
+        "sujet": "On reste à votre disposition, {nom_entreprise}",
+        "contenu": (
+            "Bonjour {prenom},\n\n"
+            "Nous étions récemment en contact au sujet de {nom_entreprise} — je voulais "
+            "prendre de vos nouvelles et voir si vous aviez des questions ou si le moment "
+            "était mieux choisi pour en reparler.\n\n"
+            "N'hésitez pas à me répondre directement, je me ferai un plaisir d'échanger avec vous.\n\n"
+            "Belle journée,\n"
             "L'équipe {nom_entreprise}\n\n"
             "{lien_desinscription}"
         ),
@@ -156,14 +178,52 @@ def get_campaign_image(workspace_id, campaign_id):
         conn.close()
 
 
+def get_campaign(campaign_id):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, workspace_id, type, nom, sujet, contenu, quota_par_jour, statut FROM campaigns WHERE id = %s",
+                (campaign_id,),
+            )
+            row = cur.fetchone()
+        if not row:
+            return None
+        cols = ["id", "workspace_id", "type", "nom", "sujet", "contenu", "quota_par_jour", "statut"]
+        return dict(zip(cols, row))
+    finally:
+        conn.close()
+
+
+def _check_plan_limits(workspace_id, type_, is_activating):
+    """Lève ValueError si la création/activation demandée dépasse ce que permet
+    le plan actuel. Version gratuite : 1 seule campagne active, uniquement de
+    type "relance". Essai et payant : jusqu'à MAX_ACTIVE_CAMPAIGNS, tout type."""
+    sub = subscriptions.get_workspace_subscription(workspace_id)
+    effective = sub["plan_effective"] if sub else "free"
+
+    if effective == "free":
+        if type_ not in FREE_PLAN_ALLOWED_TYPES:
+            raise ValueError(
+                "En version gratuite, seule la campagne de type « Relance » est disponible. "
+                "Passe en Premium pour débloquer les autres types."
+            )
+        if is_activating and _count_active(workspace_id) >= FREE_PLAN_MAX_ACTIVE:
+            raise ValueError(
+                "Version gratuite limitée à 1 campagne active à la fois. "
+                "Passe en Premium pour en activer davantage."
+            )
+    elif is_activating and _count_active(workspace_id) >= MAX_ACTIVE_CAMPAIGNS:
+        raise ValueError(
+            f"Limite de {MAX_ACTIVE_CAMPAIGNS} campagnes actives atteinte pour cet espace de travail."
+        )
+
+
 def create_campaign(workspace_id, type_, nom, sujet=None, contenu=None, quota_par_jour=100):
     if type_ not in CAMPAIGN_TYPES:
         raise ValueError(f"Type de campagne invalide : {type_} (attendu : {', '.join(CAMPAIGN_TYPES)})")
 
-    if _count_active(workspace_id) >= MAX_ACTIVE_CAMPAIGNS:
-        raise ValueError(
-            f"Limite de {MAX_ACTIVE_CAMPAIGNS} campagnes actives atteinte pour cet espace de travail."
-        )
+    _check_plan_limits(workspace_id, type_, is_activating=True)
 
     template = DEFAULT_TEMPLATES[type_]
     sujet = sujet or template["sujet"]
@@ -194,10 +254,9 @@ def update_campaign(workspace_id, campaign_id, **fields):
         raise ValueError("Aucun champ valide à mettre à jour.")
 
     if updates.get("statut") == "active":
-        if _count_active(workspace_id) >= MAX_ACTIVE_CAMPAIGNS:
-            raise ValueError(
-                f"Limite de {MAX_ACTIVE_CAMPAIGNS} campagnes actives atteinte pour cet espace de travail."
-            )
+        current = get_campaign(campaign_id)
+        type_ = current["type"] if current else None
+        _check_plan_limits(workspace_id, type_, is_activating=True)
 
     set_clause = ", ".join(f"{k} = %s" for k in updates)
     values = list(updates.values()) + [workspace_id, campaign_id]

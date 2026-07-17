@@ -15,6 +15,7 @@
   .type-badge-avis { background: var(--sauge-light); color: #4F6647; }
   .type-badge-publicitaire { background: #FDECE3; color: var(--terracotta-deep); }
   .type-badge-newsletter { background: #EAF0FF; color: #3454A8; }
+  .type-badge-relance { background: #F3E8D9; color: #8A5A2B; }
   .detail-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 20px; align-items: start; }
   .send-status-envoye { background: var(--sauge-light); color: #4F6647; }
   .send-status-planifie { background: #EAF0FF; color: #3454A8; }
@@ -174,6 +175,7 @@
           <option value="avis">Demande d'avis Google</option>
           <option value="publicitaire">Publicitaire</option>
           <option value="newsletter">Newsletter</option>
+          <option value="relance">Relance</option>
         </select>
       </div>
       <div class="field"><label for="c-nom">Nom de la campagne</label><input id="c-nom" required placeholder="Ex : Avis clients été 2026"></div>
@@ -188,7 +190,7 @@
 {% endblock %}
 
 {% block extra_js %}
-const typeLabels = { avis: "Demande d'avis", publicitaire: 'Publicitaire', newsletter: 'Newsletter' };
+const typeLabels = { avis: "Demande d'avis", publicitaire: 'Publicitaire', newsletter: 'Newsletter', relance: 'Relance' };
 const sendStatusLabels = { envoye: 'Envoyé', planifie: 'Planifié', echec: 'Échec', en_cours: 'En cours', annule: 'Annulé' };
 
 function formatSendDate(s) {
@@ -207,6 +209,15 @@ function onAuthReady(me) {
   workspaceId = me.workspace_id;
   canWrite = me.role !== 'lecture_seule';
   if (!canWrite) document.getElementById('new-campaign-btn').style.display = 'none';
+
+  if (me.plan_effective === 'free') {
+    const typeSelect = document.getElementById('c-type');
+    Array.from(typeSelect.options).forEach(opt => { if (opt.value !== 'relance') opt.remove(); });
+    const hint = document.createElement('p');
+    hint.style.cssText = 'font-size:12.5px; color:var(--text-soft); margin-top:-4px;';
+    hint.textContent = 'Version gratuite : campagne de type Relance uniquement, 1 à la fois. Passe en Premium pour débloquer les autres types.';
+    typeSelect.closest('.field').after(hint);
+  }
 
   loadCampaigns();
   loadTypeCards();
@@ -517,6 +528,34 @@ async function saveCampaignEdits(e) {
 
 async function loadRecipientChecklist() {
   const container = document.getElementById('recipient-checklist');
+
+  if (currentCampaign && currentCampaign.type === 'relance') {
+    try {
+      const data = await fetchJSON(`/api/campaigns/${currentCampaign.id}/relance-eligible`);
+      const eligibleHtml = data.eligible.length ? data.eligible.map(p => `
+        <label class="prospect-check-row">
+          <input type="checkbox" value="${p.id}" class="recipient-check" checked>
+          <span>${escapeHtml(p.nom_entreprise)} <span style="color:var(--text-soft); font-size:12.5px;">(${escapeHtml(p.email)})</span></span>
+        </label>
+      `).join('') : `<div class="empty-state"><p>Aucun prospect qualifié à relancer pour le moment.</p></div>`;
+
+      const coolingHtml = data.cooling_down.length ? `
+        <p style="font-size:12px; color:var(--text-soft); margin:14px 0 6px;">Déjà relancés récemment — redeviendront proposés automatiquement après 14 jours :</p>
+        ${data.cooling_down.map(p => `
+          <label class="prospect-check-row" style="opacity:.55;">
+            <input type="checkbox" disabled>
+            <span>${escapeHtml(p.nom_entreprise)} <span style="color:var(--text-soft); font-size:12.5px;">— relançable de nouveau le ${new Date(p.eligible_again_at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span></span>
+          </label>
+        `).join('')}
+      ` : '';
+
+      container.innerHTML = eligibleHtml + coolingHtml;
+    } catch (e) {
+      container.innerHTML = `<div class="empty-state"><p>Impossible de charger les prospects éligibles.</p></div>`;
+    }
+    return;
+  }
+
   try {
     const data = await fetchJSON(`/api/prospects?workspace_id=${workspaceId}&statut=qualifie&statut=client`);
     if (!data.prospects.length) {

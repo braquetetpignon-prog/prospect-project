@@ -12,6 +12,7 @@ Envoi des campagnes (Option 3, onglet Envoi).
 """
 import html as html_module
 import smtplib
+from datetime import datetime, timedelta, timezone
 from email.mime.base import MIMEBase
 from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
@@ -26,9 +27,55 @@ from app import activity
 
 ALLOWED_SEND_STATUTS = ("qualifie", "client")
 
+# Délai minimum avant de pouvoir relancer une seconde fois le même prospect
+# qualifié — évite de le solliciter trop souvent. Valeur fixe pour l'instant,
+# pourra devenir un réglage par espace de travail si le besoin se confirme.
+RELANCE_COOLDOWN_DAYS = 14
+
 
 class SendError(Exception):
     pass
+
+
+def get_relance_eligible_prospects(workspace_id):
+    """Prospects qualifiés avec e-mail, séparés en deux groupes :
+    - eligible : jamais relancés, ou dernière relance il y a plus de
+      RELANCE_COOLDOWN_DAYS jours -> peuvent être relancés maintenant.
+    - cooling_down : relancés récemment -> pas encore proposés, avec la date
+      à partir de laquelle ils redeviennent éligibles (transparence, pas de
+      surprise pour l'utilisateur qui se demande pourquoi ils manquent)."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=RELANCE_COOLDOWN_DAYS)
+
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT p.id, p.nom_entreprise, p.email,
+                       (SELECT max(cs.envoye_at) FROM campaign_sends cs
+                        JOIN campaigns c ON c.id = cs.campaign_id
+                        WHERE cs.prospect_id = p.id AND c.type = 'relance' AND cs.statut = 'envoye'
+                       ) AS last_relance_at
+                FROM prospects p
+                WHERE p.workspace_id = %s AND p.statut = 'qualifie'
+                  AND p.email IS NOT NULL AND p.email != ''
+                ORDER BY p.nom_entreprise
+                """,
+                (workspace_id,),
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    eligible, cooling_down = [], []
+    for pid, nom, email, last_relance_at in rows:
+        entry = {"id": pid, "nom_entreprise": nom, "email": email, "last_relance_at": last_relance_at}
+        if last_relance_at and last_relance_at > cutoff:
+            entry["eligible_again_at"] = last_relance_at + timedelta(days=RELANCE_COOLDOWN_DAYS)
+            cooling_down.append(entry)
+        else:
+            eligible.append(entry)
+    return {"eligible": eligible, "cooling_down": cooling_down}
 
 
 def _get_workspace_name(workspace_id):

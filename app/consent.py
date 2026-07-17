@@ -32,7 +32,7 @@ APP_BASE_URL = os.environ.get("APP_BASE_URL", "https://preproduction.clickprospe
 # l'application a besoin pour fonctionner, indépendamment de son ancienneté.
 CONSENT_HISTORY_RETENTION_DAYS = int(os.environ.get("CONSENT_HISTORY_RETENTION_DAYS", "40"))
 
-CONSENT_TYPES = ("avis", "publicitaire", "newsletter")
+CONSENT_TYPES = ("avis", "publicitaire", "newsletter", "relance")
 OPT_IN_REQUIRED_TYPES = ("publicitaire", "newsletter")
 
 

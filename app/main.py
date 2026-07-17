@@ -1144,7 +1144,9 @@ def campaign_send(campaign_id):
     if error:
         return error
     if subscriptions.is_restricted(session["workspace_id"]):
-        return _restricted_response()
+        campaign = campaigns.get_campaign(campaign_id)
+        if not campaign or campaign["type"] != "relance":
+            return _restricted_response()
 
     body = request.get_json(silent=True) or {}
     prospect_ids = body.get("prospect_ids")
@@ -1159,6 +1161,18 @@ def campaign_send(campaign_id):
         return jsonify(error=str(exc)), 400
 
     return jsonify(result), 202
+
+
+@app.route("/api/campaigns/<int:campaign_id>/relance-eligible")
+@login_required
+def campaign_relance_eligible(campaign_id):
+    error = _check_campaign_access(campaign_id)
+    if error:
+        return error
+    campaign = campaigns.get_campaign(campaign_id)
+    if not campaign or campaign["type"] != "relance":
+        return jsonify(error="Cette route est réservée aux campagnes de type relance."), 400
+    return jsonify(sending.get_relance_eligible_prospects(session["workspace_id"]))
 
 
 @app.route("/api/campaigns/<int:campaign_id>/send-by-type", methods=["POST"])

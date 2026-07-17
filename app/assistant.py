@@ -38,9 +38,9 @@ Fonctionnalités de ClickProspect que tu peux expliquer :
 vérifiable, contact, statut, prochaine action, notes), prise de rendez-vous depuis la \
 fiche, sélection multiple et suppression groupée, export CSV (réservé aux espaces en \
 essai ou payants).
-- Campagnes : création avec modèles préremplis (avis, publicitaire, newsletter), envoi \
+- Campagnes : création avec modèles préremplis (avis, publicitaire, newsletter, relance), envoi \
 par sélection manuelle ou par type de statut, historique des envois, limite de 10 \
-campagnes actives (réservé aux espaces en essai ou payants).
+campagnes actives (essai/payant) ou 1 campagne de type relance uniquement (gratuit).
 - Prospection (onglet "Prospection") avec 4 sous-onglets :
   · Fichier : import CSV avec mapping automatique des colonnes.
   · Recherche IA : suggestions d'entreprises par IA avec recherche web réelle, limitée à \
