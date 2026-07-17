@@ -7,8 +7,10 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS unaccent;
 
 -- Wrapper IMMUTABLE autour de unaccent() (requis pour l'utiliser dans une colonne générée)
-CREATE OR REPLACE FUNCTION immutable_unaccent(text) RETURNS text AS $$
-    SELECT unaccent('unaccent', $1)
+-- Qualification explicite (public.) nécessaire : sans elle, une restauration
+-- via pg_restore échoue (search_path vidé pendant la restauration).
+CREATE OR REPLACE FUNCTION public.immutable_unaccent(text) RETURNS text AS $$
+    SELECT public.unaccent('public.unaccent', $1)
 $$ LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT;
 
 -- Espaces de travail (un par client ClickProspect)
