@@ -13,6 +13,7 @@ se passe (idempotent, sûr à appeler à chaque démarrage de chaque worker).
 """
 import os
 import secrets
+import time
 from functools import wraps
 
 from flask import session, jsonify, request
@@ -67,6 +68,55 @@ def login(email, password):
 
 def logout():
     session.clear()
+
+
+# Mode maintenance : coupe l'accès public au site pendant un déploiement
+# sensible, activé/désactivé manuellement depuis /supadmin (jamais
+# automatique). Stocké dans app_settings comme les autres réglages globaux.
+# Un petit cache en mémoire (quelques secondes) évite une requête DB à
+# chaque page vue de chaque visiteur — voir app/main.py::_maintenance_gate.
+_MAINTENANCE_KEY = "maintenance_mode"
+_maintenance_cache = {"value": False, "checked_at": 0.0}
+_MAINTENANCE_CACHE_TTL_SECONDS = 5
+
+
+def is_maintenance_mode():
+    now = time.time()
+    if now - _maintenance_cache["checked_at"] < _MAINTENANCE_CACHE_TTL_SECONDS:
+        return _maintenance_cache["value"]
+
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT value FROM app_settings WHERE key = %s", (_MAINTENANCE_KEY,))
+            row = cur.fetchone()
+    finally:
+        conn.close()
+
+    value = bool(row and row[0] == "on")
+    _maintenance_cache["value"] = value
+    _maintenance_cache["checked_at"] = now
+    return value
+
+
+def set_maintenance_mode(enabled):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO app_settings (key, value, updated_at) VALUES (%s, %s, now())
+                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+                """,
+                (_MAINTENANCE_KEY, "on" if enabled else "off"),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    # Invalide le cache pour que le nouvel état soit pris en compte
+    # immédiatement, sans attendre l'expiration du TTL.
+    _maintenance_cache["checked_at"] = 0.0
 
 
 def current_superadmin_id():

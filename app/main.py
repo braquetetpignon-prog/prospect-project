@@ -55,6 +55,22 @@ app.config["SESSION_COOKIE_SECURE"] = os.environ.get("ENV") == "preproduction"
 MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 Mo
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
 
+# Chemins jamais bloqués par le mode maintenance : /supadmin (pour pouvoir
+# le désactiver soi-même), /api/supadmin (idem, API associée), /health
+# (sonde de Coolify — la bloquer ferait croire à un service en panne et
+# provoquerait des redémarrages en boucle), /webhook (Mollie doit toujours
+# pouvoir confirmer un paiement, même pendant une maintenance), et /static.
+MAINTENANCE_BYPASS_PREFIXES = ("/supadmin", "/api/supadmin", "/health", "/webhook", "/static")
+
+
+@app.before_request
+def _maintenance_gate():
+    if request.path.startswith(MAINTENANCE_BYPASS_PREFIXES):
+        return None
+    if superadmin.is_maintenance_mode():
+        return flask_render_template("maintenance.html"), 503
+    return None
+
 
 def _client_ip():
     return request.remote_addr
@@ -130,6 +146,16 @@ def pricing_page():
 @app.route("/signup")
 def signup_page():
     return flask_render_template("signup.html")
+
+
+@app.route("/cgv")
+def cgv_page():
+    return flask_render_template("cgv.html")
+
+
+@app.route("/confidentialite")
+def confidentialite_page():
+    return flask_render_template("confidentialite.html")
 
 
 @app.route("/login")
@@ -229,17 +255,25 @@ def health():
 @app.route("/api/auth/signup", methods=["POST"])
 def auth_signup():
     """Inscription d'un nouvel artisan : crée son espace de travail et son
-    compte administrateur en une seule étape."""
+    compte administrateur en une seule étape. L'acceptation des CGV et du
+    traitement RGPD est obligatoire, vérifiée ici avant toute création —
+    voir app/signup.html pour les deux cases à cocher correspondantes."""
     body = request.get_json(silent=True) or {}
     workspace_name = (body.get("workspace_name") or "").strip()
     email = (body.get("email") or "").strip()
     password = body.get("password") or ""
+    cgv_accepted = bool(body.get("cgv_accepted"))
+    rgpd_accepted = bool(body.get("rgpd_accepted"))
 
     if not workspace_name or not email or not password:
         return jsonify(error="workspace_name, email et password sont requis"), 400
+    if not cgv_accepted or not rgpd_accepted:
+        return jsonify(error="L'acceptation des CGV et du traitement des données est obligatoire."), 400
 
     try:
-        workspace_id, user_id = auth.create_workspace_with_admin(workspace_name, email, password)
+        workspace_id, user_id = auth.create_workspace_with_admin(
+            workspace_name, email, password, consent_ip=_client_ip(),
+        )
     except auth.AuthError as exc:
         return jsonify(error=str(exc)), 400
 
@@ -1700,6 +1734,17 @@ def supadmin_login():
 def supadmin_logout():
     superadmin.logout()
     return jsonify(status="ok")
+
+
+@app.route("/api/supadmin/maintenance", methods=["GET", "POST"])
+@superadmin.login_required
+def supadmin_maintenance():
+    if request.method == "POST":
+        body = request.get_json(silent=True) or {}
+        enabled = bool(body.get("enabled"))
+        superadmin.set_maintenance_mode(enabled)
+        return jsonify(status="ok", enabled=enabled)
+    return jsonify(enabled=superadmin.is_maintenance_mode())
 
 
 @app.route("/api/supadmin/workspaces")

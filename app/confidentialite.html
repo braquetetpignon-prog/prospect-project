@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Politique de confidentialité — ClickProspect</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600,0,700&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --cream: #FAF6F0; --terracotta: #C1653D; --terracotta-deep: #A2502E;
+    --sauge: #7A9471; --text: #35302A; --text-soft: #6E6459;
+    --white: #FFFFFF; --border: rgba(53,48,42,0.12);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--cream); color: var(--text);
+    font-family: 'Figtree', sans-serif; line-height: 1.65;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 48px 24px 80px; }
+  .logo { display: flex; align-items: center; gap: 8px; font-family: 'Fraunces', serif; font-weight: 700; font-size: 20px; margin-bottom: 32px; text-decoration: none; color: var(--text); }
+  .logo-mark { width: 26px; height: 26px; border-radius: 8px; background: linear-gradient(135deg, var(--terracotta), var(--sauge)); }
+  h1 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 28px; margin: 0 0 8px; }
+  .updated { color: var(--text-soft); font-size: 13.5px; margin-bottom: 28px; }
+  .draft-notice {
+    background: #FBEFE8; border: 1.5px solid var(--terracotta); border-radius: 14px;
+    padding: 16px 18px; font-size: 14px; margin-bottom: 36px; color: var(--terracotta-deep);
+  }
+  h2 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 18.5px; margin: 32px 0 10px; }
+  p, li { font-size: 15px; color: var(--text); }
+  ul { padding-left: 22px; }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { font-weight: 600; }
+  .placeholder { background: #FBEFE8; padding: 1px 5px; border-radius: 4px; color: var(--terracotta-deep); font-weight: 600; }
+  a { color: var(--terracotta-deep); }
+  .back { display: inline-block; margin-top: 40px; font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a href="/" class="logo"><span class="logo-mark"></span>ClickProspect</a>
+  <h1>Politique de confidentialité</h1>
+  <p class="updated">Version : brouillon — dernière modification le 17 juillet 2026</p>
+
+  <div class="draft-notice">
+    ⚠️ Document de travail. Ce texte est un brouillon rédigé pour poser une
+    première structure conforme au RGPD ; il doit être relu et validé par
+    un professionnel du droit avant d'être considéré comme juridiquement
+    définitif. Les passages en <span class="placeholder">surbrillance</span>
+    sont des informations à compléter.
+  </div>
+
+  <h2>1. Deux rôles distincts au regard du RGPD</h2>
+  <p>
+    Cette distinction est centrale et doit être bien comprise avant tout le
+    reste :
+  </p>
+  <ul>
+    <li>
+      Pour les données de <strong>votre compte</strong> (nom de votre
+      espace de travail, votre adresse e-mail, vos informations de
+      facturation), <strong>ClickProspect est responsable du
+      traitement</strong>.
+    </li>
+    <li>
+      Pour les données de <strong>vos prospects</strong> que vous saisissez
+      ou importez dans l'outil, <strong>vous restez responsable du
+      traitement</strong> : c'est vous qui décidez de collecter ces
+      données et à quelles fins. ClickProspect agit alors uniquement en
+      tant que <strong>sous-traitant</strong> au sens de l'article 28 du
+      RGPD, chargé de stocker et faire fonctionner l'outil pour votre
+      compte, sans jamais utiliser ces données à d'autres fins.
+    </li>
+  </ul>
+
+  <h2>2. Responsable du traitement (compte et facturation)</h2>
+  <p>
+    <span class="placeholder">[dénomination sociale ou nom de
+    l'entrepreneur individuel]</span>, <span class="placeholder">[SIRET]</span>,
+    <span class="placeholder">[adresse complète]</span> — contact :
+    <span class="placeholder">[adresse e-mail de contact professionnel]</span>.
+  </p>
+
+  <h2>3. Données collectées et finalités</h2>
+  <table>
+    <tr><th>Donnée</th><th>Finalité</th><th>Base légale</th></tr>
+    <tr><td>E-mail, mot de passe (haché), nom de l'espace de travail</td><td>Création et gestion du compte</td><td>Exécution du contrat</td></tr>
+    <tr><td>Informations de facturation (via Mollie)</td><td>Traitement des paiements</td><td>Exécution du contrat</td></tr>
+    <tr><td>Adresse IP à l'inscription</td><td>Preuve de l'acceptation des CGV et de la présente politique</td><td>Obligation légale / intérêt légitime</td></tr>
+    <tr><td>Données de vos prospects (nom, coordonnées, activité...)</td><td>Fonctionnement de l'outil de prospection, pour votre compte</td><td>Vous seul en êtes responsable — voir section 1</td></tr>
+  </table>
+
+  <h2>4. Durée de conservation</h2>
+  <p>
+    Les données de votre compte sont conservées tant que celui-ci est
+    actif. Un espace de travail en version gratuite sans connexion depuis
+    30 jours peut faire l'objet d'une procédure de suppression, toujours
+    validée manuellement (jamais automatique) et précédée d'un e-mail
+    d'alerte. Les données de vos prospects suivent les règles de
+    conservation que vous définissez vous-même dans l'outil (statut
+    « recalé », désinscription, etc.).
+  </p>
+
+  <h2>5. Sous-traitants et hébergement</h2>
+  <p>
+    Les données sont hébergées sur un serveur situé en France
+    (<span class="placeholder">[nom de l'hébergeur, ex. IONOS]</span>).
+    Le paiement est traité par Mollie (société agréée dans l'Union
+    européenne). Aucune donnée n'est vendue ni transmise à des tiers à des
+    fins commerciales.
+  </p>
+
+  <h2>6. Vos droits</h2>
+  <p>
+    Conformément au RGPD, vous disposez d'un droit d'accès, de
+    rectification, d'effacement, de limitation et de portabilité de vos
+    données de compte, ainsi que du droit de retirer votre consentement à
+    tout moment. Pour l'exercer :
+    <span class="placeholder">[adresse e-mail de contact professionnel]</span>.
+    Vous disposez également du droit d'introduire une réclamation auprès
+    de la CNIL (<a href="https://www.cnil.fr" target="_blank" rel="noopener">www.cnil.fr</a>).
+  </p>
+  <p>
+    Si vous êtes vous-même une personne dont les coordonnées ont été
+    saisies par un utilisateur de ClickProspect dans le cadre de sa
+    prospection commerciale, votre demande doit être adressée directement
+    à cet utilisateur (l'entreprise qui vous a contacté), responsable de ce
+    traitement — voir section 1.
+  </p>
+
+  <a href="/" class="back">← Retour à l'accueil</a>
+</div>
+</body>
+</html>
