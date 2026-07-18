@@ -19,9 +19,21 @@
   .widget-drag-handle { cursor: grab; color: var(--text-soft); font-size: 15px; margin-right: 6px; user-select: none; }
   .widget-panel.dragging { opacity: 0.4; }
   .widget-panel.drag-over { outline: 2px dashed var(--terracotta); outline-offset: 2px; }
+  .conversion-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 20px; }
+  .conversion-sub { font-size: 12.5px; color: var(--text-soft); margin-top: 6px; }
+  .chart-legend { display: flex; gap: 18px; margin-top: 10px; font-size: 12.5px; color: var(--text-soft); flex-wrap: wrap; }
+  .chart-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 999px; margin-right: 5px; vertical-align: middle; }
+  .upsell-card {
+    background: var(--white); border: 1px solid var(--border); border-radius: 16px;
+    padding: 40px; text-align: center; max-width: 480px; margin: 0 0 20px;
+  }
+  .upsell-icon { font-size: 32px; margin-bottom: 10px; }
+  .upsell-card h2 { margin: 0 0 8px; }
+  .upsell-card p { color: var(--text-soft); margin: 0 0 20px; }
   @media (max-width: 980px) {
     .stat-grid { grid-template-columns: repeat(2, 1fr); }
     .panels { grid-template-columns: 1fr; }
+    .conversion-grid { grid-template-columns: 1fr; }
   }
 {% endblock %}
 
@@ -40,6 +52,8 @@
   <div class="stat-card"><div class="label">Clients</div><div class="value skeleton" style="height:34px;width:60%">&nbsp;</div></div>
   <div class="stat-card"><div class="label">Campagnes actives</div><div class="value skeleton" style="height:34px;width:60%">&nbsp;</div></div>
 </div>
+
+<div id="enriched-section"></div>
 
 <p style="font-size:12.5px; color:var(--text-soft); margin:0 0 10px;">Glisse un bloc par son en-tête (⠿) pour réorganiser la vue à ta convenance.</p>
 <div class="panels" id="panels-container"></div>
@@ -76,6 +90,7 @@ async function loadDashboard(workspaceId) {
     const stats = await fetchJSON(`/api/workspaces/${workspaceId}/dashboard-stats`);
     dashboardData = stats;
     renderStats(stats);
+    renderEnrichedSection(stats);
   } catch (e) {
     document.getElementById('stat-grid').innerHTML = `<div class="empty-state"><p>Impossible de charger les statistiques.</p></div>`;
     dashboardData = { recent_activity: [], upcoming_rdv: [] };
@@ -97,6 +112,84 @@ function renderStats(stats) {
     <div class="stat-card"><div class="label">Nouveaux</div><div class="value terracotta">${byStatut.nouveau || 0}</div></div>
     <div class="stat-card"><div class="label">Clients</div><div class="value sauge">${byStatut.client || 0}</div></div>
     <div class="stat-card"><div class="label">Campagnes actives</div><div class="value">${stats.active_campaigns}</div></div>
+  `;
+}
+
+function renderEnrichedSection(stats) {
+  const container = document.getElementById('enriched-section');
+
+  if (stats.restricted) {
+    container.innerHTML = `
+      <div class="upsell-card">
+        <div class="upsell-icon">📈</div>
+        <h2>Le tableau de bord enrichi fait partie de l'offre Premium</h2>
+        <p>${escapeHtml(stats.upgrade_message || '')}</p>
+        <a href="/tarifs" class="btn btn-primary">Voir les formules</a>
+      </div>`;
+    return;
+  }
+
+  const conv = stats.conversion;
+  const g = conv.global, q = conv.qualifie;
+  container.innerHTML = `
+    <div class="conversion-grid">
+      <div class="stat-card">
+        <div class="label">Taux de conversion global</div>
+        <div class="value terracotta">${g.rate}%</div>
+        <div class="conversion-sub">${g.clients} client${g.clients > 1 ? 's' : ''} sur ${g.total} prospect${g.total > 1 ? 's' : ''} au total</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Taux de conversion (qualifiés → clients)</div>
+        <div class="value sauge">${q.rate}%</div>
+        <div class="conversion-sub">${q.clients} client${q.clients > 1 ? 's' : ''} sur ${q.qualifies_ou_plus} prospect${q.qualifies_ou_plus > 1 ? 's' : ''} qualifié${q.qualifies_ou_plus > 1 ? 's' : ''} ou converti${q.qualifies_ou_plus > 1 ? 's' : ''}</div>
+      </div>
+    </div>
+    <div class="panel" style="margin-bottom:20px;">
+      <div class="panel-head"><h2>Activité des 30 derniers jours</h2></div>
+      <div class="panel-body" style="padding: 4px 24px 24px;">
+        ${dailyActivityChartHtml(stats.daily_activity)}
+      </div>
+    </div>
+  `;
+}
+
+function dailyActivityChartHtml(days) {
+  if (!days || !days.length) {
+    return `<div class="empty-state"><p>Pas encore de données sur cette période.</p></div>`;
+  }
+
+  const W = 900, H = 220, padL = 30, padR = 12, padT = 14, padB = 26;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const n = days.length;
+  const maxVal = Math.max(1, ...days.map(d => Math.max(d.nouveaux, d.qualifies, d.clients)));
+
+  const xAt = i => padL + (n === 1 ? 0 : (i / (n - 1)) * plotW);
+  const yAt = v => padT + plotH - (v / maxVal) * plotH;
+
+  function pathFor(key) {
+    return days.map((d, i) => `${i === 0 ? 'M' : 'L'} ${xAt(i).toFixed(1)} ${yAt(d[key]).toFixed(1)}`).join(' ');
+  }
+
+  const axisLabels = days.map((d, i) => {
+    if (i % 5 !== 0 && i !== n - 1) return '';
+    const dt = new Date(d.date + 'T00:00:00');
+    const label = dt.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+    return `<text x="${xAt(i).toFixed(1)}" y="${H - 8}" font-size="10" fill="var(--text-soft)" text-anchor="middle">${label}</text>`;
+  }).join('');
+
+  return `
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; display:block;" role="img" aria-label="Activité quotidienne des 30 derniers jours">
+      <line x1="${padL}" y1="${padT + plotH}" x2="${W - padR}" y2="${padT + plotH}" stroke="var(--border)" stroke-width="1"/>
+      <path d="${pathFor('nouveaux')}" fill="none" stroke="var(--terracotta)" stroke-width="2"/>
+      <path d="${pathFor('qualifies')}" fill="none" stroke="#3454A8" stroke-width="2"/>
+      <path d="${pathFor('clients')}" fill="none" stroke="#4F6647" stroke-width="2"/>
+      ${axisLabels}
+    </svg>
+    <div class="chart-legend">
+      <span><i style="background:var(--terracotta)"></i>Nouveaux prospects</span>
+      <span><i style="background:#3454A8"></i>Passés qualifiés</span>
+      <span><i style="background:#4F6647"></i>Devenus clients</span>
+    </div>
   `;
 }
 
