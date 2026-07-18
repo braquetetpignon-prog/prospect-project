@@ -77,7 +77,7 @@ const FIELD_LABELS = {
   nom_entreprise: "Nom de l'entreprise", contact_prenom: 'Prénom du contact', contact_nom: 'Nom du contact',
   siren: 'SIREN', siret: 'SIRET', naf_code: 'Code NAF', adresse: 'Adresse', batiment: 'Bâtiment', etage: 'Étage',
   code_postal: 'Code postal', ville: 'Ville', telephone: 'Téléphone', email: 'E-mail', site_web: 'Site web',
-  notes: 'Notes',
+  notes: 'Notes', potentiel: 'Potentiel (1 à 5)', valeur_estimee: 'Valeur estimée',
 };
 const REVIEW_FIELDS = ['adresse', 'ville', 'telephone', 'email', 'site_web'];
 const SUGGESTED_PROMPT = `Tu es mon assistant de prospection commerciale. Utilise la recherche web (annuaires professionnels, PagesJaunes, Google Maps, Societe.com, Infogreffe, Pappers.fr et le bulletin officiel (BODACC) pour trouver jusqu'à 15 entreprises réelles situées à [VILLE OU ZONE, ex : Surgères et communes alentours]. tu ne sélectionnes que les entreprises actives.
@@ -104,6 +104,7 @@ const AUTO_MATCH = {
   ville: ['ville', 'city'], telephone: ['telephone', 'tel', 'phone'],
   email: ['email', 'mail'], site_web: ['site', 'web', 'url'],
   notes: ['notes', 'note', 'commentaire', 'remarque'],
+  potentiel: ['potentiel', 'score'], valeur_estimee: ['valeurestimee', 'valeur', 'montant', 'budget'],
 };
 function normalize(s) { return (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, ''); }
 function guessField(columnName) {

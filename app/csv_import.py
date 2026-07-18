@@ -39,7 +39,29 @@ PROSPECT_FIELDS = {
     # Pas de max_length : notes peut légitimement combiner plusieurs colonnes
     # sources lors d'un import CSV (voir _process_job / NOTES_FIELD).
     "notes": {"required": False},
+    "potentiel": {"required": False, "validator": lambda v: _validate_potentiel(v)},
+    "valeur_estimee": {"required": False, "validator": lambda v: _validate_valeur_estimee(v)},
 }
+
+
+def _validate_potentiel(value):
+    """Score 1 à 5 attendu. Retourne (valeur_normalisée_ou_None, message_ou_None)."""
+    if value.strip() in {"1", "2", "3", "4", "5"}:
+        return value.strip(), None
+    return None, f"potentiel ignoré, doit être compris entre 1 et 5 ({value!r} reçu)"
+
+
+def _validate_valeur_estimee(value):
+    """Montant attendu ; accepte la virgule décimale (exports français) en
+    plus du point. Retourne (valeur_normalisée_ou_None, message_ou_None)."""
+    normalized = value.strip().replace(" ", "").replace("€", "").replace(",", ".")
+    try:
+        amount = float(normalized)
+    except ValueError:
+        return None, f"valeur_estimee ignorée, montant invalide ({value!r} reçu)"
+    if amount < 0:
+        return None, f"valeur_estimee ignorée, montant négatif ({value!r} reçu)"
+    return f"{amount:.2f}", None
 
 # Champ recevant, en cas d'import CSV, la combinaison de toutes les colonnes
 # sources qui lui sont mappées (contrairement aux autres champs, où seule la
@@ -104,6 +126,12 @@ def validate_row(mapped_row):
         pattern = rules.get("pattern")
         if pattern and not pattern.match(value):
             messages.append(f"{field} au format inattendu ({value!r}), importé tel quel")
+        validator = rules.get("validator")
+        if validator:
+            normalized, warning = validator(value)
+            mapped_row[field] = normalized  # None si invalide : le champ ne sera pas inséré
+            if warning:
+                messages.append(warning)
 
     return blocking, messages
 

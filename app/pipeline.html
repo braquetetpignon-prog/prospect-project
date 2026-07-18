@@ -22,6 +22,8 @@
   .kanban-card:hover { border-color: var(--terracotta); }
   .kanban-card.dragging { opacity: 0.4; }
   .kanban-card-name { font-weight: 600; font-size: 13px; margin-bottom: 3px; }
+  .kanban-card-stars { font-size: 11px; color: #D8CBB8; letter-spacing: 1px; margin-bottom: 3px; }
+  .kanban-card-stars .filled { color: var(--terracotta); }
   .kanban-card-meta { font-size: 11.5px; color: var(--text-soft); line-height: 1.4; }
   .kanban-card-badges { margin-top: 6px; display: flex; gap: 5px; flex-wrap: wrap; }
   .kanban-more-link { font-size: 12px; text-align: center; padding: 8px 4px 2px; }
@@ -117,13 +119,15 @@ function renderColumn(statut, list, total) {
   container.innerHTML = list.map(p => `
     <div class="kanban-card" draggable="${canWrite}" data-id="${p.id}">
       <div class="kanban-card-name">${escapeHtml(p.nom_entreprise)}</div>
+      ${p.potentiel ? `<div class="kanban-card-stars">${renderStars(p.potentiel)}</div>` : ''}
       <div class="kanban-card-meta">
         ${p.ville ? escapeHtml(p.ville) : ''}
         ${(p.contact_prenom || p.contact_nom) ? `<br>${escapeHtml([p.contact_prenom, p.contact_nom].filter(Boolean).join(' '))}` : ''}
       </div>
-      ${(p.has_upcoming_rdv || p.type_nom) ? `
+      ${(p.has_upcoming_rdv || p.type_nom || p.valeur_estimee) ? `
         <div class="kanban-card-badges">
           ${p.has_upcoming_rdv ? `<span class="badge" style="background:#EAF0FF; color:#3454A8;" title="Rendez-vous à venir">RDV</span>` : ''}
+          ${p.valeur_estimee ? `<span class="badge" style="background:var(--sauge-light); color:#4F6647;">${formatMontant(p.valeur_estimee)}</span>` : ''}
           ${p.type_nom ? `<span class="badge" style="background:var(--cream); color:var(--text-soft);">${escapeHtml(p.type_nom)}</span>` : ''}
         </div>` : ''}
     </div>
@@ -182,6 +186,17 @@ function setupDropZones() {
       }
     });
   });
+}
+
+function renderStars(n) {
+  let out = '';
+  for (let i = 1; i <= 5; i++) out += `<span class="${i <= n ? 'filled' : ''}">★</span>`;
+  return out;
+}
+
+function formatMontant(value) {
+  const n = Number(value);
+  return n.toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' €';
 }
 
 function escapeHtml(str) {

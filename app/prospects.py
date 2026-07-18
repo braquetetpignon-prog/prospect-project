@@ -21,6 +21,7 @@ EDITABLE_FIELDS = [
     "nom_entreprise", "contact_prenom", "contact_nom", "siren", "siret", "naf_code",
     "adresse", "batiment", "etage", "code_postal", "ville", "telephone", "email", "site_web",
     "prospect_type_id", "prochaine_action", "prochaine_action_date", "notes",
+    "potentiel", "valeur_estimee",
 ]
 
 SIRENE_SEARCH_URL = "https://recherche-entreprises.api.gouv.fr/search"
@@ -38,9 +39,14 @@ def create_prospect(workspace_id, fields, source="manuel"):
             continue
         cleaned[key] = csv_import.sanitize_cell(str(value))
 
-    is_blocking, messages = csv_import.validate_row(dict(cleaned))
+    is_blocking, messages = csv_import.validate_row(cleaned)
     if is_blocking:
         raise ProspectError("; ".join(messages) or "Fiche invalide.")
+    # validate_row peut avoir normalisé certaines valeurs (ex: montant reformaté)
+    # ou en avoir écarté d'autres (mises à None si invalides, ex: potentiel hors
+    # bornes) — on répercute ces corrections avant l'insertion, sinon la valeur
+    # d'origine non validée serait tout de même enregistrée.
+    cleaned = {k: v for k, v in cleaned.items() if v is not None}
 
     conn = get_db()
     try:
@@ -70,7 +76,7 @@ def get_prospect(prospect_id, workspace_id):
                 SELECT id, nom_entreprise, contact_prenom, contact_nom, siren, siret,
                        naf_code, adresse, batiment, etage, code_postal, ville, telephone, email, site_web,
                        statut, source, motif_recalage, prospect_type_id, prochaine_action,
-                       prochaine_action_date, notes, created_at
+                       prochaine_action_date, notes, potentiel, valeur_estimee, created_at
                 FROM prospects WHERE id = %s AND workspace_id = %s
                 """,
                 (prospect_id, workspace_id),
@@ -81,7 +87,7 @@ def get_prospect(prospect_id, workspace_id):
         cols = ["id", "nom_entreprise", "contact_prenom", "contact_nom", "siren", "siret",
                 "naf_code", "adresse", "batiment", "etage", "code_postal", "ville", "telephone", "email", "site_web",
                 "statut", "source", "motif_recalage", "prospect_type_id", "prochaine_action",
-                "prochaine_action_date", "notes", "created_at"]
+                "prochaine_action_date", "notes", "potentiel", "valeur_estimee", "created_at"]
         return dict(zip(cols, row))
     finally:
         conn.close()
@@ -100,6 +106,20 @@ def update_prospect(prospect_id, workspace_id, fields):
 
     if "nom_entreprise" in cleaned and not cleaned["nom_entreprise"]:
         raise ProspectError("nom_entreprise manquant (obligatoire)")
+
+    # Validation ciblée (et non via csv_import.validate_row : cette fonction
+    # exige nom_entreprise dans le dict fourni, ce qui casserait toute mise
+    # à jour partielle ne touchant pas ce champ).
+    if cleaned.get("potentiel") is not None:
+        normalized, warning = csv_import._validate_potentiel(cleaned["potentiel"])
+        if warning:
+            raise ProspectError(warning)
+        cleaned["potentiel"] = normalized
+    if cleaned.get("valeur_estimee") is not None:
+        normalized, warning = csv_import._validate_valeur_estimee(cleaned["valeur_estimee"])
+        if warning:
+            raise ProspectError(warning)
+        cleaned["valeur_estimee"] = normalized
 
     if not cleaned:
         raise ProspectError("Aucun champ à mettre à jour.")
@@ -186,7 +206,7 @@ def search_prospects(workspace_id, query=None, statut=None, prospect_type_id=Non
                 f"""
                 SELECT p.id, p.nom_entreprise, p.contact_prenom, p.contact_nom, p.ville, p.email,
                        p.telephone, p.statut, p.source, pt.nom AS type_nom, p.created_at,
-                       p.prochaine_action, p.prochaine_action_date,
+                       p.prochaine_action, p.prochaine_action_date, p.potentiel, p.valeur_estimee,
                        EXISTS (
                            SELECT 1 FROM rendez_vous rv
                            WHERE rv.prospect_id = p.id AND rv.date_heure > now()
@@ -201,7 +221,7 @@ def search_prospects(workspace_id, query=None, statut=None, prospect_type_id=Non
             rows = cur.fetchall()
         cols = ["id", "nom_entreprise", "contact_prenom", "contact_nom", "ville", "email",
                 "telephone", "statut", "source", "type_nom", "created_at",
-                "prochaine_action", "prochaine_action_date", "has_upcoming_rdv"]
+                "prochaine_action", "prochaine_action_date", "potentiel", "valeur_estimee", "has_upcoming_rdv"]
         return [dict(zip(cols, r)) for r in rows]
     finally:
         conn.close()

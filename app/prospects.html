@@ -3,6 +3,9 @@
 {% block title %}Prospects{% endblock %}
 
 {% block extra_css %}
+  .star-picker { display: flex; gap: 3px; padding-top: 4px; }
+  .star-picker span { cursor: pointer; font-size: 22px; line-height: 1; color: #D8CBB8; user-select: none; }
+  .star-picker span.filled { color: var(--terracotta); }
   .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
   .toolbar input[type="text"] { max-width: 260px; }
   .toolbar select { width: auto; max-width: 180px; }
@@ -100,6 +103,15 @@
       <div class="field-row">
         <div class="field"><label for="p-tel">Téléphone</label><input id="p-tel"></div>
         <div class="field"><label for="p-email">E-mail</label><input id="p-email" type="email"></div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Potentiel</label>
+          <div class="star-picker" id="p-potentiel-picker" data-value="">
+            <span data-star="1">★</span><span data-star="2">★</span><span data-star="3">★</span><span data-star="4">★</span><span data-star="5">★</span>
+          </div>
+        </div>
+        <div class="field"><label for="p-valeur">Valeur estimée</label><input id="p-valeur" type="number" min="0" step="0.01" placeholder="€"></div>
       </div>
       <div class="field-row">
         <div class="field"><label for="p-source">Source</label><input id="p-source" class="readonly-field" readonly></div>
@@ -375,6 +387,23 @@ function updateBulkBar() {
   }
 }
 
+function setStarPicker(value) {
+  const picker = document.getElementById('p-potentiel-picker');
+  picker.dataset.value = value || '';
+  picker.querySelectorAll('span').forEach(el => {
+    el.classList.toggle('filled', value && parseInt(el.dataset.star, 10) <= value);
+  });
+}
+
+document.getElementById('p-potentiel-picker').addEventListener('click', (e) => {
+  if (!canWrite) return;
+  const star = e.target.closest('span[data-star]');
+  if (!star) return;
+  const clicked = parseInt(star.dataset.star, 10);
+  const current = parseInt(document.getElementById('p-potentiel-picker').dataset.value || '0', 10);
+  setStarPicker(clicked === current ? null : clicked); // recliquer sur la même étoile efface la note
+});
+
 async function openModal(prospectId) {
   currentProspectId = prospectId;
   document.getElementById('prospect-form').reset();
@@ -401,11 +430,14 @@ async function openModal(prospectId) {
     document.getElementById('p-action').value = p.prochaine_action || '';
     document.getElementById('p-action-date').value = p.prochaine_action_date || '';
     document.getElementById('p-notes').value = p.notes || '';
+    document.getElementById('p-valeur').value = p.valeur_estimee || '';
+    setStarPicker(p.potentiel);
     loadActivityTimeline(prospectId);
   } else {
     document.getElementById('modal-title').textContent = 'Ajouter un prospect';
     document.getElementById('p-statut').value = 'nouveau';
     document.getElementById('p-source').value = 'Manuel';
+    setStarPicker(null);
     document.getElementById('activity-timeline').innerHTML = '';
   }
 
@@ -468,6 +500,8 @@ async function saveProspect(e) {
     prochaine_action: document.getElementById('p-action').value.trim(),
     prochaine_action_date: document.getElementById('p-action-date').value || '',
     notes: document.getElementById('p-notes').value.trim(),
+    potentiel: document.getElementById('p-potentiel-picker').dataset.value || null,
+    valeur_estimee: document.getElementById('p-valeur').value || null,
   };
 
   try {
