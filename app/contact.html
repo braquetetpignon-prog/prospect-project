@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Contact — ClickProspect</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600,0,700&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --cream: #FAF6F0; --terracotta: #C1653D; --terracotta-deep: #A2502E; --terracotta-darker: #894427;
+    --sauge: #7A9471; --sauge-light: #E7EDE3; --text: #35302A; --text-soft: #6E6459;
+    --white: #FFFFFF; --border: rgba(53,48,42,0.12);
+    --shadow: 0 16px 40px rgba(53,40,24,0.10);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--cream); color: var(--text);
+    font-family: 'Figtree', sans-serif; display: flex; align-items: center; justify-content: center; padding: 24px;
+  }
+  .card { background: var(--white); border-radius: 24px; box-shadow: var(--shadow); padding: 44px; width: 100%; max-width: 460px; }
+  .logo { display: flex; align-items: center; gap: 8px; font-family: 'Fraunces', serif; font-weight: 700; font-size: 20px; margin-bottom: 28px; text-decoration: none; color: var(--text); }
+  .logo-mark { width: 26px; height: 26px; border-radius: 8px; background: linear-gradient(135deg, var(--terracotta), var(--sauge)); }
+  h1 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 24px; margin: 0 0 6px; }
+  .sub { color: var(--text-soft); font-size: 14.5px; margin: 0 0 28px; }
+  label { display: block; font-size: 13.5px; font-weight: 600; margin-bottom: 6px; margin-top: 16px; }
+  label:first-of-type { margin-top: 0; }
+  input, textarea {
+    width: 100%; padding: 12px 14px; border-radius: 12px; border: 1.5px solid var(--border);
+    font-family: 'Figtree', sans-serif; font-size: 15px; background: var(--cream); color: var(--text);
+  }
+  textarea { resize: vertical; min-height: 120px; }
+  input:focus, textarea:focus { outline: none; border-color: var(--terracotta); }
+  .btn { width: 100%; margin-top: 26px; padding: 13px; border-radius: 999px; border: none; background: var(--terracotta-deep); color: var(--white); font-weight: 600; font-size: 15px; cursor: pointer; font-family: 'Figtree', sans-serif; }
+  .btn:hover { background: var(--terracotta-darker); }
+  .btn:disabled { opacity: 0.6; cursor: default; }
+  .error { background: #F8E6E0; color: #A2502E; border-radius: 10px; padding: 11px 14px; font-size: 13.5px; margin-top: 18px; display: none; }
+  .success { background: var(--sauge-light); color: #4F6647; border-radius: 10px; padding: 11px 14px; font-size: 13.5px; margin-top: 18px; display: none; }
+  .footer-link { text-align: center; margin-top: 22px; font-size: 14px; color: var(--text-soft); }
+  .footer-link a { color: var(--terracotta); font-weight: 600; text-decoration: none; }
+  /* Champ piège anti-spam : invisible pour un visiteur, mais rempli par la
+     plupart des robots qui remplissent tous les champs d'un formulaire. */
+  .hp-field { position: absolute; left: -9999px; top: -9999px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <a href="/" class="logo"><span class="logo-mark"></span>ClickProspect</a>
+  <h1>Nous contacter</h1>
+  <p class="sub">Une question, une suggestion ? Écrivez-nous, on vous répond rapidement.</p>
+
+  <form id="contact-form">
+    <label for="name">Votre nom</label>
+    <input id="name" name="name" required placeholder="Ex : Marie Dupont">
+
+    <label for="email">Votre e-mail</label>
+    <input id="email" name="email" type="email" required placeholder="vous@entreprise.fr">
+
+    <label for="message">Votre message</label>
+    <textarea id="message" name="message" required maxlength="5000" placeholder="Comment pouvons-nous vous aider ?"></textarea>
+
+    <div class="hp-field" aria-hidden="true">
+      <label for="website">Laissez ce champ vide</label>
+      <input id="website" name="website" tabindex="-1" autocomplete="off">
+    </div>
+
+    <button class="btn" type="submit">Envoyer le message</button>
+    <div class="error" id="error-box"></div>
+    <div class="success" id="success-box">Message envoyé — merci, on vous répond bientôt !</div>
+  </form>
+
+  <div class="footer-link"><a href="/">← Retour à l'accueil</a></div>
+</div>
+
+<script>
+const form = document.getElementById('contact-form');
+const errorBox = document.getElementById('error-box');
+const successBox = document.getElementById('success-box');
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  errorBox.style.display = 'none';
+  successBox.style.display = 'none';
+
+  const btn = form.querySelector('button');
+  btn.disabled = true;
+  btn.textContent = 'Envoi en cours…';
+
+  try {
+    const res = await fetch('/api/contact', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: document.getElementById('name').value.trim(),
+        email: document.getElementById('email').value.trim(),
+        message: document.getElementById('message').value.trim(),
+        website: document.getElementById('website').value,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Une erreur est survenue.');
+    form.reset();
+    successBox.style.display = 'block';
+    btn.textContent = 'Message envoyé';
+  } catch (err) {
+    errorBox.textContent = err.message;
+    errorBox.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = 'Envoyer le message';
+  }
+});
+</script>
+</body>
+</html>

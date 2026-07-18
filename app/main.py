@@ -13,6 +13,7 @@ from app import campaigns
 from app import campaign_image
 from app import campaign_ai
 from app import consent
+from app import contact
 from app import sending
 from app import scheduler
 from app import auth
@@ -163,6 +164,11 @@ def confidentialite_page():
     return flask_render_template("confidentialite.html")
 
 
+@app.route("/contact")
+def contact_page():
+    return flask_render_template("contact.html")
+
+
 @app.route("/login")
 def login_page():
     return flask_render_template("login.html")
@@ -268,6 +274,53 @@ def health():
 
 
 # --- Authentification -------------------------------------------------
+
+@app.route("/api/contact", methods=["POST"])
+def api_contact():
+    """Formulaire public /contact (visiteurs non connectés). Le message est
+    toujours enregistré en base même si l'e-mail de notification échoue —
+    voir app/contact.py."""
+    body = request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()
+    email = (body.get("email") or "").strip()
+    message = (body.get("message") or "").strip()
+    # Champ piège invisible pour les robots : un vrai visiteur ne le remplit
+    # jamais. On répond succès sans rien faire, pour ne pas révéler le piège.
+    honeypot = (body.get("website") or "").strip()
+    if honeypot:
+        return jsonify(status="ok"), 201
+
+    if not name or not email or not message:
+        return jsonify(error="Nom, e-mail et message sont requis."), 400
+    if "@" not in email or "." not in email.rsplit("@", 1)[-1]:
+        return jsonify(error="Adresse e-mail invalide."), 400
+    if len(name) > 200 or len(email) > 200:
+        return jsonify(error="Nom ou e-mail trop long."), 400
+    if len(message) > 5000:
+        return jsonify(error="Message trop long (5000 caractères maximum)."), 400
+
+    ip = _client_ip()
+    if contact.is_rate_limited(ip):
+        return jsonify(error="Trop de messages envoyés récemment. Réessaie un peu plus tard."), 429
+
+    message_id = contact.create_message(name, email, message, ip)
+
+    try:
+        sent = system_mail.send_system_email(
+            "contact@clickprospect.fr",
+            f"Nouveau message de contact — {name}",
+            f"De : {name} <{email}>\n\n{message}",
+            reply_to=email,
+        )
+        if sent:
+            contact.mark_notified(message_id)
+    except system_mail.SystemMailError:
+        # Le message reste enregistré en base même si l'envoi échoue — pas
+        # de perte, juste une notification manquée.
+        logger.exception("Échec d'envoi de la notification pour le message de contact #%s", message_id)
+
+    return jsonify(status="ok"), 201
+
 
 @app.route("/api/auth/signup", methods=["POST"])
 def auth_signup():
