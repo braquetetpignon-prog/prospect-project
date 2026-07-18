@@ -214,6 +214,13 @@ ALTER TABLE prospects ADD COLUMN IF NOT EXISTS contact_nom TEXT;
 -- mais absents du formulaire manuel d'ajout/édition, corrigé au même moment.
 ALTER TABLE prospects ADD COLUMN IF NOT EXISTS batiment TEXT;
 ALTER TABLE prospects ADD COLUMN IF NOT EXISTS etage TEXT;
+-- Qualification simple façon pipeline commercial : score 1 à 5 (affiché en
+-- étoiles) et montant potentiel de l'affaire. Validation (bornes, format)
+-- faite côté application (app/prospects.py, app/csv_import.py) plutôt qu'en
+-- contrainte SQL, pour rester cohérent avec le reste du schéma qui ne pose
+-- pas de CHECK — toujours nullables, jamais renseignés automatiquement.
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS potentiel SMALLINT;
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS valeur_estimee NUMERIC(10,2);
 
 -- Types de statut personnalisables (forme juridique / catégorie), pour classer
 -- les prospects et cibler des campagnes par type.
