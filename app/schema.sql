@@ -269,6 +269,14 @@ CREATE TABLE IF NOT EXISTS prospect_activity (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_prospect_activity_prospect ON prospect_activity(prospect_id, created_at DESC);
+-- Utilisateur à l'origine de l'événement, pour le rapport d'équipe (activité
+-- par membre). NULL = événement automatisé (ex: campagne envoyée par le
+-- planificateur en arrière-plan) ou événement créé avant l'ajout de cette
+-- colonne — pas de perte de données historiques, juste pas d'attribution.
+-- ON DELETE SET NULL plutôt que CASCADE : la suppression d'un compte
+-- utilisateur ne doit jamais effacer l'historique du prospect concerné.
+ALTER TABLE prospect_activity ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_prospect_activity_workspace_user ON prospect_activity(workspace_id, user_id, created_at DESC);
 ALTER TABLE prospects ADD COLUMN IF NOT EXISTS notes TEXT;
 CREATE INDEX IF NOT EXISTS idx_prospects_type ON prospects(prospect_type_id);
 
@@ -449,6 +457,10 @@ CREATE INDEX IF NOT EXISTS idx_import_jobs_workspace ON import_jobs(workspace_id
 -- Doublons détectés (SIRET ou nom+ville déjà présent) et ignorés à l'import —
 -- comptés à part des erreurs, ce n'est pas une ligne invalide.
 ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS duplicate_count INTEGER NOT NULL DEFAULT 0;
+-- Utilisateur qui a lancé l'import — sert à attribuer les prospects importés
+-- au bon membre pour le rapport d'équipe (voir prospect_activity.user_id
+-- ci-dessus). NULL possible pour des jobs créés avant cette colonne.
+ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
 
 -- Rapport d'erreurs / avertissements ligne par ligne pour un import
 CREATE TABLE IF NOT EXISTS import_errors (

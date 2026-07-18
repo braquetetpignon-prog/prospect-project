@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% set active_page = 'rapports-equipe' %}
+{% block title %}Rapport d'équipe{% endblock %}
+
+{% block extra_css %}
+  .upsell-card {
+    background: var(--white); border: 1px solid var(--border); border-radius: 16px;
+    padding: 40px; text-align: center; max-width: 480px; margin: 40px auto;
+  }
+  .upsell-icon { font-size: 32px; margin-bottom: 10px; }
+  .upsell-card h2 { margin: 0 0 8px; }
+  .upsell-card p { color: var(--text-soft); margin: 0 0 20px; }
+  .team-table th, .team-table td { text-align: left; }
+  .team-table th.num, .team-table td.num { text-align: center; }
+  .member-email { font-weight: 600; }
+  .member-role { font-size: 12px; color: var(--text-soft); margin-top: 2px; }
+  .zero { color: var(--text-soft); }
+  .unattributed-note { font-size: 12.5px; color: var(--text-soft); margin-top: 14px; }
+{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div>
+    <h1>Rapport d'équipe</h1>
+    <p>Activité de chaque membre sur les 30 derniers jours.</p>
+  </div>
+</div>
+
+{% if restricted %}
+<div class="upsell-card">
+  <div class="upsell-icon">👥</div>
+  <h2>Le rapport d'équipe fait partie de l'offre Premium</h2>
+  <p>{{ upgrade_message }}</p>
+  <a href="/tarifs" class="btn btn-primary">Voir les formules</a>
+</div>
+{% elif not is_admin %}
+<div class="upsell-card">
+  <div class="upsell-icon">🔒</div>
+  <h2>Réservé aux administrateurs</h2>
+  <p>Le rapport d'équipe montre l'activité individuelle de chaque membre — seuls les administrateurs de l'espace de travail peuvent le consulter.</p>
+</div>
+{% else %}
+<div class="panel">
+  <div class="panel-head"><h2>Activité par membre</h2></div>
+  <div id="team-report-body"></div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{% if not restricted and is_admin %}
+function onAuthReady(me) {
+  loadTeamReport(me.workspace_id);
+}
+
+async function loadTeamReport(workspaceId) {
+  const container = document.getElementById('team-report-body');
+  try {
+    const data = await fetchJSON(`/api/workspaces/${workspaceId}/team-report`);
+    renderTeamReport(data);
+  } catch (e) {
+    container.innerHTML = `<div class="empty-state"><p>Impossible de charger le rapport.</p></div>`;
+  }
+}
+
+function cell(value) {
+  return `<td class="num${value === 0 ? ' zero' : ''}">${value}</td>`;
+}
+
+function renderTeamReport(data) {
+  const container = document.getElementById('team-report-body');
+  const members = data.members || [];
+
+  if (!members.length) {
+    container.innerHTML = `<div class="empty-state"><h3>Aucun membre actif</h3><p>Invitez des coéquipiers depuis Paramètres pour voir leur activité ici.</p></div>`;
+    return;
+  }
+
+  const roleLabels = { admin: 'Administrateur', commercial: 'Commercial', lecture_seule: 'Lecture seule' };
+
+  container.innerHTML = `
+    <table class="team-table">
+      <thead>
+        <tr>
+          <th>Membre</th>
+          <th class="num">Prospects créés</th>
+          <th class="num">Passés qualifiés</th>
+          <th class="num">Devenus clients</th>
+          <th class="num">RDV planifiés</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${members.map(m => `
+          <tr>
+            <td>
+              <div class="member-email">${escapeHtml(m.email)}</div>
+              <div class="member-role">${escapeHtml(roleLabels[m.role] || m.role)}</div>
+            </td>
+            ${cell(m.prospects_crees)}
+            ${cell(m.passes_qualifies)}
+            ${cell(m.devenus_clients)}
+            ${cell(m.rdv_planifies)}
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+    ${data.unattributed_count > 0 ? `
+      <div class="unattributed-note">
+        + ${data.unattributed_count} événement${data.unattributed_count > 1 ? 's' : ''} automatisé${data.unattributed_count > 1 ? 's' : ''} sur la période (ex : campagnes envoyées automatiquement), non attribuable à un membre en particulier.
+      </div>
+    ` : ''}
+  `;
+}
+{% endif %}
+{% endblock %}

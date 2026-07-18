@@ -56,6 +56,7 @@ def create_rendez_vous(workspace_id, user_id, titre, date_heure, duree_minutes=3
         activity.log_event(
             prospect_id, workspace_id, "rdv_planifie",
             f"Rendez-vous « {titre} » planifié pour le {date_heure}.",
+            user_id=user_id,
         )
     return rdv_id
 
