@@ -5,7 +5,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - ENV=preproduction
+      - ENV=local
       - DATABASE_URL=postgresql://clickprospect:changeme@db:5432/clickprospect
     depends_on:
       - db
