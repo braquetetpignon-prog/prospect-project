@@ -57,9 +57,12 @@ def is_configured():
     ])
 
 
-def send_system_email(to_email, subject, body):
+def send_system_email(to_email, subject, body, reply_to=None):
     """Retourne True si envoyé, False si le SMTP système n'est pas configuré.
-    Lève SystemMailError en cas d'échec d'envoi (erreur SMTP)."""
+    Lève SystemMailError en cas d'échec d'envoi (erreur SMTP).
+    reply_to (optionnel) : permet par exemple de répondre directement à un
+    visiteur ayant utilisé le formulaire de contact, sans exposer son adresse
+    comme expéditeur réel (qui reste toujours SYSTEM_SMTP_FROM_EMAIL)."""
     config = _get_config()
     if not config:
         return False
@@ -68,6 +71,8 @@ def send_system_email(to_email, subject, body):
     msg["Subject"] = subject
     msg["From"] = config["from_email"]
     msg["To"] = to_email
+    if reply_to:
+        msg["Reply-To"] = reply_to
 
     port = config["port"]
     try:

@@ -162,6 +162,21 @@ CREATE TABLE IF NOT EXISTS login_attempts (
 CREATE INDEX IF NOT EXISTS idx_login_attempts_identifier ON login_attempts(identifier, created_at);
 CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON login_attempts(ip_address, created_at);
 
+-- Messages envoyés depuis le formulaire public /contact (visiteurs non
+-- connectés, pas de workspace associé — distinct de admin_feedback qui vient
+-- des clients déjà inscrits). Toujours conservé même si l'envoi de l'e-mail
+-- de notification échoue, pour ne jamais perdre un message.
+CREATE TABLE IF NOT EXISTS contact_messages (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    message TEXT NOT NULL,
+    ip_address TEXT,
+    notified BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_contact_messages_ip ON contact_messages(ip_address, created_at);
+
 -- Événements de sécurité "self-service" (réinitialisation de mot de passe
 -- via PIN, blocages anti brute-force...) — distinct de superadmin_audit_log
 -- qui trace les actions DU superadmin. Consultable en lecture seule dans
