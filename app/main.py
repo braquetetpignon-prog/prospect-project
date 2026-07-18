@@ -50,7 +50,12 @@ app.secret_key = os.environ.get("SECRET_KEY")
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=14)
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-app.config["SESSION_COOKIE_SECURE"] = os.environ.get("ENV") == "preproduction"
+# Préprod et prod tournent toutes les deux derrière Traefik en HTTPS sur le
+# VPS Coolify ; seul le docker-compose local (ENV=local, pas de TLS) sert en
+# HTTP. Les cookies "secure" doivent donc être actifs dans les deux vrais
+# environnements déployés, pas seulement en préproduction.
+IS_DEPLOYED_ENV = os.environ.get("ENV") in ("preproduction", "production")
+app.config["SESSION_COOKIE_SECURE"] = IS_DEPLOYED_ENV
 
 MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 Mo
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
@@ -98,7 +103,7 @@ def set_security_headers(response):
         "frame-ancestors 'none'; "
         "base-uri 'self'",
     )
-    if os.environ.get("ENV") == "preproduction":
+    if IS_DEPLOYED_ENV:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
@@ -244,7 +249,7 @@ def calendrier_page():
 
 @app.route("/api/status")
 def api_status():
-    return jsonify(status="ok", env=os.environ.get("ENV", "dev"))
+    return jsonify(status="ok", env=os.environ.get("ENV", "local"))
 
 
 @app.route("/health")
