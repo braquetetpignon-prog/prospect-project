@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+{% set active_page = 'pipeline' %}
+{% block title %}Pipeline{% endblock %}
+
+{% block extra_css %}
+  .kanban-board { display: flex; gap: 16px; align-items: flex-start; overflow-x: auto; padding-bottom: 8px; }
+  .kanban-col {
+    flex: 1 1 260px; min-width: 260px; max-width: 320px;
+    background: var(--cream); border-radius: 14px; padding: 12px;
+    display: flex; flex-direction: column; max-height: calc(100vh - 200px);
+  }
+  .kanban-col.drag-over { outline: 2px dashed var(--terracotta); outline-offset: -4px; }
+  .kanban-col-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 10px; }
+  .kanban-col-title { font-weight: 700; font-size: 13.5px; display: flex; align-items: center; gap: 7px; }
+  .kanban-col-dot { width: 9px; height: 9px; border-radius: 999px; flex-shrink: 0; }
+  .kanban-col-count { font-size: 12px; color: var(--text-soft); background: var(--white); border-radius: 999px; padding: 1px 8px; }
+  .kanban-cards { overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 2px; }
+  .kanban-card {
+    background: var(--white); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 11px; cursor: grab; box-shadow: 0 1px 2px rgba(53,40,24,0.04);
+  }
+  .kanban-card:hover { border-color: var(--terracotta); }
+  .kanban-card.dragging { opacity: 0.4; }
+  .kanban-card-name { font-weight: 600; font-size: 13px; margin-bottom: 3px; }
+  .kanban-card-meta { font-size: 11.5px; color: var(--text-soft); line-height: 1.4; }
+  .kanban-card-badges { margin-top: 6px; display: flex; gap: 5px; flex-wrap: wrap; }
+  .kanban-more-link { font-size: 12px; text-align: center; padding: 8px 4px 2px; }
+  .kanban-more-link a { color: var(--terracotta-deep); font-weight: 600; text-decoration: none; }
+  .kanban-empty { font-size: 12px; color: var(--text-soft); text-align: center; padding: 18px 4px; }
+  .upsell-card {
+    background: var(--white); border: 1px solid var(--border); border-radius: 16px;
+    padding: 40px; text-align: center; max-width: 480px; margin: 40px auto;
+  }
+  .upsell-icon { font-size: 32px; margin-bottom: 10px; }
+  .upsell-card h2 { margin: 0 0 8px; }
+  .upsell-card p { color: var(--text-soft); margin: 0 0 20px; }
+  @media (max-width: 900px) { .kanban-col { min-width: 240px; } }
+{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div>
+    <h1>Pipeline</h1>
+    <p>Faites glisser une fiche d'une colonne à l'autre pour changer son statut.</p>
+  </div>
+</div>
+
+{% if restricted %}
+<div class="upsell-card">
+  <div class="upsell-icon">📊</div>
+  <h2>Le pipeline fait partie de l'offre Premium</h2>
+  <p>{{ upgrade_message }}</p>
+  <a href="/tarifs" class="btn btn-primary">Voir les formules</a>
+</div>
+{% else %}
+<div class="kanban-board" id="kanban-board"></div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{% if not restricted %}
+const STATUTS = [
+  { value: 'nouveau',  label: 'Nouveau',  dot: '#3454A8' },
+  { value: 'qualifie', label: 'Qualifié', dot: '#4F6647' },
+  { value: 'client',   label: 'Client',   dot: '#A2502E' },
+  { value: 'recale',   label: 'Recalé',   dot: '#9B4646' },
+];
+const COLUMN_LIMIT = 50; // au-delà, un lien renvoie vers la liste complète plutôt que de tout charger
+
+let workspaceId = null;
+let canWrite = false;
+let draggedId = null;
+let draggedFromStatut = null;
+
+function onAuthReady(me) {
+  workspaceId = me.workspace_id;
+  canWrite = me.role !== 'lecture_seule';
+  loadPipeline();
+}
+
+async function loadPipeline() {
+  const board = document.getElementById('kanban-board');
+  board.innerHTML = STATUTS.map(s => `
+    <div class="kanban-col" data-statut="${s.value}">
+      <div class="kanban-col-head">
+        <span class="kanban-col-title"><span class="kanban-col-dot" style="background:${s.dot}"></span>${s.label}</span>
+        <span class="kanban-col-count" id="count-${s.value}">…</span>
+      </div>
+      <div class="kanban-cards" id="cards-${s.value}"></div>
+    </div>
+  `).join('');
+
+  setupDropZones();
+
+  const [stats, ...columns] = await Promise.all([
+    fetchJSON(`/api/workspaces/${workspaceId}/dashboard-stats`),
+    ...STATUTS.map(s => fetchJSON(`/api/prospects?workspace_id=${workspaceId}&statut=${s.value}&limit=${COLUMN_LIMIT}`)),
+  ]);
+
+  const byStatut = stats.prospects_by_statut || {};
+
+  STATUTS.forEach((s, idx) => {
+    const total = byStatut[s.value] || 0;
+    const list = columns[idx].prospects || [];
+    document.getElementById(`count-${s.value}`).textContent = total;
+    renderColumn(s.value, list, total);
+  });
+}
+
+function renderColumn(statut, list, total) {
+  const container = document.getElementById(`cards-${statut}`);
+  if (list.length === 0) {
+    container.innerHTML = '<div class="kanban-empty">Aucun prospect ici.</div>';
+    return;
+  }
+
+  container.innerHTML = list.map(p => `
+    <div class="kanban-card" draggable="${canWrite}" data-id="${p.id}">
+      <div class="kanban-card-name">${escapeHtml(p.nom_entreprise)}</div>
+      <div class="kanban-card-meta">
+        ${p.ville ? escapeHtml(p.ville) : ''}
+        ${(p.contact_prenom || p.contact_nom) ? `<br>${escapeHtml([p.contact_prenom, p.contact_nom].filter(Boolean).join(' '))}` : ''}
+      </div>
+      ${(p.has_upcoming_rdv || p.type_nom) ? `
+        <div class="kanban-card-badges">
+          ${p.has_upcoming_rdv ? `<span class="badge" style="background:#EAF0FF; color:#3454A8;" title="Rendez-vous à venir">RDV</span>` : ''}
+          ${p.type_nom ? `<span class="badge" style="background:var(--cream); color:var(--text-soft);">${escapeHtml(p.type_nom)}</span>` : ''}
+        </div>` : ''}
+    </div>
+  `).join('');
+
+  if (total > list.length) {
+    container.insertAdjacentHTML('beforeend', `
+      <div class="kanban-more-link">+ ${total - list.length} autre${total - list.length > 1 ? 's' : ''} —
+        <a href="/prospects?statut=${statut}">voir la liste complète</a>
+      </div>
+    `);
+  }
+
+  container.querySelectorAll('.kanban-card').forEach(card => {
+    card.addEventListener('dragstart', (e) => {
+      draggedId = card.dataset.id;
+      draggedFromStatut = statut;
+      card.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      document.querySelectorAll('.kanban-col').forEach(c => c.classList.remove('drag-over'));
+    });
+    card.addEventListener('click', (e) => {
+      if (card.classList.contains('dragging')) return;
+      window.location.href = `/prospects?id=${card.dataset.id}`;
+    });
+  });
+}
+
+function setupDropZones() {
+  document.querySelectorAll('.kanban-col').forEach(col => {
+    col.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      if (col.dataset.statut !== draggedFromStatut) col.classList.add('drag-over');
+    });
+    col.addEventListener('dragleave', (e) => {
+      if (e.target === col) col.classList.remove('drag-over');
+    });
+    col.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      col.classList.remove('drag-over');
+      const targetStatut = col.dataset.statut;
+      if (!draggedId || targetStatut === draggedFromStatut) return;
+
+      try {
+        await fetchJSON(`/api/prospects/${draggedId}/statut`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ statut: targetStatut }),
+        });
+        showToast('Statut mis à jour.');
+        loadPipeline();
+      } catch (err) {
+        showToast(err.message, true);
+      }
+    });
+  });
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str || '';
+  return div.innerHTML;
+}
+{% endif %}
+{% endblock %}
