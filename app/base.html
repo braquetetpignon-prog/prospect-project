@@ -112,7 +112,11 @@
 
   .modal-overlay { position: fixed; inset: 0; background: rgba(53,48,42,0.35); display: none; align-items: center; justify-content: center; z-index: 90; padding: 24px; }
   .modal-overlay.show { display: flex; }
-  .modal { background: var(--white); border-radius: 20px; padding: 28px; width: 100%; max-width: 420px; box-shadow: var(--shadow-soft); }
+  /* La fiche peut être plus haute que l'écran (beaucoup de champs, historique
+     d'activité...) : on plafonne la hauteur et on laisse défiler à l'intérieur
+     de la fenêtre plutôt que de laisser le contenu déborder hors de l'écran
+     sans aucun moyen visible de le fermer. */
+  .modal { background: var(--white); border-radius: 20px; padding: 28px; width: 100%; max-width: 420px; max-height: min(88vh, 800px); overflow-y: auto; box-shadow: var(--shadow-soft); }
   .modal h3 { font-size: 18px; margin-bottom: 18px; }
   .modal .field { margin-bottom: 14px; }
   .modal-actions { display: flex; gap: 10px; margin-top: 22px; justify-content: flex-end; }
@@ -532,6 +536,22 @@ document.getElementById('kb-overlay').addEventListener('click', closeKbPanel);
     if (e.key === 'ArrowLeft') show(index - 1);
   });
 })();
+
+// Fermeture générique de toute fenêtre modale (.modal-overlay), en plus du
+// bouton "Annuler" propre à chaque fiche : un clic en dehors de la fenêtre,
+// ou la touche Échap, la ferme. Utile notamment pour les fiches plus hautes
+// que l'écran, où faire défiler jusqu'au bouton n'est pas toujours pratique.
+document.querySelectorAll('.modal-overlay').forEach(function (overlay) {
+  overlay.addEventListener('click', function (e) {
+    if (e.target === overlay) overlay.classList.remove('show');
+  });
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'Escape') return;
+  document.querySelectorAll('.modal-overlay.show').forEach(function (overlay) {
+    overlay.classList.remove('show');
+  });
+});
 
 function escapeHtml(str) {
   if (str == null) return '';
