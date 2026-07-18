@@ -210,6 +210,18 @@ def clients_page():
     return flask_render_template("clients.html")
 
 
+@app.route("/pipeline")
+def pipeline_page():
+    """Vue kanban des prospects par statut — réservée aux espaces en essai ou
+    payants (fonctionnalité Premium, voir subscriptions.RESTRICTED_PLAN). Le
+    lien de menu reste visible pour tous ; c'est le contenu de la page qui
+    change selon la formule, avec une incitation claire plutôt qu'un lien
+    caché (cohérent avec le reste de l'app, voir UPGRADE_MESSAGE)."""
+    workspace_id = session.get("workspace_id")
+    restricted = subscriptions.is_restricted(workspace_id) if workspace_id else False
+    return flask_render_template("pipeline.html", restricted=restricted, upgrade_message=UPGRADE_MESSAGE)
+
+
 @app.route("/campagnes")
 def campagnes_page():
     return flask_render_template("campagnes.html")
@@ -1376,6 +1388,7 @@ def prospects_collection():
         query=request.args.get("q"),
         statut=statut_values if len(statut_values) > 1 else (statut_values[0] if statut_values else None),
         prospect_type_id=request.args.get("prospect_type_id", type=int),
+        limit=request.args.get("limit", type=int) or 500,
     )
     return jsonify(prospects=results)
 

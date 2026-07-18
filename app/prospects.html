@@ -182,8 +182,23 @@ function onAuthReady(me) {
     Object.entries(statusLabels).map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
 
   loadProspectTypes();
+
+  // Pré-filtrage par statut et/ou ouverture directe d'une fiche, venant
+  // d'un lien externe (ex: colonne du pipeline au-delà de la limite affichée).
+  const urlParams = new URLSearchParams(window.location.search);
+  const presetStatut = urlParams.get('statut');
+  if (presetStatut) document.getElementById('statut-filter').value = presetStatut;
+
   loadProspects();
   updateExportLink();
+
+  const openId = urlParams.get('id');
+  if (openId) {
+    openModal(parseInt(openId, 10));
+  }
+  if (presetStatut || openId) {
+    window.history.replaceState({}, '', '/prospects');
+  }
 
   document.getElementById('search-input').addEventListener('input', () => {
     clearTimeout(searchDebounce);
