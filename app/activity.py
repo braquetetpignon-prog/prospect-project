@@ -12,7 +12,7 @@ from app.db import get_db
 EVENT_TYPES = ("cree", "statut_change", "rdv_planifie", "campagne_envoyee", "note")
 
 
-def log_event(prospect_id, workspace_id, event_type, description):
+def log_event(prospect_id, workspace_id, event_type, description, user_id=None):
     if event_type not in EVENT_TYPES:
         event_type = "note"
     conn = get_db()
@@ -20,10 +20,10 @@ def log_event(prospect_id, workspace_id, event_type, description):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO prospect_activity (prospect_id, workspace_id, event_type, description)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO prospect_activity (prospect_id, workspace_id, event_type, description, user_id)
+                VALUES (%s, %s, %s, %s, %s)
                 """,
-                (prospect_id, workspace_id, event_type, description),
+                (prospect_id, workspace_id, event_type, description, user_id),
             )
         conn.commit()
     finally:

@@ -19,6 +19,7 @@ import threading
 from datetime import datetime, timezone
 
 from app.db import get_db
+from app import activity
 
 # Colonnes acceptées comme cible de mapping, et contrainte associée.
 PROSPECT_FIELDS = {
@@ -150,17 +151,17 @@ def parse_preview(file_bytes, max_sample_rows=5):
     return header, sample_rows, total_rows
 
 
-def create_import_job(workspace_id, filename, file_bytes, header, total_rows):
+def create_import_job(workspace_id, filename, file_bytes, header, total_rows, user_id=None):
     conn = get_db()
     try:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO import_jobs (workspace_id, filename, status, raw_content, total_rows)
-                VALUES (%s, %s, 'mapping', %s, %s)
+                INSERT INTO import_jobs (workspace_id, filename, status, raw_content, total_rows, user_id)
+                VALUES (%s, %s, 'mapping', %s, %s, %s)
                 RETURNING id
                 """,
-                (workspace_id, filename, file_bytes, total_rows),
+                (workspace_id, filename, file_bytes, total_rows, user_id),
             )
             job_id = cur.fetchone()[0]
         conn.commit()
@@ -320,8 +321,8 @@ def _process_job(job_id, mapping):
     conn = get_db()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT workspace_id, raw_content FROM import_jobs WHERE id = %s", (job_id,))
-            workspace_id, raw_content = cur.fetchone()
+            cur.execute("SELECT workspace_id, raw_content, user_id FROM import_jobs WHERE id = %s", (job_id,))
+            workspace_id, raw_content, user_id = cur.fetchone()
             cur.execute("UPDATE import_jobs SET status = 'processing' WHERE id = %s", (job_id,))
         conn.commit()
 
@@ -358,7 +359,7 @@ def _process_job(job_id, mapping):
                 )
                 duplicates += 1
             else:
-                _insert_prospect(conn, workspace_id, mapped)
+                _insert_prospect(conn, workspace_id, mapped, user_id)
                 imported += 1
                 if messages:
                     _log_error(conn, job_id, row_number, "warning", "; ".join(messages), raw_row)
@@ -407,17 +408,23 @@ def _process_job(job_id, mapping):
         conn.close()
 
 
-def _insert_prospect(conn, workspace_id, mapped):
+def _insert_prospect(conn, workspace_id, mapped, user_id=None):
     fields = list(mapped.keys())
     values = [mapped[f] or None for f in fields]
     columns_sql = ", ".join(fields + ["workspace_id", "source"])
     placeholders = ", ".join(["%s"] * (len(fields) + 2))
     with conn.cursor() as cur:
         cur.execute(
-            f"INSERT INTO prospects ({columns_sql}) VALUES ({placeholders})",
+            f"INSERT INTO prospects ({columns_sql}) VALUES ({placeholders}) RETURNING id",
             values + [workspace_id, "import_csv"],
         )
+        prospect_id = cur.fetchone()[0]
     conn.commit()
+    # Jusqu'ici, un prospect importé n'avait AUCUNE entrée dans son historique
+    # d'activité (ni "créé le", ni attribution à un membre) — contrairement à
+    # la création manuelle. Corrigé ici pour que le rapport d'équipe et la
+    # fiche prospect elle-même reflètent aussi les imports.
+    activity.log_event(prospect_id, workspace_id, "cree", "Fiche créée (source : import_csv).", user_id=user_id)
 
 
 def _log_error(conn, job_id, row_number, severity, message, raw_row):

@@ -234,6 +234,21 @@ def pipeline_page():
     return flask_render_template("pipeline.html", restricted=restricted, upgrade_message=UPGRADE_MESSAGE)
 
 
+@app.route("/rapports-equipe")
+def rapports_equipe_page():
+    """Rapport d'activité par membre — réservé aux espaces en essai ou payants
+    (même principe que Pipeline) ET aux administrateurs uniquement : ce sont
+    des statistiques individuelles sur des coéquipiers, pas quelque chose
+    qu'un commercial doit voir sur ses collègues. Double condition, donc,
+    avec un message différent selon laquelle s'applique."""
+    workspace_id = session.get("workspace_id")
+    restricted = subscriptions.is_restricted(workspace_id) if workspace_id else False
+    is_admin = session.get("role") == "admin"
+    return flask_render_template(
+        "rapports_equipe.html", restricted=restricted, is_admin=is_admin, upgrade_message=UPGRADE_MESSAGE,
+    )
+
+
 @app.route("/campagnes")
 def campagnes_page():
     return flask_render_template("campagnes.html")
@@ -639,7 +654,7 @@ def import_preview():
         return jsonify(error=str(exc)), 400
 
     job_id = csv_import.create_import_job(
-        workspace_id, file.filename, file_bytes, header, total_rows
+        workspace_id, file.filename, file_bytes, header, total_rows, user_id=session.get("user_id"),
     )
 
     return jsonify(
@@ -1433,7 +1448,7 @@ def prospects_collection():
         workspace_id = body.get("workspace_id")
         fields = {k: v for k, v in body.items() if k != "workspace_id"}
         try:
-            prospect_id, warnings = prospects.create_prospect(workspace_id, fields, source="manuel")
+            prospect_id, warnings = prospects.create_prospect(workspace_id, fields, source="manuel", user_id=session.get("user_id"))
         except prospects.ProspectError as exc:
             return jsonify(error=str(exc)), 400
         return jsonify(id=prospect_id, warnings=warnings, status="created"), 201
@@ -1535,7 +1550,7 @@ def prospect_update_statut(prospect_id):
     if not statut:
         return jsonify(error="statut requis"), 400
     try:
-        prospects.update_statut(prospect_id, session.get("workspace_id"), statut, motif)
+        prospects.update_statut(prospect_id, session.get("workspace_id"), statut, motif, user_id=session.get("user_id"))
     except prospects.ProspectError as exc:
         return jsonify(error=str(exc)), 400
     return jsonify(status="updated")
@@ -1818,6 +1833,61 @@ def dashboard_stats(workspace_id):
             conversion=conversion,
             daily_activity=daily_activity,
         )
+    finally:
+        conn.close()
+
+
+@app.route("/api/workspaces/<int:workspace_id>/team-report")
+@login_required
+@require_own_workspace
+@require_role("admin")
+def team_report(workspace_id):
+    """Activité par membre sur les 30 derniers jours — réservé aux
+    administrateurs (voir rapports_equipe_page) et, comme le reste du
+    tableau de bord enrichi, aux espaces en essai ou payants."""
+    if subscriptions.is_restricted(workspace_id):
+        return _restricted_response()
+
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            # LEFT JOIN pour que les membres sans aucune activité récente
+            # apparaissent quand même à 0 plutôt que d'être absents du rapport
+            # (voir qui N'EST PAS actif est tout aussi utile que l'inverse).
+            cur.execute(
+                """
+                SELECT u.id, u.email, u.role,
+                       count(*) FILTER (WHERE pa.event_type = 'cree') AS prospects_crees,
+                       count(*) FILTER (WHERE pa.event_type = 'statut_change' AND pa.description LIKE %s) AS passes_qualifies,
+                       count(*) FILTER (WHERE pa.event_type = 'statut_change' AND pa.description LIKE %s) AS devenus_clients,
+                       count(*) FILTER (WHERE pa.event_type = 'rdv_planifie') AS rdv_planifies
+                FROM users u
+                LEFT JOIN prospect_activity pa
+                       ON pa.user_id = u.id
+                      AND pa.workspace_id = u.workspace_id
+                      AND pa.created_at > now() - interval '30 days'
+                WHERE u.workspace_id = %s AND u.is_active = TRUE
+                GROUP BY u.id, u.email, u.role
+                ORDER BY prospects_crees DESC, u.email ASC
+                """,
+                ("%« qualifie »%", "%« client »%", workspace_id),
+            )
+            cols = ["user_id", "email", "role", "prospects_crees", "passes_qualifies", "devenus_clients", "rdv_planifies"]
+            members = [dict(zip(cols, r)) for r in cur.fetchall()]
+
+            # Événements non attribuables à un membre précis : campagnes
+            # envoyées par le planificateur en arrière-plan (voir sending.py),
+            # ou activité créée avant l'ajout du suivi par utilisateur.
+            cur.execute(
+                """
+                SELECT count(*) FROM prospect_activity
+                WHERE workspace_id = %s AND user_id IS NULL AND created_at > now() - interval '30 days'
+                """,
+                (workspace_id,),
+            )
+            unattributed_count = cur.fetchone()[0]
+
+        return jsonify(members=members, unattributed_count=unattributed_count, period_days=30)
     finally:
         conn.close()
 

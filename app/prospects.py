@@ -31,8 +31,10 @@ class ProspectError(Exception):
     pass
 
 
-def create_prospect(workspace_id, fields, source="manuel"):
-    """fields : dict parmi csv_import.PROSPECT_FIELDS (ex: nom_entreprise, email, ville...)."""
+def create_prospect(workspace_id, fields, source="manuel", user_id=None):
+    """fields : dict parmi csv_import.PROSPECT_FIELDS (ex: nom_entreprise, email, ville...).
+    user_id : utilisateur à l'origine de la création, pour le rapport d'équipe
+    (voir app/activity.py) — None pour une création automatisée."""
     cleaned = {}
     for key, value in (fields or {}).items():
         if key not in csv_import.PROSPECT_FIELDS or value in (None, ""):
@@ -63,7 +65,7 @@ def create_prospect(workspace_id, fields, source="manuel"):
     finally:
         conn.close()
 
-    activity.log_event(prospect_id, workspace_id, "cree", f"Fiche créée (source : {source}).")
+    activity.log_event(prospect_id, workspace_id, "cree", f"Fiche créée (source : {source}).", user_id=user_id)
     return prospect_id, messages  # messages = avertissements non bloquants éventuels
 
 
@@ -142,7 +144,7 @@ def update_prospect(prospect_id, workspace_id, fields):
         conn.close()
 
 
-def update_statut(prospect_id, workspace_id, statut, motif=None):
+def update_statut(prospect_id, workspace_id, statut, motif=None, user_id=None):
     if statut not in STATUTS:
         raise ProspectError(f"Statut invalide : {statut}")
 
@@ -175,7 +177,7 @@ def update_statut(prospect_id, workspace_id, statut, motif=None):
     description = f"Statut changé en « {statut} »"
     if motif:
         description += f" (motif : {motif})"
-    activity.log_event(prospect_id, workspace_id, "statut_change", description + ".")
+    activity.log_event(prospect_id, workspace_id, "statut_change", description + ".", user_id=user_id)
 
 
 def search_prospects(workspace_id, query=None, statut=None, prospect_type_id=None, limit=500):
@@ -207,6 +209,7 @@ def search_prospects(workspace_id, query=None, statut=None, prospect_type_id=Non
                 SELECT p.id, p.nom_entreprise, p.contact_prenom, p.contact_nom, p.ville, p.email,
                        p.telephone, p.statut, p.source, pt.nom AS type_nom, p.created_at,
                        p.prochaine_action, p.prochaine_action_date, p.potentiel, p.valeur_estimee,
+                       p.adresse, p.code_postal, p.batiment, p.etage, p.notes,
                        EXISTS (
                            SELECT 1 FROM rendez_vous rv
                            WHERE rv.prospect_id = p.id AND rv.date_heure > now()
@@ -221,7 +224,8 @@ def search_prospects(workspace_id, query=None, statut=None, prospect_type_id=Non
             rows = cur.fetchall()
         cols = ["id", "nom_entreprise", "contact_prenom", "contact_nom", "ville", "email",
                 "telephone", "statut", "source", "type_nom", "created_at",
-                "prochaine_action", "prochaine_action_date", "potentiel", "valeur_estimee", "has_upcoming_rdv"]
+                "prochaine_action", "prochaine_action_date", "potentiel", "valeur_estimee",
+                "adresse", "code_postal", "batiment", "etage", "notes", "has_upcoming_rdv"]
         return [dict(zip(cols, r)) for r in rows]
     finally:
         conn.close()
@@ -231,11 +235,19 @@ def export_csv(workspace_id, statut=None):
     prospects = search_prospects(workspace_id, statut=statut, limit=100000)
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(["Entreprise", "Prénom contact", "Nom contact", "Ville", "Email", "Téléphone", "Statut", "Type", "Source"])
+    writer.writerow([
+        "Entreprise", "Prénom contact", "Nom contact", "Ville", "Adresse", "Code postal",
+        "Bâtiment", "Étage", "Email", "Téléphone", "Statut", "Type", "Source",
+        "Potentiel", "Valeur estimée", "Notes",
+    ])
     for p in prospects:
         writer.writerow([
             p["nom_entreprise"], p["contact_prenom"] or "", p["contact_nom"] or "", p["ville"] or "",
+            p["adresse"] or "", p["code_postal"] or "", p["batiment"] or "", p["etage"] or "",
             p["email"] or "", p["telephone"] or "", p["statut"], p["type_nom"] or "", p["source"] or "",
+            p["potentiel"] if p["potentiel"] is not None else "",
+            p["valeur_estimee"] if p["valeur_estimee"] is not None else "",
+            p["notes"] or "",
         ])
     return buf.getvalue()
 
