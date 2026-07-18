@@ -1,5 +1,6 @@
 import os
-from datetime import timedelta
+from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta
 
 from flask import Flask, jsonify, request, session, redirect, render_template as flask_render_template
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -1754,6 +1755,57 @@ def dashboard_stats(workspace_id):
             rdv_cols = ["id", "titre", "date_heure", "duree_minutes", "prospect_nom"]
             upcoming_rdv = [dict(zip(rdv_cols, r)) for r in cur.fetchall()]
 
+            # Tableau de bord enrichi (taux de conversion, activité par
+            # période) — réservé aux espaces en essai ou payants, comme le
+            # Pipeline. Calcul basé sur le statut ACTUEL des prospects, pas
+            # sur un historique de tunnel complet (plus simple et lisible ;
+            # cohérent avec le reste de l'app qui ne trace pas non plus de
+            # "tunnel" formel ailleurs).
+            restricted = subscriptions.is_restricted(workspace_id)
+            conversion = None
+            daily_activity = None
+            if not restricted:
+                clients_count = by_statut.get("client", 0)
+                qualifies_ou_plus = by_statut.get("qualifie", 0) + clients_count
+                conversion = {
+                    "global": {
+                        "clients": clients_count,
+                        "total": total_prospects,
+                        "rate": round(clients_count / total_prospects * 100, 1) if total_prospects else 0,
+                    },
+                    "qualifie": {
+                        "clients": clients_count,
+                        "qualifies_ou_plus": qualifies_ou_plus,
+                        "rate": round(clients_count / qualifies_ou_plus * 100, 1) if qualifies_ou_plus else 0,
+                    },
+                }
+
+                # « qualifie »/« client » sans accent : ce sont les valeurs
+                # brutes de la colonne statut, insérées telles quelles dans
+                # le texte par prospects.change_statut() — pas les libellés
+                # affichés à l'écran (qui eux ont l'accent).
+                cur.execute(
+                    """
+                    SELECT (created_at AT TIME ZONE 'Europe/Paris')::date AS jour,
+                           count(*) FILTER (WHERE event_type = 'cree') AS nouveaux,
+                           count(*) FILTER (WHERE event_type = 'statut_change' AND description LIKE %s) AS qualifies,
+                           count(*) FILTER (WHERE event_type = 'statut_change' AND description LIKE %s) AS clients
+                    FROM prospect_activity
+                    WHERE workspace_id = %s
+                      AND created_at > now() - interval '30 days'
+                    GROUP BY jour
+                    """,
+                    ("%« qualifie »%", "%« client »%", workspace_id),
+                )
+                by_day = {row[0]: {"nouveaux": row[1], "qualifies": row[2], "clients": row[3]} for row in cur.fetchall()}
+
+                today = datetime.now(ZoneInfo("Europe/Paris")).date()
+                daily_activity = []
+                for i in range(29, -1, -1):
+                    day = today - timedelta(days=i)
+                    counts = by_day.get(day, {"nouveaux": 0, "qualifies": 0, "clients": 0})
+                    daily_activity.append({"date": day.isoformat(), **counts})
+
         return jsonify(
             total_prospects=total_prospects,
             prospects_by_statut=by_statut,
@@ -1761,6 +1813,10 @@ def dashboard_stats(workspace_id):
             emails_sent_7d=emails_sent_7d,
             recent_activity=activity,
             upcoming_rdv=upcoming_rdv,
+            restricted=restricted,
+            upgrade_message=UPGRADE_MESSAGE,
+            conversion=conversion,
+            daily_activity=daily_activity,
         )
     finally:
         conn.close()
