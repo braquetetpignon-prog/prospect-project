@@ -177,6 +177,11 @@ def dpa_page():
     return flask_render_template("dpa.html")
 
 
+@app.route("/guide")
+def guide_page():
+    return flask_render_template("guide.html")
+
+
 @app.route("/contact")
 def contact_page():
     return flask_render_template("contact.html")
