@@ -172,6 +172,11 @@ def confidentialite_page():
     return flask_render_template("confidentialite.html")
 
 
+@app.route("/dpa")
+def dpa_page():
+    return flask_render_template("dpa.html")
+
+
 @app.route("/contact")
 def contact_page():
     return flask_render_template("contact.html")
