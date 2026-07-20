@@ -339,10 +339,11 @@ async function deleteMember(userId, email, workspaceId) {
 }
 
 const TRIGGER_LABELS = { statut_stagnant: 'Statut stagnant', rappel_depasse: 'Rappel dépassé' };
+const AUTOMATION_STATUT_LABELS = { nouveau: 'Nouveau', qualifie: 'Qualifié', client: 'Client', recale: 'Recalé' };
 
 function ruleDescription(rule) {
   if (rule.trigger_type === 'statut_stagnant') {
-    return `Statut « ${statusLabels[rule.statut] || rule.statut} » depuis plus de ${rule.seuil_jours} jour${rule.seuil_jours > 1 ? 's' : ''}`;
+    return `Statut « ${AUTOMATION_STATUT_LABELS[rule.statut] || rule.statut} » depuis plus de ${rule.seuil_jours} jour${rule.seuil_jours > 1 ? 's' : ''}`;
   }
   return rule.seuil_jours > 0
     ? `Rappel dépassé depuis plus de ${rule.seuil_jours} jour${rule.seuil_jours > 1 ? 's' : ''}`
