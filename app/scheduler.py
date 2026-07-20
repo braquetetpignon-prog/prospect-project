@@ -13,6 +13,7 @@ import time
 from app import sending
 from app import ia_search
 from app import lifecycle
+from app import automations
 from app.app_logging import logger
 
 SCHEDULER_INTERVAL_SECONDS = int(os.environ.get("SCHEDULER_INTERVAL_SECONDS", "30"))
@@ -37,6 +38,10 @@ def _loop():
             lifecycle.run_daily_maintenance()
         except Exception:
             logger.exception("Échec de run_daily_maintenance()")
+        try:
+            automations.run_due_automations()
+        except Exception:
+            logger.exception("Échec de run_due_automations()")
         time.sleep(SCHEDULER_INTERVAL_SECONDS)
 
 

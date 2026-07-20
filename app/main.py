@@ -15,6 +15,7 @@ from app import campaign_image
 from app import campaign_ai
 from app import consent
 from app import contact
+from app import automations
 from app import sending
 from app import scheduler
 from app import auth
@@ -1890,6 +1891,77 @@ def team_report(workspace_id):
         return jsonify(members=members, unattributed_count=unattributed_count, period_days=30)
     finally:
         conn.close()
+
+
+# --- Automatisations conditionnelles (règles + notifications) -----------
+# Réservées aux espaces en essai ou payants (comme le reste du tableau de
+# bord enrichi) ET aux administrateurs pour la GESTION des règles — un
+# commercial peut voir les notifications produites, mais ne configure rien.
+
+@app.route("/api/workspaces/<int:workspace_id>/automation-rules", methods=["GET", "POST"])
+@login_required
+@require_own_workspace
+def workspace_automation_rules(workspace_id):
+    if subscriptions.is_restricted(workspace_id):
+        return _restricted_response()
+
+    if request.method == "GET":
+        return jsonify(rules=automations.list_rules(workspace_id))
+
+    if session.get("role") != "admin":
+        return jsonify(error="Permission insuffisante pour cette action."), 403
+
+    body = request.get_json(silent=True) or {}
+    try:
+        rule_id = automations.create_rule(
+            workspace_id, body.get("trigger_type"), body.get("statut"), body.get("seuil_jours"),
+        )
+    except automations.AutomationError as e:
+        return jsonify(error=str(e)), 400
+    return jsonify(id=rule_id, status="created"), 201
+
+
+@app.route("/api/automation-rules/<int:rule_id>", methods=["PUT", "DELETE"])
+@login_required
+@require_role("admin")
+def automation_rule_detail(rule_id):
+    workspace_id = session.get("workspace_id")
+    try:
+        if request.method == "DELETE":
+            automations.delete_rule(rule_id, workspace_id)
+            return jsonify(status="deleted")
+        body = request.get_json(silent=True) or {}
+        automations.set_rule_active(rule_id, workspace_id, body.get("actif", True))
+        return jsonify(status="updated")
+    except automations.AutomationError as e:
+        return jsonify(error=str(e)), 404
+
+
+@app.route("/api/workspaces/<int:workspace_id>/notifications")
+@login_required
+@require_own_workspace
+def workspace_notifications(workspace_id):
+    if subscriptions.is_restricted(workspace_id):
+        return jsonify(notifications=[], unread_count=0)
+    return jsonify(
+        notifications=automations.list_notifications(workspace_id),
+        unread_count=automations.count_unread(workspace_id),
+    )
+
+
+@app.route("/api/notifications/<int:notification_id>/read", methods=["POST"])
+@login_required
+def notification_mark_read(notification_id):
+    automations.mark_read(notification_id, session.get("workspace_id"))
+    return jsonify(status="ok")
+
+
+@app.route("/api/workspaces/<int:workspace_id>/notifications/read-all", methods=["POST"])
+@login_required
+@require_own_workspace
+def notifications_mark_all_read(workspace_id):
+    automations.mark_all_read(workspace_id)
+    return jsonify(status="ok")
 
 
 # --- Superadmin (API) -------------------------------------------------
