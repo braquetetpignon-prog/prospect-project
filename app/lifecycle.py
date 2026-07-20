@@ -21,6 +21,7 @@ from app.db import get_db
 from app import rate_limit
 from app import subscriptions
 from app import system_mail
+from app import mollie_billing
 
 INACTIVITY_DAYS = 30
 _LAST_RUN_KEY = "lifecycle_last_inactivity_check_date"
@@ -52,6 +53,52 @@ Voici le résumé de la semaine pour « {workspace_name} » :
 - Actions de suivi en retard : {actions_en_retard}
 
 Retrouvez le détail sur https://clickprospect.fr/dashboard
+
+— L'équipe ClickProspect
+"""
+
+TRIAL_ENDING_SUBJECT = "Votre essai ClickProspect se termine dans 2 jours"
+TRIAL_ENDING_BODY_TEMPLATE = """Bonjour,
+
+Votre essai gratuit de ClickProspect pour « {workspace_name} » se termine
+dans 2 jours, le {trial_end_date}.
+
+Passé ce délai, votre espace basculera automatiquement en version gratuite
+restreinte (le Pipeline et le Rapport d'équipe, entre autres, ne seront
+plus accessibles).
+
+Pour continuer sans interruption avec toutes les fonctionnalités, choisissez
+une formule ici :
+{app_base_url}/tarifs
+
+— L'équipe ClickProspect
+"""
+
+RENEWAL_REMINDER_SUBJECT = "Votre abonnement ClickProspect se renouvelle bientôt"
+RENEWAL_REMINDER_BODY_TEMPLATE = """Bonjour,
+
+Votre abonnement annuel ClickProspect pour « {workspace_name} » sera
+automatiquement renouvelé le {renewal_date} ({amount} {currency} prélevés
+sur la carte enregistrée).
+
+Aucune action n'est nécessaire de votre part si vous souhaitez continuer.
+Pour modifier ou annuler votre abonnement :
+{app_base_url}/parametres
+
+— L'équipe ClickProspect
+"""
+
+FREE_DOWNGRADE_FOLLOWUP_SUBJECT = "Toujours partant pour aller plus loin avec ClickProspect ?"
+FREE_DOWNGRADE_FOLLOWUP_BODY_TEMPLATE = """Bonjour,
+
+Votre essai ClickProspect pour « {workspace_name} » est terminé depuis une
+semaine, et votre espace est maintenant en version gratuite restreinte (le
+Pipeline et le Rapport d'équipe, entre autres, ne sont plus accessibles).
+
+Si vous souhaitez retrouver l'accès complet, les formules sont ici :
+{app_base_url}/tarifs
+
+Une question, un frein particulier ? Répondez simplement à cet e-mail.
 
 — L'équipe ClickProspect
 """
@@ -231,10 +278,225 @@ def _send_one_weekly_summary(workspace_id, workspace_name):
         conn.close()
 
 
+def send_trial_ending_reminders():
+    """J-2 avant fin d'essai. Réutilise trial_ending_reminder_sent_at, une
+    colonne déjà présente dans schema.sql depuis une préparation antérieure
+    mais jamais exploitée jusqu'ici (voir contexte v5, chantier e-mails
+    automatiques) — un seul envoi par espace, jamais de doublon même si la
+    tâche de fond repasse plusieurs fois pendant la fenêtre des 2 jours."""
+    if not system_mail.is_configured():
+        return
+
+    now = datetime.now(timezone.utc)
+    window_end = now + timedelta(days=2)
+
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, name, trial_ends_at FROM workspaces
+                WHERE plan = 'trial'
+                  AND trial_ending_reminder_sent_at IS NULL
+                  AND trial_ends_at IS NOT NULL
+                  AND trial_ends_at BETWEEN %s AND %s
+                """,
+                (now, window_end),
+            )
+            due = cur.fetchall()
+    finally:
+        conn.close()
+
+    for workspace_id, name, trial_ends_at in due:
+        _send_one_trial_ending_reminder(workspace_id, name, trial_ends_at)
+
+
+def _send_one_trial_ending_reminder(workspace_id, workspace_name, trial_ends_at):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT email FROM users WHERE workspace_id = %s AND role = 'admin' AND is_active",
+                (workspace_id,),
+            )
+            admin_emails = [r[0] for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+    body = TRIAL_ENDING_BODY_TEMPLATE.format(
+        workspace_name=workspace_name,
+        trial_end_date=trial_ends_at.strftime("%d/%m/%Y"),
+        app_base_url=mollie_billing._app_base_url(),
+    )
+    for email in admin_emails:
+        try:
+            system_mail.send_system_email(email, TRIAL_ENDING_SUBJECT, body)
+        except system_mail.SystemMailError:
+            pass  # ne bloque jamais les autres espaces pour un souci d'envoi ponctuel
+
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE workspaces SET trial_ending_reminder_sent_at = now() WHERE id = %s",
+                (workspace_id,),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def send_annual_renewal_reminders():
+    """J-2 avant renouvellement annuel. Dédoublonnée en comparant
+    renewal_reminder_sent_for à paid_until (pas un simple NULL/non-NULL) :
+    se réarme automatiquement chaque année sans tâche de nettoyage. Ne
+    concerne que la formule annuelle — un rappel mensuel reviendrait trop
+    souvent pour avoir du sens."""
+    if not system_mail.is_configured():
+        return
+
+    now = datetime.now(timezone.utc)
+    window_end = now + timedelta(days=2)
+
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, name, paid_until FROM workspaces
+                WHERE plan = 'paid'
+                  AND billing_interval = 'annual'
+                  AND mollie_subscription_status = 'active'
+                  AND paid_until IS NOT NULL
+                  AND paid_until BETWEEN %s AND %s
+                  AND (renewal_reminder_sent_for IS NULL OR renewal_reminder_sent_for <> paid_until)
+                """,
+                (now, window_end),
+            )
+            due = cur.fetchall()
+    finally:
+        conn.close()
+
+    for workspace_id, name, paid_until in due:
+        _send_one_renewal_reminder(workspace_id, name, paid_until)
+
+
+def _send_one_renewal_reminder(workspace_id, workspace_name, paid_until):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT email FROM users WHERE workspace_id = %s AND role = 'admin' AND is_active",
+                (workspace_id,),
+            )
+            admin_emails = [r[0] for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+    plan_info = mollie_billing.PLAN_AMOUNTS["annual"]
+    body = RENEWAL_REMINDER_BODY_TEMPLATE.format(
+        workspace_name=workspace_name,
+        renewal_date=paid_until.strftime("%d/%m/%Y"),
+        amount=plan_info["value"],
+        currency=plan_info["currency"],
+        app_base_url=mollie_billing._app_base_url(),
+    )
+    for email in admin_emails:
+        try:
+            system_mail.send_system_email(email, RENEWAL_REMINDER_SUBJECT, body)
+        except system_mail.SystemMailError:
+            pass  # ne bloque jamais les autres espaces pour un souci d'envoi ponctuel
+
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE workspaces SET renewal_reminder_sent_for = %s WHERE id = %s",
+                (paid_until, workspace_id),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def send_free_downgrade_followups():
+    """Relance à J+7 après la fin d'un essai non converti en abonnement
+    payant (voir contexte v5, section 4, point 2 : "bascule en gratuit sans
+    conversion"). Couvre volontairement ce seul cas (essai -> gratuit) : un
+    abonnement payant qui ne se renouvelle pas est déjà couvert par la
+    notification de paiement en échec (mollie_billing._notify_payment_failed),
+    qui intervient plus tôt et pour une raison différente (échec de
+    prélèvement, pas fin d'essai)."""
+    if not system_mail.is_configured():
+        return
+
+    now = datetime.now(timezone.utc)
+    window_start = now - timedelta(days=8)
+    window_end = now - timedelta(days=7)
+
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, name FROM workspaces
+                WHERE plan = 'trial'
+                  AND free_downgrade_followup_sent_at IS NULL
+                  AND trial_ends_at IS NOT NULL
+                  AND trial_ends_at BETWEEN %s AND %s
+                """,
+                (window_start, window_end),
+            )
+            due = cur.fetchall()
+    finally:
+        conn.close()
+
+    for workspace_id, name in due:
+        _send_one_free_downgrade_followup(workspace_id, name)
+
+
+def _send_one_free_downgrade_followup(workspace_id, workspace_name):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT email FROM users WHERE workspace_id = %s AND role = 'admin' AND is_active",
+                (workspace_id,),
+            )
+            admin_emails = [r[0] for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+    body = FREE_DOWNGRADE_FOLLOWUP_BODY_TEMPLATE.format(
+        workspace_name=workspace_name,
+        app_base_url=mollie_billing._app_base_url(),
+    )
+    for email in admin_emails:
+        try:
+            system_mail.send_system_email(email, FREE_DOWNGRADE_FOLLOWUP_SUBJECT, body)
+        except system_mail.SystemMailError:
+            pass  # ne bloque jamais les autres espaces pour un souci d'envoi ponctuel
+
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE workspaces SET free_downgrade_followup_sent_at = now() WHERE id = %s",
+                (workspace_id,),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def run_daily_maintenance():
     if _already_ran_today():
         return
     flag_inactive_free_workspaces()
     rate_limit.purge_old_attempts()
     send_weekly_summaries()
+    send_trial_ending_reminders()
+    send_annual_renewal_reminders()
+    send_free_downgrade_followups()
+    mollie_billing.send_card_expiring_reminders()
     _mark_ran_today()

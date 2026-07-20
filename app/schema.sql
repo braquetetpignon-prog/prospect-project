@@ -50,6 +50,21 @@ ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS weekly_summary_last_sent_at TIME
 -- encore été envoyé, évite tout doublon même si la tâche de fond repasse
 -- plusieurs fois pendant la fenêtre des 2 derniers jours d'essai.
 ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS trial_ending_reminder_sent_at TIMESTAMPTZ;
+-- Valeur de paid_until pour laquelle le rappel "J-2 avant renouvellement
+-- annuel" a déjà été envoyé (voir app/lifecycle.py::send_annual_renewal_reminders).
+-- Comparée à paid_until courant plutôt qu'un simple NULL/non-NULL : se
+-- réarme automatiquement chaque année au renouvellement suivant, sans
+-- tâche de nettoyage à prévoir.
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS renewal_reminder_sent_for TIMESTAMPTZ;
+-- Date d'expiration de carte (cardExpiryDate Mollie) pour laquelle l'alerte
+-- "carte expirant bientôt" a déjà été envoyée (voir
+-- app/mollie_billing.py::send_card_expiring_reminders). Se réarme
+-- automatiquement si la carte enregistrée change.
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS card_expiry_reminder_sent_for DATE;
+-- Horodatage de la relance "J+7 après bascule en gratuit sans conversion"
+-- (voir app/lifecycle.py::send_free_downgrade_followups) — un seul envoi
+-- par espace, jamais répété même si l'espace reste en gratuit indéfiniment.
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS free_downgrade_followup_sent_at TIMESTAMPTZ;
 
 -- Facturation Mollie (paiement CB / abonnement récurrent). Ces colonnes ne
 -- pilotent jamais l'accès directement — c'est toujours `plan` / `paid_until`

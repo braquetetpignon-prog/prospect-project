@@ -47,6 +47,24 @@ Si le problème persiste, n'hésitez pas à répondre à cet e-mail.
 — L'équipe ClickProspect
 """
 
+CARD_EXPIRING_SUBJECT = "Votre carte bancaire enregistrée sur ClickProspect expire bientôt"
+CARD_EXPIRING_BODY_TEMPLATE = """Bonjour,
+
+La carte bancaire enregistrée pour le paiement de « {workspace_name} »
+expire fin {expiry_month_label}.
+
+Pour éviter toute interruption au prochain prélèvement, pensez à mettre à
+jour votre moyen de paiement :
+{app_base_url}/parametres
+
+— L'équipe ClickProspect
+"""
+
+# Fenêtre d'anticipation avant l'expiration réelle de la carte — choix
+# raisonnable par défaut (le contexte v5 ne précisait pas de délai), à
+# ajuster si Alexis préfère un délai différent.
+CARD_EXPIRY_WARNING_DAYS = 30
+
 PLAN_AMOUNTS = {
     "monthly": {"value": "12.00", "currency": "EUR", "label": "ClickProspect Premium — mensuel"},
     "annual": {"value": "108.00", "currency": "EUR", "label": "ClickProspect Premium — annuel"},
@@ -243,6 +261,101 @@ def _notify_payment_failed(workspace_id, status):
             system_mail.send_system_email(email, PAYMENT_FAILED_SUBJECT, body)
         except system_mail.SystemMailError:
             pass  # ne bloque jamais le traitement du webhook pour un souci d'envoi ponctuel
+
+
+def send_card_expiring_reminders():
+    """Carte bancaire expirant bientôt — donnée disponible côté Mollie (API
+    Mandats, champ details.cardExpiryDate au format YYYY-MM-DD pour les
+    mandats carte) mais jamais exploitée jusqu'ici (voir contexte v5,
+    section 4, point 2). Appelée une fois par jour depuis
+    lifecycle.run_daily_maintenance (déjà limité à une fois/jour) : un seul
+    appel Mollie par espace payant actif, pas à chaque passage du
+    planificateur toutes les 30s.
+
+    Ne fait jamais planter le job appelant : un souci ponctuel avec l'API
+    Mollie pour un espace ne doit pas empêcher de vérifier les autres."""
+    if not system_mail.is_configured():
+        return
+    try:
+        _api_key()
+    except MollieError:
+        return  # MOLLIE_API_KEY pas configurée sur cet environnement : rien à vérifier
+
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, name, mollie_customer_id, card_expiry_reminder_sent_for
+                FROM workspaces
+                WHERE plan = 'paid' AND mollie_subscription_status = 'active'
+                  AND mollie_customer_id IS NOT NULL
+                """
+            )
+            candidates = cur.fetchall()
+    finally:
+        conn.close()
+
+    cutoff = (datetime.now(timezone.utc) + timedelta(days=CARD_EXPIRY_WARNING_DAYS)).date()
+
+    for workspace_id, name, customer_id, already_sent_for in candidates:
+        try:
+            mandates = _request("GET", f"/customers/{customer_id}/mandates")
+        except MollieError:
+            continue
+
+        for mandate in mandates.get("_embedded", {}).get("mandates", []):
+            if mandate.get("method") != "creditcard" or mandate.get("status") != "valid":
+                continue
+            expiry_str = ((mandate.get("details") or {}).get("cardExpiryDate") or "")
+            if not expiry_str:
+                continue
+            try:
+                expiry_date = datetime.strptime(expiry_str, "%Y-%m-%d").date()
+            except ValueError:
+                continue
+            if expiry_date > cutoff:
+                continue
+            if already_sent_for and already_sent_for.isoformat() == expiry_str:
+                continue  # déjà prévenu pour cette carte précise (même date d'expiration)
+
+            _notify_card_expiring(workspace_id, name, expiry_date)
+            break  # un seul mandat carte actif par espace dans notre modèle
+
+
+def _notify_card_expiring(workspace_id, workspace_name, expiry_date):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT email FROM users WHERE workspace_id = %s AND role = 'admin' AND is_active",
+                (workspace_id,),
+            )
+            admin_emails = [r[0] for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+    body = CARD_EXPIRING_BODY_TEMPLATE.format(
+        workspace_name=workspace_name,
+        expiry_month_label=expiry_date.strftime("%m/%Y"),
+        app_base_url=_app_base_url(),
+    )
+    for email in admin_emails:
+        try:
+            system_mail.send_system_email(email, CARD_EXPIRING_SUBJECT, body)
+        except system_mail.SystemMailError:
+            pass
+
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE workspaces SET card_expiry_reminder_sent_for = %s WHERE id = %s",
+                (expiry_date, workspace_id),
+            )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def handle_webhook_payment(payment_id):
