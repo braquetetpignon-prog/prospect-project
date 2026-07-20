@@ -68,7 +68,13 @@ app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
 # (sonde de Coolify — la bloquer ferait croire à un service en panne et
 # provoquerait des redémarrages en boucle), /webhook (Mollie doit toujours
 # pouvoir confirmer un paiement, même pendant une maintenance), et /static.
-MAINTENANCE_BYPASS_PREFIXES = ("/supadmin", "/api/supadmin", "/health", "/webhook", "/static")
+MAINTENANCE_BYPASS_PREFIXES = ("/supadmin", "/api/supadmin", "/health", "/version", "/webhook", "/static")
+
+# Hash du commit réellement construit dans ce conteneur, injecté au build
+# Docker (voir Dockerfile — ARG SOURCE_COMMIT alimenté automatiquement par
+# Coolify si "Include Source Commit in Build" est activé dans le menu
+# Avancé). "unknown" en local ou si l'option Coolify n'est pas activée.
+GIT_COMMIT = os.environ.get("GIT_COMMIT", "unknown")
 
 
 @app.before_request
@@ -273,6 +279,17 @@ def calendrier_page():
 @app.route("/api/status")
 def api_status():
     return jsonify(status="ok", env=os.environ.get("ENV", "local"))
+
+
+@app.route("/version")
+def version():
+    """Diagnostic public, sans authentification : permet de vérifier en un
+    clic, après un redeploy Coolify, que le conteneur sert bien le commit
+    attendu (plutôt que de se fier au seul état de GitHub — voir contexte
+    v5, incident du fix modal servi en préprod mais pas en prod malgré un
+    merge visible). Non sensible : aucune donnée applicative, juste un hash
+    de commit et l'environnement."""
+    return jsonify(env=os.environ.get("ENV", "local"), git_commit=GIT_COMMIT)
 
 
 @app.route("/health")
