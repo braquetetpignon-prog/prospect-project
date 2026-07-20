@@ -55,6 +55,7 @@ function onAuthReady(me) {
   loadGeminiModel();
   loadWorkspaceLogo(me.workspace_id);
   setupLogoHandlers(me.workspace_id);
+  loadAutomationRules(me.workspace_id);
 }
 
 function renderSettingsShell(workspaceId) {
@@ -223,6 +224,49 @@ function renderSettingsShell(workspaceId) {
         </form>
       </div>
     </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Automatisations</h2>
+        <button class="btn btn-ghost btn-sm" id="add-rule-btn" type="button">+ Ajouter une règle</button>
+      </div>
+      <p style="font-size:12.5px; color:var(--text-soft); margin:-6px 0 0; padding: 0 24px;">
+        Des règles simples qui alertent l'équipe (notification interne, jamais un e-mail au prospect) — rien n'est envoyé automatiquement à qui que ce soit d'externe.
+      </p>
+      <div id="automation-rules-container"></div>
+    </div>
+
+    <div class="modal-overlay" id="rule-modal-overlay">
+      <div class="modal">
+        <h3>Ajouter une règle</h3>
+        <form id="rule-form">
+          <div class="field">
+            <label for="rule-trigger-type">Déclencheur</label>
+            <select id="rule-trigger-type">
+              <option value="statut_stagnant">Prospect resté trop longtemps dans un statut</option>
+              <option value="rappel_depasse">Date de rappel dépassée</option>
+            </select>
+          </div>
+          <div class="field" id="rule-statut-field">
+            <label for="rule-statut">Statut concerné</label>
+            <select id="rule-statut">
+              <option value="nouveau">Nouveau</option>
+              <option value="qualifie">Qualifié</option>
+              <option value="client">Client</option>
+              <option value="recale">Recalé</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="rule-seuil" id="rule-seuil-label">Après combien de jours ?</label>
+            <input id="rule-seuil" type="number" min="0" max="365" value="7" required>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn btn-ghost btn-sm" id="rule-cancel-btn">Annuler</button>
+            <button type="submit" class="btn btn-primary btn-sm">Créer la règle</button>
+          </div>
+        </form>
+      </div>
+    </div>
   `;
 
   document.getElementById('gbp-form').addEventListener('submit', (e) => saveGbp(e, workspaceId));
@@ -245,6 +289,17 @@ function renderSettingsShell(workspaceId) {
     document.getElementById('edit-member-modal-overlay').classList.remove('show');
   });
   document.getElementById('edit-member-form').addEventListener('submit', (e) => saveMemberEdit(e, workspaceId));
+
+  document.getElementById('add-rule-btn').addEventListener('click', () => {
+    document.getElementById('rule-form').reset();
+    updateRuleFormFields();
+    document.getElementById('rule-modal-overlay').classList.add('show');
+  });
+  document.getElementById('rule-cancel-btn').addEventListener('click', () => {
+    document.getElementById('rule-modal-overlay').classList.remove('show');
+  });
+  document.getElementById('rule-form').addEventListener('submit', (e) => createRule(e, workspaceId));
+  document.getElementById('rule-trigger-type').addEventListener('change', updateRuleFormFields);
 }
 
 function openEditMemberModal(userId, email, role, workspaceId) {
@@ -280,6 +335,124 @@ async function deleteMember(userId, email, workspaceId) {
     loadMembers(workspaceId);
   } catch (err) {
     showToast(err.message, true);
+  }
+}
+
+const TRIGGER_LABELS = { statut_stagnant: 'Statut stagnant', rappel_depasse: 'Rappel dépassé' };
+
+function ruleDescription(rule) {
+  if (rule.trigger_type === 'statut_stagnant') {
+    return `Statut « ${statusLabels[rule.statut] || rule.statut} » depuis plus de ${rule.seuil_jours} jour${rule.seuil_jours > 1 ? 's' : ''}`;
+  }
+  return rule.seuil_jours > 0
+    ? `Rappel dépassé depuis plus de ${rule.seuil_jours} jour${rule.seuil_jours > 1 ? 's' : ''}`
+    : `Rappel dépassé (dès le lendemain de la date)`;
+}
+
+async function loadAutomationRules(workspaceId) {
+  const container = document.getElementById('automation-rules-container');
+  try {
+    const data = await fetchJSON(`/api/workspaces/${workspaceId}/automation-rules`);
+    renderAutomationRules(data.rules, workspaceId);
+  } catch (err) {
+    if (err.status === 402) {
+      container.innerHTML = `
+        <div class="admin-lock" style="margin: 0 24px 24px;">
+          <h3>Fonction Premium</h3>
+          <p>${escapeHtml(err.message || 'Fonction réservée aux espaces en essai ou payants.')}</p>
+        </div>`;
+      document.getElementById('add-rule-btn').style.display = 'none';
+      return;
+    }
+    container.innerHTML = `<div class="empty-state"><p>Impossible de charger les automatisations.</p></div>`;
+  }
+}
+
+function renderAutomationRules(rules, workspaceId) {
+  const container = document.getElementById('automation-rules-container');
+  if (!rules.length) {
+    container.innerHTML = `<div class="empty-state" style="padding: 0 24px 24px;"><p>Aucune règle pour l'instant.</p></div>`;
+    return;
+  }
+  container.innerHTML = `
+    <table class="members-table">
+      <thead><tr><th>Déclencheur</th><th>Condition</th><th>Statut</th><th></th></tr></thead>
+      <tbody>
+        ${rules.map(r => `
+          <tr data-rule-id="${r.id}">
+            <td>${TRIGGER_LABELS[r.trigger_type] || r.trigger_type}</td>
+            <td>${escapeHtml(ruleDescription(r))}</td>
+            <td><span class="badge badge-${r.actif ? 'active' : 'inactive'}">${r.actif ? 'Active' : 'Désactivée'}</span></td>
+            <td style="text-align:right; white-space:nowrap;">
+              <button class="btn btn-ghost btn-sm toggle-rule-btn" data-rule-id="${r.id}" data-active="${r.actif}">
+                ${r.actif ? 'Désactiver' : 'Réactiver'}
+              </button>
+              <button class="btn btn-ghost btn-sm delete-rule-btn" data-rule-id="${r.id}" style="color:#9B4646;">Supprimer</button>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+
+  container.querySelectorAll('.toggle-rule-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try {
+        await fetchJSON(`/api/automation-rules/${btn.dataset.ruleId}`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ actif: btn.dataset.active !== 'true' }),
+        });
+        loadAutomationRules(workspaceId);
+      } catch (err) {
+        showToast(err.message, true);
+      }
+    });
+  });
+  container.querySelectorAll('.delete-rule-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Supprimer cette règle ?')) return;
+      try {
+        await fetchJSON(`/api/automation-rules/${btn.dataset.ruleId}`, { method: 'DELETE' });
+        showToast('Règle supprimée.');
+        loadAutomationRules(workspaceId);
+      } catch (err) {
+        showToast(err.message, true);
+      }
+    });
+  });
+}
+
+function updateRuleFormFields() {
+  const isStatut = document.getElementById('rule-trigger-type').value === 'statut_stagnant';
+  document.getElementById('rule-statut-field').style.display = isStatut ? 'block' : 'none';
+  document.getElementById('rule-seuil-label').textContent = isStatut
+    ? 'Après combien de jours dans ce statut ?'
+    : "Jours de grâce après la date de rappel (0 = dès le lendemain)";
+}
+
+async function createRule(e, workspaceId) {
+  e.preventDefault();
+  const btn = e.target.querySelector('button[type="submit"]');
+  btn.disabled = true;
+  const triggerType = document.getElementById('rule-trigger-type').value;
+  try {
+    await fetchJSON(`/api/workspaces/${workspaceId}/automation-rules`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        trigger_type: triggerType,
+        statut: triggerType === 'statut_stagnant' ? document.getElementById('rule-statut').value : null,
+        seuil_jours: parseInt(document.getElementById('rule-seuil').value, 10),
+      }),
+    });
+    document.getElementById('rule-modal-overlay').classList.remove('show');
+    document.getElementById('rule-form').reset();
+    updateRuleFormFields();
+    showToast('Règle créée.');
+    loadAutomationRules(workspaceId);
+  } catch (err) {
+    showToast(err.message, true);
+  } finally {
+    btn.disabled = false;
   }
 }
 

@@ -49,6 +49,15 @@
   .side-link.active { background: var(--sauge-light); color: #3E5537; font-weight: 600; }
   .side-link:not(.active):hover { background: var(--cream); color: var(--text); }
   .soon-tag { margin-left: auto; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-soft); background: var(--cream-warm); padding: 2px 7px; border-radius: 999px; }
+  .notif-badge { margin-left: auto; font-size: 11px; font-weight: 700; color: var(--white); background: var(--terracotta-deep); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; display: flex; align-items: center; justify-content: center; }
+  .notif-item { padding: 12px 0; border-top: 1px solid var(--border); }
+  .notif-item:first-child { border-top: none; }
+  .notif-item.unread .notif-message { font-weight: 600; color: var(--text); }
+  .notif-message { font-size: 14px; color: var(--text-soft); margin: 0 0 4px; }
+  .notif-message a { color: var(--terracotta-deep); text-decoration: none; }
+  .notif-message a:hover { text-decoration: underline; }
+  .notif-time { font-size: 11.5px; color: var(--text-soft); }
+  .notif-mark-btn { font-size: 12px; color: var(--terracotta-deep); background: none; border: none; cursor: pointer; padding: 0; margin-left: 8px; }
 
   /* --- Main --- */
   .main { padding: 32px 40px 60px; }
@@ -308,6 +317,11 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
         Rapport d'équipe
       </a>
+      <button id="notif-bell-btn" type="button" class="side-link" style="border:none; background:none; width:100%; text-align:left; cursor:pointer; font-family:'Figtree',sans-serif; position:relative;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        Notifications
+        <span id="notif-badge" class="notif-badge" style="display:none;">0</span>
+      </button>
       <a href="/parametres" class="side-link {% if active_page == 'parametres' %}active{% endif %}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         Paramètres
@@ -336,6 +350,17 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<div class="modal-overlay" id="notif-modal-overlay">
+  <div class="modal">
+    <h3>Notifications</h3>
+    <div id="notif-list" style="margin: -6px 0 14px;"></div>
+    <div class="modal-actions" style="justify-content: space-between;">
+      <button type="button" class="btn btn-ghost btn-sm" id="notif-mark-all-btn">Tout marquer comme lu</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="notif-close-btn">Fermer</button>
+    </div>
+  </div>
+</div>
 
 <button id="assistant-toggle-btn" type="button" aria-label="Aide">💬</button>
 <div id="assistant-panel">
@@ -430,7 +455,11 @@ async function fetchJSON(url, options) {
   }
   let data = null;
   try { data = await res.json(); } catch (e) {}
-  if (!res.ok) throw new Error((data && data.error) || `Erreur ${res.status}`);
+  if (!res.ok) {
+    const err = new Error((data && data.error) || `Erreur ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
   return data;
 }
 
@@ -623,7 +652,102 @@ async function initAuth() {
   }
 
   if (typeof onAuthReady === 'function') onAuthReady(me);
+  initNotifications(me.workspace_id);
   return me;
+}
+
+// --- Notifications (automatisations conditionnelles, chantier 5) --------
+// Chargé depuis initAuth (pas depuis onAuthReady, propre à chaque page) pour
+// fonctionner identiquement sur toutes les pages, y compris celles qui ne
+// définissent pas leur propre onAuthReady.
+let _notifWorkspaceId = null;
+
+function initNotifications(workspaceId) {
+  _notifWorkspaceId = workspaceId;
+  refreshNotifBadge();
+  // Rafraîchissement léger toutes les 5 minutes tant que l'onglet reste
+  // ouvert — pas de polling agressif, cohérent avec des automatisations
+  // elles-mêmes vérifiées seulement toutes les heures côté serveur.
+  setInterval(refreshNotifBadge, 5 * 60 * 1000);
+
+  document.getElementById('notif-bell-btn').addEventListener('click', openNotifModal);
+  document.getElementById('notif-close-btn').addEventListener('click', () => {
+    document.getElementById('notif-modal-overlay').classList.remove('show');
+  });
+  document.getElementById('notif-mark-all-btn').addEventListener('click', async () => {
+    try {
+      await fetchJSON(`/api/workspaces/${_notifWorkspaceId}/notifications/read-all`, { method: 'POST' });
+      openNotifModal();
+      refreshNotifBadge();
+    } catch (e) {}
+  });
+}
+
+async function refreshNotifBadge() {
+  if (!_notifWorkspaceId) return;
+  try {
+    const data = await fetchJSON(`/api/workspaces/${_notifWorkspaceId}/notifications`);
+    const badge = document.getElementById('notif-badge');
+    if (data.unread_count > 0) {
+      badge.textContent = data.unread_count > 99 ? '99+' : data.unread_count;
+      badge.style.display = 'flex';
+    } else {
+      badge.style.display = 'none';
+    }
+  } catch (e) {
+    // Silencieux : un badge de notification qui ne se met pas à jour une
+    // fois n'a pas besoin d'interrompre la navigation avec une erreur.
+  }
+}
+
+function notifTimeAgo(iso) {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.round(diffMs / 60000);
+  if (mins < 1) return "à l'instant";
+  if (mins < 60) return `il y a ${mins} min`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `il y a ${hours} h`;
+  const days = Math.round(hours / 24);
+  return `il y a ${days} j`;
+}
+
+async function openNotifModal() {
+  const list = document.getElementById('notif-list');
+  list.innerHTML = `<div class="skeleton" style="height:60px;"></div>`;
+  document.getElementById('notif-modal-overlay').classList.add('show');
+  try {
+    const data = await fetchJSON(`/api/workspaces/${_notifWorkspaceId}/notifications`);
+    renderNotifList(data.notifications);
+  } catch (e) {
+    list.innerHTML = `<div class="empty-state"><p>Impossible de charger les notifications.</p></div>`;
+  }
+}
+
+function renderNotifList(notifications) {
+  const list = document.getElementById('notif-list');
+  if (!notifications.length) {
+    list.innerHTML = `<div class="empty-state"><p>Aucune notification pour l'instant.</p></div>`;
+    return;
+  }
+  list.innerHTML = notifications.map(n => `
+    <div class="notif-item ${n.read_at ? '' : 'unread'}" data-notif-id="${n.id}">
+      <p class="notif-message">
+        ${n.prospect_id ? `<a href="/prospects?id=${n.prospect_id}">${escapeHtml(n.message)}</a>` : escapeHtml(n.message)}
+      </p>
+      <span class="notif-time">${notifTimeAgo(n.created_at)}</span>
+      ${n.read_at ? '' : `<button type="button" class="notif-mark-btn" data-notif-id="${n.id}">Marquer comme lu</button>`}
+    </div>
+  `).join('');
+
+  list.querySelectorAll('.notif-mark-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try {
+        await fetchJSON(`/api/notifications/${btn.dataset.notifId}/read`, { method: 'POST' });
+        openNotifModal();
+        refreshNotifBadge();
+      } catch (e) {}
+    });
+  });
 }
 
 function loadWorkspaceLogoSidebar(workspaceId) {

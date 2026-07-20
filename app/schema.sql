@@ -1310,3 +1310,38 @@ Si vous utilisez une adresse Microsoft 365 ou Outlook, une étape supplémentair
     20
 ) ON CONFLICT (slug) DO NOTHING;
 
+
+-- Automatisations conditionnelles légères (chantier 5 de la feuille de route
+-- CRM) — réservées aux espaces en essai ou payants, comme le Pipeline et le
+-- tableau de bord enrichi. Deux déclencheurs pris en charge :
+--   - statut_stagnant : un prospect reste dans le même statut depuis trop
+--     longtemps (ex: "nouveau" depuis 7 jours)
+--   - rappel_depasse : la date de rappel (prospects.prochaine_action_date)
+--     est dépassée sans qu'aucune action n'ait été faite
+-- Une seule action pour l'instant : notification interne à l'équipe (rien
+-- envoyé au prospect), affichée dans l'app — pas d'e-mail, volontairement
+-- "léger" comme demandé.
+CREATE TABLE IF NOT EXISTS automation_rules (
+    id SERIAL PRIMARY KEY,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    trigger_type TEXT NOT NULL,   -- statut_stagnant / rappel_depasse
+    statut TEXT,                  -- requis pour statut_stagnant, NULL pour rappel_depasse
+    seuil_jours INTEGER NOT NULL, -- jours de stagnation, ou jours de grâce après le rappel
+    actif BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_automation_rules_workspace ON automation_rules(workspace_id);
+
+CREATE TABLE IF NOT EXISTS team_notifications (
+    id SERIAL PRIMARY KEY,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    prospect_id INTEGER REFERENCES prospects(id) ON DELETE CASCADE,
+    rule_id INTEGER REFERENCES automation_rules(id) ON DELETE SET NULL,
+    message TEXT NOT NULL,
+    read_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_team_notifications_workspace ON team_notifications(workspace_id, created_at DESC);
+-- Empêche de renotifier en boucle pour le même prospect/règle tant qu'une
+-- notification précédente n'a pas été marquée comme lue.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_team_notif_dedup ON team_notifications(workspace_id, prospect_id, rule_id) WHERE read_at IS NULL;
