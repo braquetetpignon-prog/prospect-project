@@ -34,6 +34,7 @@ from app import activity
 from app import security_events
 from app import kb
 from app import mollie_billing
+from app import vps_monitoring
 from app.app_logging import logger
 from flask import Response
 
@@ -2033,7 +2034,7 @@ def supadmin_logout():
 
 
 @app.route("/api/supadmin/maintenance", methods=["GET", "POST"])
-@superadmin.login_required
+@superadmin.admin_required
 def supadmin_maintenance():
     if request.method == "POST":
         body = request.get_json(silent=True) or {}
@@ -2056,7 +2057,7 @@ def supadmin_workspace_detail(workspace_id):
 
 
 @app.route("/api/supadmin/workspaces/<int:workspace_id>/plan", methods=["PUT"])
-@superadmin.login_required
+@superadmin.admin_required
 def supadmin_set_plan(workspace_id):
     body = request.get_json(silent=True) or {}
     plan = body.get("plan")
@@ -2069,7 +2070,7 @@ def supadmin_set_plan(workspace_id):
 
 
 @app.route("/api/supadmin/workspaces/<int:workspace_id>/ia-quota", methods=["PUT"])
-@superadmin.login_required
+@superadmin.admin_required
 def supadmin_set_ia_quota(workspace_id):
     body = request.get_json(silent=True) or {}
     quota = body.get("quota")  # entier, ou None/absent pour revenir au défaut global
@@ -2091,7 +2092,7 @@ def supadmin_reset_password(workspace_id):
 
 
 @app.route("/api/supadmin/workspaces/<int:workspace_id>", methods=["DELETE"])
-@superadmin.login_required
+@superadmin.admin_required
 def supadmin_delete_workspace(workspace_id):
     try:
         superadmin.delete_workspace(workspace_id)
@@ -2101,7 +2102,7 @@ def supadmin_delete_workspace(workspace_id):
 
 
 @app.route("/api/supadmin/workspaces/<int:workspace_id>/dismiss-deletion", methods=["POST"])
-@superadmin.login_required
+@superadmin.admin_required
 def supadmin_dismiss_deletion(workspace_id):
     try:
         superadmin.dismiss_deletion_request(workspace_id)
@@ -2111,7 +2112,7 @@ def supadmin_dismiss_deletion(workspace_id):
 
 
 @app.route("/api/supadmin/workspaces/<int:workspace_id>/login-as", methods=["POST"])
-@superadmin.login_required
+@superadmin.admin_required
 def supadmin_login_as(workspace_id):
     try:
         superadmin.login_as(workspace_id)
@@ -2133,6 +2134,83 @@ def auth_end_impersonation():
 @superadmin.login_required
 def supadmin_audit_log():
     return jsonify(entries=superadmin.list_audit_log())
+
+
+@app.route("/api/supadmin/me")
+@superadmin.login_required
+def supadmin_me():
+    return jsonify(email=session.get("superadmin_email"), role=session.get("superadmin_role"))
+
+
+@app.route("/api/supadmin/accounts", methods=["GET", "POST"])
+@superadmin.login_required
+def supadmin_accounts():
+    if request.method == "GET":
+        return jsonify(accounts=superadmin.list_superadmins())
+
+    if session.get("superadmin_role") != "administrateur":
+        return jsonify(error="Action réservée au rôle administrateur."), 403
+
+    body = request.get_json(silent=True) or {}
+    email = (body.get("email") or "").strip()
+    password = body.get("password") or ""
+    role = body.get("role") or ""
+    if not email or "@" not in email:
+        return jsonify(error="Adresse e-mail invalide."), 400
+    try:
+        new_id = superadmin.create_superadmin(email, password, role)
+    except superadmin.SuperadminError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(status="ok", id=new_id)
+
+
+@app.route("/api/supadmin/accounts/<int:account_id>/active", methods=["PUT"])
+@superadmin.admin_required
+def supadmin_account_set_active(account_id):
+    body = request.get_json(silent=True) or {}
+    try:
+        superadmin.set_superadmin_active(account_id, bool(body.get("is_active")))
+    except superadmin.SuperadminError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(status="ok")
+
+
+@app.route("/api/supadmin/change-password", methods=["POST"])
+@superadmin.login_required
+def supadmin_change_password():
+    body = request.get_json(silent=True) or {}
+    try:
+        superadmin.change_own_password(body.get("current_password") or "", body.get("new_password") or "")
+    except superadmin.SuperadminError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(status="ok")
+
+
+@app.route("/api/supadmin/vps/snapshot")
+@superadmin.login_required
+def supadmin_vps_snapshot():
+    snapshot = vps_monitoring.get_latest_snapshot()
+    return jsonify(
+        snapshot=snapshot,
+        thresholds=vps_monitoring.get_thresholds(),
+        peak_hours=vps_monitoring.get_peak_hours(),
+    )
+
+
+@app.route("/api/supadmin/vps/history")
+@superadmin.login_required
+def supadmin_vps_history():
+    hours = request.args.get("hours", default=48, type=int)
+    hours = max(1, min(hours, 24 * 30))  # borné à 30 jours pour éviter une requête énorme
+    return jsonify(history=vps_monitoring.get_history(hours=hours))
+
+
+@app.route("/api/supadmin/vps/thresholds", methods=["PUT"])
+@superadmin.admin_required
+def supadmin_vps_thresholds():
+    body = request.get_json(silent=True) or {}
+    vps_monitoring.set_thresholds(body)
+    return jsonify(status="ok", thresholds=vps_monitoring.get_thresholds())
 
 
 @app.route("/api/kb/articles/<slug>")
