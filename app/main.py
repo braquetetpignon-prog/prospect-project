@@ -2139,7 +2139,22 @@ def supadmin_audit_log():
 @app.route("/api/supadmin/me")
 @superadmin.login_required
 def supadmin_me():
-    return jsonify(email=session.get("superadmin_email"), role=session.get("superadmin_role"))
+    return jsonify(
+        email=session.get("superadmin_email"),
+        role=session.get("superadmin_role"),
+        has_pin=superadmin.has_own_pin(),
+    )
+
+
+@app.route("/api/supadmin/pin", methods=["PUT"])
+@superadmin.login_required
+def supadmin_set_pin():
+    body = request.get_json(silent=True) or {}
+    try:
+        superadmin.set_own_pin(body.get("current_password") or "", body.get("pin") or "")
+    except superadmin.SuperadminError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(status="ok")
 
 
 @app.route("/api/supadmin/accounts", methods=["GET", "POST"])
@@ -2180,7 +2195,11 @@ def supadmin_account_set_active(account_id):
 def supadmin_change_password():
     body = request.get_json(silent=True) or {}
     try:
-        superadmin.change_own_password(body.get("current_password") or "", body.get("new_password") or "")
+        superadmin.change_own_password(
+            body.get("current_password") or "",
+            body.get("new_password") or "",
+            body.get("pin"),
+        )
     except superadmin.SuperadminError as exc:
         return jsonify(error=str(exc)), 400
     return jsonify(status="ok")

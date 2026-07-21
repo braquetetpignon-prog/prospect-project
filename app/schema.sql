@@ -115,6 +115,17 @@ CREATE TABLE IF NOT EXISTS superadmins (
 ALTER TABLE superadmins ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'administrateur'
     CHECK (role IN ('administrateur', 'technicien'));
 ALTER TABLE superadmins ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+-- Code PIN de confirmation pour le changement de mot de passe (pas pour la
+-- récupération, contrairement à users.pin_hash) : même principe que pour
+-- les utilisateurs classiques, mais l'usage est différent ici — un
+-- superadmin déjà connecté doit aussi saisir son PIN pour changer son mot
+-- de passe, pour qu'une session volée seule (sans connaître le PIN) ne
+-- suffise pas à un tiers usurpateur pour prendre le contrôle du compte.
+-- NULL tant que le superadmin n'a pas configuré de PIN — dans ce cas le
+-- changement de mot de passe reste possible sans PIN (transition en
+-- douceur), voir app/superadmin.py::change_own_password.
+ALTER TABLE superadmins ADD COLUMN IF NOT EXISTS pin_hash TEXT;
+ALTER TABLE superadmins ADD COLUMN IF NOT EXISTS pin_set_at TIMESTAMPTZ;
 
 -- Historique des métriques serveur (disque, RAM, CPU, base de données,
 -- réseau), échantillonné périodiquement par app/vps_monitoring.py depuis

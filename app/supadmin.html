@@ -167,6 +167,7 @@
     <span class="badge" id="maintenance-badge" style="display:none; align-self:flex-start;"></span>
     <button id="maintenance-toggle-btn" type="button" data-admin-only="1">Mode maintenance</button>
     <button id="change-password-btn" type="button">Changer mon mot de passe</button>
+    <button id="set-pin-btn" type="button">Configurer mon code PIN</button>
     <button id="logout-btn" type="button">Déconnexion</button>
   </div>
 </aside>
@@ -324,10 +325,32 @@
     <input id="current-password-input" type="password">
     <label for="new-password-input">Nouveau mot de passe</label>
     <input id="new-password-input" type="password" placeholder="8 caractères minimum">
+    <div id="password-pin-row" style="display:none;">
+      <label for="password-pin-input">Code PIN</label>
+      <input id="password-pin-input" type="text" inputmode="numeric" placeholder="6 chiffres minimum">
+      <p class="muted" style="margin-top:4px;">Confirmation obligatoire : sans ton code PIN, personne ne peut changer ce mot de passe même avec ta session ouverte.</p>
+    </div>
     <div id="password-modal-error" class="muted" style="color:#A2502E; display:none; margin-top:10px;"></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" id="password-modal-cancel-btn" type="button">Annuler</button>
       <button class="btn btn-primary" id="password-modal-save-btn" type="button">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal : configurer / changer son code PIN -->
+<div class="modal-overlay" id="pin-modal-overlay">
+  <div class="modal">
+    <h3>Configurer mon code PIN</h3>
+    <p class="muted">Ce code sera ensuite demandé à chaque changement de mot de passe, pour empêcher qu'une session laissée ouverte suffise à un tiers pour prendre le contrôle du compte.</p>
+    <label for="pin-current-password-input">Mot de passe actuel</label>
+    <input id="pin-current-password-input" type="password">
+    <label for="new-pin-input">Nouveau code PIN</label>
+    <input id="new-pin-input" type="text" inputmode="numeric" placeholder="6 chiffres minimum, jamais consécutifs">
+    <div id="pin-modal-error" class="muted" style="color:#A2502E; display:none; margin-top:10px;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="pin-modal-cancel-btn" type="button">Annuler</button>
+      <button class="btn btn-primary" id="pin-modal-save-btn" type="button">Enregistrer</button>
     </div>
   </div>
 </div>
@@ -1262,6 +1285,7 @@ navButtons.forEach((btn) => {
 // --- Rôle courant : affiche l'identité, masque ce qui est réservé à l'administrateur ---
 
 let currentSuperadminRole = null;
+let currentHasPin = false;
 
 function applyRoleRestrictions() {
   const isAdmin = currentSuperadminRole === 'administrateur';
@@ -1275,6 +1299,7 @@ async function loadMe() {
   if (!res.ok) return;
   const data = await res.json();
   currentSuperadminRole = data.role;
+  currentHasPin = !!data.has_pin;
   document.getElementById('who-email').textContent = data.email;
   const badge = document.getElementById('who-role-badge');
   badge.textContent = data.role === 'administrateur' ? 'Administrateur' : 'Technicien';
@@ -1480,6 +1505,8 @@ const passwordModal = document.getElementById('password-modal-overlay');
 document.getElementById('change-password-btn').addEventListener('click', () => {
   document.getElementById('current-password-input').value = '';
   document.getElementById('new-password-input').value = '';
+  document.getElementById('password-pin-input').value = '';
+  document.getElementById('password-pin-row').style.display = currentHasPin ? 'block' : 'none';
   document.getElementById('password-modal-error').style.display = 'none';
   passwordModal.classList.add('show');
 });
@@ -1498,11 +1525,50 @@ document.getElementById('password-modal-save-btn').addEventListener('click', asy
       body: JSON.stringify({
         current_password: document.getElementById('current-password-input').value,
         new_password: document.getElementById('new-password-input').value,
+        pin: document.getElementById('password-pin-input').value || null,
       }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Échec.');
     passwordModal.classList.remove('show');
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// --- Configurer / changer son code PIN ---
+
+const pinModal = document.getElementById('pin-modal-overlay');
+document.getElementById('set-pin-btn').addEventListener('click', () => {
+  document.getElementById('pin-current-password-input').value = '';
+  document.getElementById('new-pin-input').value = '';
+  document.getElementById('pin-modal-error').style.display = 'none';
+  pinModal.classList.add('show');
+});
+document.getElementById('pin-modal-cancel-btn').addEventListener('click', () => {
+  pinModal.classList.remove('show');
+});
+document.getElementById('pin-modal-save-btn').addEventListener('click', async () => {
+  const errorEl = document.getElementById('pin-modal-error');
+  errorEl.style.display = 'none';
+  const btn = document.getElementById('pin-modal-save-btn');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/supadmin/pin', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        current_password: document.getElementById('pin-current-password-input').value,
+        pin: document.getElementById('new-pin-input').value,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Échec.');
+    currentHasPin = true;
+    pinModal.classList.remove('show');
   } catch (err) {
     errorEl.textContent = err.message;
     errorEl.style.display = 'block';
