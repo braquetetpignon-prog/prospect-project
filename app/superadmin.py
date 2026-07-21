@@ -678,7 +678,7 @@ def set_superadmin_active(superadmin_id, is_active):
     _log_action("deactivate_superadmin" if not is_active else "reactivate_superadmin", details=row[0])
 
 
-def change_own_password(current_password, new_password):
+def change_own_password(current_password, new_password, pin=None):
     superadmin_id = current_superadmin_id()
     if not new_password or len(new_password) < 8:
         raise SuperadminError("Le nouveau mot de passe doit contenir au moins 8 caractères.")
@@ -686,10 +686,17 @@ def change_own_password(current_password, new_password):
     conn = get_db()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT password_hash FROM superadmins WHERE id = %s", (superadmin_id,))
+            cur.execute("SELECT password_hash, pin_hash FROM superadmins WHERE id = %s", (superadmin_id,))
             row = cur.fetchone()
             if not row or not check_password_hash(row[0], current_password):
                 raise SuperadminError("Mot de passe actuel incorrect.")
+            # Si un PIN est configuré, il devient obligatoire pour tout
+            # changement de mot de passe — c'est précisément ce qui protège
+            # contre un tiers ayant récupéré la session (ex: ordinateur
+            # laissé ouvert) mais ignorant le PIN.
+            if row[1]:
+                if not pin or not check_password_hash(row[1], pin):
+                    raise SuperadminError("Code PIN incorrect.")
             cur.execute(
                 "UPDATE superadmins SET password_hash = %s WHERE id = %s",
                 (generate_password_hash(new_password), superadmin_id),
@@ -699,7 +706,61 @@ def change_own_password(current_password, new_password):
         conn.close()
 
 
+PIN_MIN_LENGTH = 6
 
+
+def _validate_pin(pin):
+    """Mêmes règles que pour le PIN de récupération des utilisateurs
+    classiques (voir auth.py::_validate_pin) — dupliqué volontairement ici
+    pour garder ce module indépendant, l'usage étant différent (confirmation
+    de changement de mot de passe, pas récupération)."""
+    if not pin or not pin.isdigit() or len(pin) < PIN_MIN_LENGTH:
+        raise SuperadminError(f"Le code PIN doit contenir au moins {PIN_MIN_LENGTH} chiffres (uniquement des chiffres).")
+    if len(set(pin)) == 1:
+        raise SuperadminError("Le code PIN ne doit pas être une répétition du même chiffre (ex : 111111).")
+    digits = [int(c) for c in pin]
+    ascending = all(digits[i] + 1 == digits[i + 1] for i in range(len(digits) - 1))
+    descending = all(digits[i] - 1 == digits[i + 1] for i in range(len(digits) - 1))
+    if ascending or descending:
+        raise SuperadminError("Le code PIN ne doit pas être une suite de chiffres consécutifs (ex : 123456, 654321).")
+
+
+def has_own_pin():
+    superadmin_id = current_superadmin_id()
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT pin_hash IS NOT NULL FROM superadmins WHERE id = %s", (superadmin_id,))
+            row = cur.fetchone()
+    finally:
+        conn.close()
+    return bool(row and row[0])
+
+
+def set_own_pin(current_password, pin):
+    """Définit ou change le code PIN — exige le mot de passe actuel, comme
+    pour change_own_password : même niveau d'exigence pour configurer la
+    protection que pour l'action qu'elle protège."""
+    superadmin_id = current_superadmin_id()
+    _validate_pin(pin)
+
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT password_hash FROM superadmins WHERE id = %s", (superadmin_id,))
+            row = cur.fetchone()
+            if not row or not check_password_hash(row[0], current_password):
+                raise SuperadminError("Mot de passe actuel incorrect.")
+            cur.execute(
+                "UPDATE superadmins SET pin_hash = %s, pin_set_at = now() WHERE id = %s",
+                (generate_password_hash(pin), superadmin_id),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def list_feedback(limit=200):
     conn = get_db()
     try:
         with conn.cursor() as cur:
