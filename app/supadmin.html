@@ -297,7 +297,7 @@
         </div>
         <div style="flex:1; min-width:160px;">
           <label for="new-account-password">Mot de passe initial</label>
-          <input id="new-account-password" type="text" placeholder="8 caractères minimum">
+          <input id="new-account-password" type="text" placeholder="8 caractères minimum" autocomplete="off">
         </div>
         <div style="min-width:150px;">
           <label for="new-account-role">Rôle</label>
@@ -322,12 +322,12 @@
   <div class="modal">
     <h3>Changer mon mot de passe</h3>
     <label for="current-password-input">Mot de passe actuel</label>
-    <input id="current-password-input" type="password">
+    <input id="current-password-input" type="password" autocomplete="off">
     <label for="new-password-input">Nouveau mot de passe</label>
-    <input id="new-password-input" type="password" placeholder="8 caractères minimum">
+    <input id="new-password-input" type="password" placeholder="8 caractères minimum" autocomplete="new-password">
     <div id="password-pin-row" style="display:none;">
       <label for="password-pin-input">Code PIN</label>
-      <input id="password-pin-input" type="text" inputmode="numeric" placeholder="6 chiffres minimum">
+      <input id="password-pin-input" type="text" inputmode="numeric" placeholder="6 chiffres minimum" autocomplete="off">
       <p class="muted" style="margin-top:4px;">Confirmation obligatoire : sans ton code PIN, personne ne peut changer ce mot de passe même avec ta session ouverte.</p>
     </div>
     <div id="password-modal-error" class="muted" style="color:#A2502E; display:none; margin-top:10px;"></div>
@@ -344,9 +344,9 @@
     <h3>Configurer mon code PIN</h3>
     <p class="muted">Ce code sera ensuite demandé à chaque changement de mot de passe, pour empêcher qu'une session laissée ouverte suffise à un tiers pour prendre le contrôle du compte.</p>
     <label for="pin-current-password-input">Mot de passe actuel</label>
-    <input id="pin-current-password-input" type="password">
+    <input id="pin-current-password-input" type="password" autocomplete="off">
     <label for="new-pin-input">Nouveau code PIN</label>
-    <input id="new-pin-input" type="text" inputmode="numeric" placeholder="6 chiffres minimum, jamais consécutifs">
+    <input id="new-pin-input" type="text" inputmode="numeric" placeholder="6 chiffres minimum, jamais consécutifs" autocomplete="off">
     <div id="pin-modal-error" class="muted" style="color:#A2502E; display:none; margin-top:10px;"></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" id="pin-modal-cancel-btn" type="button">Annuler</button>
