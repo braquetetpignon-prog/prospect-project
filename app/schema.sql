@@ -34,6 +34,15 @@ ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMPTZ NOT N
 -- l'espace apparaît alors dans la file de validation du superadmin, qui décide de
 -- supprimer ou d'ignorer — jamais de suppression automatique sans validation humaine.
 ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS deletion_requested_at TIMESTAMPTZ;
+-- Informations légales/entreprise facultatives (voir Mon compte, réservé au
+-- rôle admin — SIRET et adresse relèvent de l'entreprise, pas d'un membre
+-- en particulier). Même usage que users.first_name/last_name/phone
+-- ci-dessus : alimentent la fiche client synchronisée automatiquement chez
+-- le superadmin (app/client_sync.py) si cette fonctionnalité est activée.
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS siret TEXT;
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS adresse TEXT;
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS code_postal TEXT;
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS ville TEXT;
 -- Quota Recherche IA personnalisé (idée produit) : NULL = quota global par défaut
 -- (ia_search.DAILY_QUOTA, 3/jour), sinon override réglable par le superadmin
 -- pour un client précis (ex: gros volume de prospection).
@@ -202,6 +211,16 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS consent_ip TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS pin_hash TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS pin_set_at TIMESTAMPTZ;
 
+-- Informations personnelles facultatives, renseignées volontairement par
+-- l'utilisateur depuis Mon compte (voir app/my_account.html,
+-- app/auth.py::update_profile). Servent notamment, pour l'administrateur
+-- d'un espace de travail, à alimenter automatiquement la fiche client
+-- correspondante dans l'espace de travail personnel du superadmin — voir
+-- app/client_sync.py. Jamais obligatoires (minimisation des données).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT;
+
 -- Préférences personnelles par utilisateur (idée produit : tableau de bord
 -- modulable). Pour l'instant ne contient que la disposition des widgets du
 -- tableau de bord, mais volontairement générique (JSONB) pour accueillir
@@ -281,6 +300,14 @@ CREATE TABLE IF NOT EXISTS prospects (
 CREATE INDEX IF NOT EXISTS idx_prospects_workspace ON prospects(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_prospects_statut ON prospects(statut);
 CREATE INDEX IF NOT EXISTS idx_prospects_siren ON prospects(siren);
+-- Renseigné uniquement pour une fiche créée automatiquement par
+-- app/client_sync.py : identifie l'espace de travail client dont ce profil
+-- a été synchronisé, pour permettre une mise à jour (upsert) plutôt qu'un
+-- doublon à chaque nouvelle synchronisation. NULL pour tous les prospects
+-- normaux (immense majorité des lignes).
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS synced_from_workspace_id INTEGER REFERENCES workspaces(id) ON DELETE SET NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_prospects_synced_from_unique
+    ON prospects(workspace_id, synced_from_workspace_id) WHERE synced_from_workspace_id IS NOT NULL;
 
 -- Nom du contact (pour personnaliser "Bonjour {prenom}" dans les emails de campagne).
 -- ALTER plutôt que colonne dans le CREATE TABLE ci-dessus : la table existe déjà en
