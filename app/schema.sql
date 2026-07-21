@@ -104,6 +104,43 @@ CREATE TABLE IF NOT EXISTS superadmins (
     password_hash TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Rôle superadmin : 'administrateur' (accès complet, y compris actions
+-- destructives/financières et connexion en lieu et place d'un client) ou
+-- 'technicien' (support : consultation, réinitialisation de mot de passe
+-- d'un admin d'espace de travail — jamais login-as, jamais changement
+-- d'abonnement, jamais suppression). Restriction appliquée côté serveur
+-- dans app/superadmin.py (décorateur admin_required), jamais seulement
+-- côté affichage. Le compte bootstrap (SUPERADMIN_EMAIL/PASSWORD) est
+-- toujours 'administrateur'.
+ALTER TABLE superadmins ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'administrateur'
+    CHECK (role IN ('administrateur', 'technicien'));
+ALTER TABLE superadmins ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+
+-- Historique des métriques serveur (disque, RAM, CPU, base de données,
+-- réseau), échantillonné périodiquement par app/vps_monitoring.py depuis
+-- lifecycle.py (toutes les ~5 minutes). Sert à calculer les heures de
+-- pointe/creuses et à afficher un historique dans /supadmin — voir la
+-- section "État du VPS". Les compteurs réseau sont ceux vus depuis le
+-- conteneur applicatif : une bonne approximation tant qu'un seul service
+-- occupe le VPS, à revoir si d'autres conteneurs sont ajoutés dessus.
+CREATE TABLE IF NOT EXISTS vps_metrics_history (
+    id BIGSERIAL PRIMARY KEY,
+    sampled_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    disk_used_pct REAL,
+    disk_used_gb REAL,
+    disk_total_gb REAL,
+    ram_used_pct REAL,
+    ram_used_gb REAL,
+    ram_total_gb REAL,
+    cpu_pct REAL,
+    db_size_mb REAL,
+    db_connections INTEGER,
+    db_status TEXT,
+    net_bytes_sent BIGINT,
+    net_bytes_recv BIGINT,
+    bandwidth_mbps REAL
+);
+CREATE INDEX IF NOT EXISTS idx_vps_metrics_sampled_at ON vps_metrics_history (sampled_at);
 
 -- Journal des actions sensibles effectuées depuis /supadmin. superadmin_id référence
 -- superadmins, mais SET NULL si le compte est supprimé un jour — l'historique reste

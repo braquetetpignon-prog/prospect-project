@@ -16,25 +16,44 @@
     --shadow: 0 6px 18px rgba(53,40,24,0.06);
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--cream); color: var(--text); font-family: 'Figtree', sans-serif; }
+  body { margin: 0; background: var(--cream); color: var(--text); font-family: 'Figtree', sans-serif; display: flex; min-height: 100vh; }
   h1 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 24px; margin: 0; }
   h2 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 17px; margin: 0; }
-  .topbar { display: flex; justify-content: space-between; align-items: center; padding: 22px 32px; background: var(--text); color: var(--white); }
-  .quick-nav {
-    position: sticky; top: 0; z-index: 30;
-    display: flex; gap: 4px; overflow-x: auto;
-    background: var(--white); border-bottom: 1px solid var(--border, #E5DDD0);
-    padding: 10px 28px; box-shadow: 0 2px 8px rgba(53,40,24,0.05);
+  .sidebar {
+    width: 240px; flex-shrink: 0; background: var(--white); border-right: 1px solid var(--border);
+    padding: 24px 16px; display: flex; flex-direction: column; gap: 22px; position: sticky; top: 0; height: 100vh;
   }
-  .quick-nav a {
-    white-space: nowrap; text-decoration: none; color: var(--text-soft);
-    font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 999px;
+  .sidebar-logo { display: flex; align-items: center; gap: 9px; padding: 0 6px; }
+  .sidebar-logo .mark { width: 26px; height: 26px; border-radius: 8px; background: linear-gradient(135deg, var(--terracotta), var(--sauge)); flex-shrink: 0; }
+  .sidebar-logo .name { font-family: 'Fraunces', serif; font-weight: 700; font-size: 17px; }
+  .sidebar-logo .tag { font-size: 11px; color: var(--text-soft); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  .sidebar-who { background: var(--cream); border-radius: 12px; padding: 12px 14px; font-size: 12.5px; }
+  .sidebar-who .email { font-weight: 700; color: var(--text); word-break: break-word; }
+  .sidebar-who .role-badge { display: inline-block; margin-top: 5px; font-size: 10.5px; font-weight: 700; padding: 2px 9px; border-radius: 999px; text-transform: uppercase; letter-spacing: .03em; }
+  .sidebar-who .role-badge.role-administrateur { background: var(--terracotta-deep); color: var(--white); }
+  .sidebar-who .role-badge.role-technicien { background: var(--sauge-light); color: #4F6647; }
+  .sidebar-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; overflow-y: auto; }
+  .sidebar-nav button {
+    display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+    background: none; border: none; color: var(--text-soft); font-family: 'Figtree', sans-serif;
+    font-size: 13.5px; font-weight: 600; padding: 9px 10px; border-radius: 10px; cursor: pointer;
     transition: background .15s ease, color .15s ease;
   }
-  .quick-nav a:hover { background: var(--cream); color: var(--text); }
-  .panel { scroll-margin-top: 64px; }
-  .topbar h1 { color: var(--white); font-size: 18px; }
-  .main { padding: 28px 32px 60px; max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+  .sidebar-nav button:hover { background: var(--cream); color: var(--text); }
+  .sidebar-nav button.is-active { background: var(--sauge-light); color: #3B4F35; }
+  .sidebar-foot { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--border); padding-top: 14px; }
+  .sidebar-foot button {
+    background: none; border: none; text-align: left; font-family: 'Figtree', sans-serif;
+    font-size: 12.5px; font-weight: 600; color: var(--text-soft); padding: 7px 10px; border-radius: 8px; cursor: pointer;
+  }
+  .sidebar-foot button:hover { background: var(--cream); color: var(--text); }
+  .content { flex: 1; min-width: 0; }
+  .content-head { padding: 30px 32px 6px; }
+  .content-head .greeting { display: flex; align-items: center; gap: 12px; }
+  .content-head p.sub { margin: 4px 0 0; color: var(--text-soft); font-size: 14px; }
+  .panel { scroll-margin-top: 0; }
+  .main { padding: 10px 32px 60px; max-width: 1100px; margin: 0; display: flex; flex-direction: column; gap: 22px; }
+  .panel[hidden] { display: none; }
   .btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 16px; border-radius: 999px; font-weight: 600; font-size: 13.5px; border: none; cursor: pointer; font-family: 'Figtree', sans-serif; }
   .btn-primary { background: var(--terracotta-deep); color: var(--white); }
   .btn-primary:hover { background: var(--terracotta-darker); }
@@ -79,6 +98,23 @@
   .stat-card .label { font-size: 12.5px; color: var(--text-soft); margin-top: 2px; }
   .stat-card.is-clickable { cursor: pointer; transition: background .15s ease, transform .15s ease; }
   .stat-card.is-clickable:hover { background: var(--sauge-light, #E7EDE3); transform: translateY(-1px); }
+  .vps-gauge-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 18px; }
+  .vps-gauge { background: var(--cream); border-radius: 14px; padding: 16px 18px; }
+  .vps-gauge .label { font-size: 12.5px; color: var(--text-soft); margin-bottom: 8px; }
+  .vps-gauge .value-row { display: flex; align-items: baseline; gap: 6px; margin-bottom: 8px; }
+  .vps-gauge .value { font-family: 'Fraunces', serif; font-size: 24px; font-weight: 600; }
+  .vps-gauge .value-sub { font-size: 12px; color: var(--text-soft); }
+  .vps-gauge .bar-track { height: 7px; border-radius: 999px; background: var(--border); overflow: hidden; }
+  .vps-gauge .bar-fill { height: 100%; border-radius: 999px; background: var(--sauge); transition: width .3s ease; }
+  .vps-gauge .bar-fill.is-warning { background: var(--terracotta); }
+  .vps-peak-row { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+  .vps-peak-card { flex: 1; min-width: 180px; background: var(--white); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; }
+  .vps-peak-card .label { font-size: 12px; color: var(--text-soft); }
+  .vps-peak-card .value { font-family: 'Fraunces', serif; font-size: 19px; font-weight: 600; margin-top: 2px; }
+  .threshold-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+  .threshold-row label { margin: 0; flex: 1; font-weight: 600; font-size: 13px; }
+  .threshold-row input { width: 90px; }
+  .accounts-table td .muted { display: block; font-size: 11.5px; margin-top: 2px; }
   .detail-row td { background: var(--cream); padding: 18px 22px; }
   .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
   .detail-grid h4 { font-size: 13px; text-transform: uppercase; letter-spacing: .03em; color: var(--text-soft); margin: 0 0 10px; }
@@ -103,25 +139,43 @@
 </head>
 <body>
 
-<div class="topbar">
-  <h1>Superadmin — ClickProspect</h1>
-  <div style="display:flex; align-items:center; gap:12px;">
-    <span class="badge" id="maintenance-badge" style="display:none;"></span>
-    <button class="btn btn-ghost" id="maintenance-toggle-btn" type="button">Mode maintenance</button>
-    <button class="btn btn-ghost" id="logout-btn" type="button">Déconnexion</button>
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <span class="mark"></span>
+    <div><div class="name">ClickProspect</div><div class="tag">Superadmin</div></div>
   </div>
-</div>
 
-<nav class="quick-nav">
-  <a href="#vue-ensemble">Vue d'ensemble</a>
-  <a href="#espaces-travail">Espaces de travail</a>
-  <a href="#base-donnees">Base de données</a>
-  <a href="#email-systeme">E-mail système</a>
-  <a href="#suggestions">Suggestions</a>
-  <a href="#journal-audit">Journal d'audit</a>
-  <a href="#evenements-securite">Événements de sécurité</a>
-  <a href="#base-connaissances">Base de connaissances</a>
-</nav>
+  <div class="sidebar-who">
+    <div class="email" id="who-email">…</div>
+    <span class="role-badge" id="who-role-badge"></span>
+  </div>
+
+  <nav class="sidebar-nav" id="sidebar-nav">
+    <button type="button" data-target="vue-ensemble" class="is-active">Vue d'ensemble</button>
+    <button type="button" data-target="etat-vps">État du VPS</button>
+    <button type="button" data-target="espaces-travail">Espaces de travail</button>
+    <button type="button" data-target="base-donnees">Base de données</button>
+    <button type="button" data-target="comptes-superadmin" data-admin-only="1">Comptes superadmin</button>
+    <button type="button" data-target="email-systeme">E-mail système</button>
+    <button type="button" data-target="suggestions">Suggestions</button>
+    <button type="button" data-target="journal-audit">Journal d'audit</button>
+    <button type="button" data-target="evenements-securite">Événements de sécurité</button>
+    <button type="button" data-target="base-connaissances">Base de connaissances</button>
+  </nav>
+
+  <div class="sidebar-foot">
+    <span class="badge" id="maintenance-badge" style="display:none; align-self:flex-start;"></span>
+    <button id="maintenance-toggle-btn" type="button" data-admin-only="1">Mode maintenance</button>
+    <button id="change-password-btn" type="button">Changer mon mot de passe</button>
+    <button id="logout-btn" type="button">Déconnexion</button>
+  </div>
+</aside>
+
+<div class="content">
+  <div class="content-head">
+    <div class="greeting"><h1>Bonjour 👋</h1></div>
+    <p class="sub" id="content-subtitle">Vue d'ensemble de la supervision ClickProspect.</p>
+  </div>
 
 <div class="main">
   <div class="panel" id="vue-ensemble">
@@ -134,7 +188,8 @@
     </div>
   </div>
 
-  <div class="panel" id="espaces-travail">
+
+  <div class="panel" id="espaces-travail" hidden>
     <div class="panel-head">
       <h2>Espaces de travail</h2>
       <p>Les lignes surlignées ont été signalées automatiquement pour inactivité prolongée (gratuit, 30 jours+) — à valider ou ignorer manuellement.</p>
@@ -148,7 +203,7 @@
     </div>
   </div>
 
-  <div class="panel" id="base-donnees">
+  <div class="panel" id="base-donnees" hidden>
     <div class="panel-head">
       <h2>Base de données</h2>
       <p>Nettoyage des données obsolètes — n'affecte jamais les prospects ni les comptes.</p>
@@ -158,7 +213,7 @@
     </div>
   </div>
 
-  <div class="panel" id="email-systeme">
+  <div class="panel" id="email-systeme" hidden>
     <div class="panel-head">
       <h2>E-mail système</h2>
       <p>Vérifie que SYSTEM_SMTP_* est bien configuré (alertes d'inactivité, futures annonces) sans toucher à un vrai espace client.</p>
@@ -175,7 +230,7 @@
     </div>
   </div>
 
-  <div class="panel" id="suggestions">
+  <div class="panel" id="suggestions" hidden>
     <div class="panel-head">
       <h2>Suggestions</h2>
       <p>Idées et retours envoyés volontairement par les utilisateurs depuis l'assistant d'aide.</p>
@@ -185,7 +240,7 @@
     </div>
   </div>
 
-  <div class="panel" id="journal-audit">
+  <div class="panel" id="journal-audit" hidden>
     <div class="panel-head">
       <h2>Journal d'audit</h2>
       <p>Historique des actions sensibles effectuées depuis cette console (200 dernières).</p>
@@ -195,7 +250,7 @@
     </div>
   </div>
 
-  <div class="panel" id="evenements-securite">
+  <div class="panel" id="evenements-securite" hidden>
     <div class="panel-head">
       <h2>Événements de sécurité</h2>
       <p>Réinitialisations de mot de passe par PIN et blocages anti brute-force (100 derniers) — pour repérer une activité suspecte.</p>
@@ -205,7 +260,7 @@
     </div>
   </div>
 
-  <div class="panel" id="base-connaissances">
+  <div class="panel" id="base-connaissances" hidden>
     <div class="panel-head">
       <h2>Base de connaissances</h2>
       <p>Procédures affichées aux utilisateurs via le panneau d'aide (icône « ? »). L'identifiant (slug) relie une icône dans l'application à son article — ne le change pas sans mettre à jour l'icône correspondante.</p>
@@ -215,6 +270,64 @@
     </div>
     <div id="kb-articles-container">
       <div class="empty-state">Chargement…</div>
+    </div>
+  </div>
+
+  <div class="panel" id="etat-vps" hidden>
+    <div class="panel-head">
+      <h2>État du VPS</h2>
+      <p>Instantané le plus récent (échantillonné toutes les ~5 minutes). Reflète le conteneur applicatif — fiable tant qu'un seul service occupe le VPS.</p>
+    </div>
+    <div class="panel-body" id="vps-snapshot-container">
+      <div class="empty-state">Chargement…</div>
+    </div>
+  </div>
+
+  <div class="panel" id="comptes-superadmin" hidden data-admin-only="1">
+    <div class="panel-head">
+      <h2>Comptes superadmin</h2>
+      <p>Un compte « administrateur » a accès à tout. Un compte « technicien » peut consulter et réinitialiser un mot de passe client, mais jamais changer un abonnement, supprimer un espace, ou se connecter à la place d'un client.</p>
+    </div>
+    <div class="panel-body">
+      <div style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
+        <div style="flex:1; min-width:180px;">
+          <label for="new-account-email">E-mail</label>
+          <input id="new-account-email" type="email" placeholder="prenom@exemple.fr">
+        </div>
+        <div style="flex:1; min-width:160px;">
+          <label for="new-account-password">Mot de passe initial</label>
+          <input id="new-account-password" type="text" placeholder="8 caractères minimum">
+        </div>
+        <div style="min-width:150px;">
+          <label for="new-account-role">Rôle</label>
+          <select id="new-account-role">
+            <option value="technicien">Technicien</option>
+            <option value="administrateur">Administrateur</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" id="create-account-btn" type="button">Créer</button>
+      </div>
+      <div id="create-account-result" class="muted" style="margin-top:10px;"></div>
+    </div>
+    <div id="accounts-container">
+      <div class="empty-state">Chargement…</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- Modal : changer son propre mot de passe superadmin -->
+<div class="modal-overlay" id="password-modal-overlay">
+  <div class="modal">
+    <h3>Changer mon mot de passe</h3>
+    <label for="current-password-input">Mot de passe actuel</label>
+    <input id="current-password-input" type="password">
+    <label for="new-password-input">Nouveau mot de passe</label>
+    <input id="new-password-input" type="password" placeholder="8 caractères minimum">
+    <div id="password-modal-error" class="muted" style="color:#A2502E; display:none; margin-top:10px;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="password-modal-cancel-btn" type="button">Annuler</button>
+      <button class="btn btn-primary" id="password-modal-save-btn" type="button">Enregistrer</button>
     </div>
   </div>
 </div>
@@ -1114,12 +1227,301 @@ function renderSecurityEvents(entries) {
   `;
 }
 
-loadWorkspaces();
-loadDbStats();
-loadAuditLog();
-loadFeedback();
-loadSecurityEvents();
-loadKbArticles();
+// --- Navigation par onglets (sidebar) ---
+
+const navButtons = Array.from(document.querySelectorAll('.sidebar-nav button'));
+const panelSubtitles = {
+  'vue-ensemble': "Vue d'ensemble de la supervision ClickProspect.",
+  'etat-vps': "État du serveur en temps quasi réel.",
+  'espaces-travail': "Gestion des espaces de travail clients.",
+  'base-donnees': "Statistiques et opérations de maintenance de la base.",
+  'comptes-superadmin': "Gestion des comptes ayant accès à cette console.",
+  'email-systeme': "Vérification de la configuration d'envoi.",
+  'suggestions': "Retours envoyés par les utilisateurs.",
+  'journal-audit': "Historique des actions superadmin.",
+  'evenements-securite': "Activité de sécurité récente.",
+  'base-connaissances': "Articles d'aide affichés dans l'application.",
+};
+
+function showPanel(targetId) {
+  document.querySelectorAll('.main > .panel').forEach((panel) => {
+    panel.hidden = panel.id !== targetId;
+  });
+  navButtons.forEach((btn) => {
+    btn.classList.toggle('is-active', btn.dataset.target === targetId);
+  });
+  const subtitleEl = document.getElementById('content-subtitle');
+  if (subtitleEl && panelSubtitles[targetId]) subtitleEl.textContent = panelSubtitles[targetId];
+  window.scrollTo({ top: 0, behavior: 'instant' in window ? 'instant' : 'auto' });
+}
+
+navButtons.forEach((btn) => {
+  btn.addEventListener('click', () => showPanel(btn.dataset.target));
+});
+
+// --- Rôle courant : affiche l'identité, masque ce qui est réservé à l'administrateur ---
+
+let currentSuperadminRole = null;
+
+function applyRoleRestrictions() {
+  const isAdmin = currentSuperadminRole === 'administrateur';
+  document.querySelectorAll('[data-admin-only]').forEach((el) => {
+    el.style.display = isAdmin ? '' : 'none';
+  });
+}
+
+async function loadMe() {
+  const res = await fetch('/api/supadmin/me');
+  if (!res.ok) return;
+  const data = await res.json();
+  currentSuperadminRole = data.role;
+  document.getElementById('who-email').textContent = data.email;
+  const badge = document.getElementById('who-role-badge');
+  badge.textContent = data.role === 'administrateur' ? 'Administrateur' : 'Technicien';
+  badge.className = `role-badge role-${data.role}`;
+
+  applyRoleRestrictions();
+  if (data.role !== 'administrateur') {
+    // Si l'onglet actif au chargement était réservé (jamais le cas par défaut,
+    // mais on se protège si l'URL est rechargée sur cet état) -> retour à la vue d'ensemble.
+    const activeBtn = navButtons.find((b) => b.classList.contains('is-active'));
+    if (activeBtn && activeBtn.dataset.adminOnly) showPanel('vue-ensemble');
+  }
+}
+
+// --- État du VPS ---
+
+function vpsBar(pct, warningAt) {
+  const safePct = Math.max(0, Math.min(100, pct || 0));
+  const warnClass = safePct >= warningAt ? ' is-warning' : '';
+  return `<div class="bar-track"><div class="bar-fill${warnClass}" style="width:${safePct}%"></div></div>`;
+}
+
+async function loadVpsSnapshot() {
+  const container = document.getElementById('vps-snapshot-container');
+  try {
+    const res = await fetch('/api/supadmin/vps/snapshot');
+    const data = await res.json();
+    if (!data.snapshot) {
+      container.innerHTML = '<div class="empty-state">Aucun échantillon pour le moment — le premier arrivera dans quelques minutes.</div>';
+      return;
+    }
+    const s = data.snapshot;
+    const t = data.thresholds;
+    const peak = data.peak_hours;
+
+    let html = '<div class="vps-gauge-grid">';
+    html += `
+      <div class="vps-gauge">
+        <div class="label">Disque</div>
+        <div class="value-row"><span class="value">${s.disk_used_pct?.toFixed(0) ?? '—'}%</span><span class="value-sub">${s.disk_used_gb?.toFixed(1) ?? '—'} / ${s.disk_total_gb?.toFixed(0) ?? '—'} Go</span></div>
+        ${vpsBar(s.disk_used_pct, t.vps_alert_disk_pct)}
+      </div>
+      <div class="vps-gauge">
+        <div class="label">RAM</div>
+        <div class="value-row"><span class="value">${s.ram_used_pct?.toFixed(0) ?? '—'}%</span><span class="value-sub">${s.ram_used_gb?.toFixed(2) ?? '—'} / ${s.ram_total_gb?.toFixed(2) ?? '—'} Go</span></div>
+        ${vpsBar(s.ram_used_pct, t.vps_alert_ram_pct)}
+      </div>
+      <div class="vps-gauge">
+        <div class="label">CPU</div>
+        <div class="value-row"><span class="value">${s.cpu_pct?.toFixed(0) ?? '—'}%</span></div>
+        ${vpsBar(s.cpu_pct, t.vps_alert_cpu_pct)}
+      </div>
+      <div class="vps-gauge">
+        <div class="label">Base de données</div>
+        <div class="value-row"><span class="value" style="font-size:17px;">${s.db_status === 'ok' ? 'OK' : 'Indisponible'}</span></div>
+        <div class="value-sub">${s.db_size_mb ? s.db_size_mb.toFixed(0) + ' Mo' : '—'} · ${s.db_connections ?? '—'} connexions actives</div>
+      </div>
+    `;
+    html += '</div>';
+
+    html += `<p class="muted" style="margin-bottom:16px;">Bande passante instantanée : ${s.bandwidth_mbps != null ? s.bandwidth_mbps.toFixed(2) + ' Mbit/s' : 'pas encore mesurable'} · dernier échantillon ${new Date(s.sampled_at).toLocaleString('fr-FR')}</p>`;
+
+    html += '<div class="vps-peak-row">';
+    if (peak) {
+      html += `
+        <div class="vps-peak-card"><div class="label">Heure de pointe</div><div class="value">${peak.heure_haute.heure}h — ${peak.heure_haute.bandwidth_mbps.toFixed(2)} Mbit/s</div></div>
+        <div class="vps-peak-card"><div class="label">Heure creuse</div><div class="value">${peak.heure_basse.heure}h — ${peak.heure_basse.bandwidth_mbps.toFixed(2)} Mbit/s</div></div>
+      `;
+    } else {
+      html += '<div class="vps-peak-card"><div class="label">Heures de pointe / creuses</div><div class="muted" style="margin-top:4px;">Pas encore assez d\'historique (12h minimum).</div></div>';
+    }
+    html += '</div>';
+
+    html += `
+      <h4 style="font-size:13px; text-transform:uppercase; letter-spacing:.03em; color:var(--text-soft); margin:0 0 10px;">Seuils d'alerte (e-mail aux administrateurs si dépassé)</h4>
+      <div class="threshold-row"><label>Disque (%)</label><input type="number" id="threshold-disk" min="1" max="100" value="${t.vps_alert_disk_pct}"></div>
+      <div class="threshold-row"><label>RAM (%)</label><input type="number" id="threshold-ram" min="1" max="100" value="${t.vps_alert_ram_pct}"></div>
+      <div class="threshold-row"><label>CPU (%)</label><input type="number" id="threshold-cpu" min="1" max="100" value="${t.vps_alert_cpu_pct}"></div>
+      <button class="btn btn-primary" id="save-thresholds-btn" type="button" style="margin-top:10px;" data-admin-only="1">Enregistrer les seuils</button>
+      <div id="thresholds-result" class="muted" style="margin-top:8px;"></div>
+    `;
+
+    container.innerHTML = html;
+    applyRoleRestrictions();
+
+    const saveBtn = document.getElementById('save-thresholds-btn');
+    if (saveBtn) {
+      saveBtn.addEventListener('click', async () => {
+        saveBtn.disabled = true;
+        const resultEl = document.getElementById('thresholds-result');
+        try {
+          const res2 = await fetch('/api/supadmin/vps/thresholds', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              vps_alert_disk_pct: document.getElementById('threshold-disk').value,
+              vps_alert_ram_pct: document.getElementById('threshold-ram').value,
+              vps_alert_cpu_pct: document.getElementById('threshold-cpu').value,
+            }),
+          });
+          const data2 = await res2.json();
+          if (!res2.ok) throw new Error(data2.error || 'Échec de la mise à jour.');
+          resultEl.textContent = 'Seuils enregistrés.';
+        } catch (err) {
+          resultEl.textContent = `Échec : ${err.message}`;
+        } finally {
+          saveBtn.disabled = false;
+        }
+      });
+    }
+  } catch (err) {
+    container.innerHTML = '<div class="empty-state">Impossible de charger l\'état du VPS.</div>';
+  }
+}
+
+// --- Comptes superadmin ---
+
+const ROLE_LABELS = { administrateur: 'Administrateur', technicien: 'Technicien' };
+
+async function loadSuperadminAccounts() {
+  const container = document.getElementById('accounts-container');
+  try {
+    const res = await fetch('/api/supadmin/accounts');
+    const data = await res.json();
+    if (!data.accounts || data.accounts.length === 0) {
+      container.innerHTML = '<div class="empty-state">Aucun compte.</div>';
+      return;
+    }
+    let html = '<table class="accounts-table"><thead><tr><th>Compte</th><th>Rôle</th><th>Statut</th><th></th></tr></thead><tbody>';
+    data.accounts.forEach((acc) => {
+      html += `
+        <tr>
+          <td>${acc.email}<span class="muted">Créé le ${new Date(acc.created_at).toLocaleDateString('fr-FR')}</span></td>
+          <td>${ROLE_LABELS[acc.role] || acc.role}</td>
+          <td>${acc.is_active ? '<span class="badge badge-paid">Actif</span>' : '<span class="badge badge-free">Désactivé</span>'}</td>
+          <td class="row-actions">
+            <button class="btn btn-ghost toggle-active-btn" data-id="${acc.id}" data-next="${acc.is_active ? 'false' : 'true'}" type="button">${acc.is_active ? 'Désactiver' : 'Réactiver'}</button>
+          </td>
+        </tr>
+      `;
+    });
+    html += '</tbody></table>';
+    container.innerHTML = html;
+
+    container.querySelectorAll('.toggle-active-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        const next = btn.dataset.next === 'true';
+        if (!next && !confirm('Désactiver ce compte superadmin ? Il ne pourra plus se connecter.')) return;
+        btn.disabled = true;
+        try {
+          const res2 = await fetch(`/api/supadmin/accounts/${id}/active`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ is_active: next }),
+          });
+          if (!res2.ok) {
+            const data2 = await res2.json();
+            throw new Error(data2.error || 'Échec.');
+          }
+          loadSuperadminAccounts();
+        } catch (err) {
+          alert(err.message);
+          btn.disabled = false;
+        }
+      });
+    });
+  } catch (err) {
+    container.innerHTML = '<div class="empty-state">Impossible de charger les comptes.</div>';
+  }
+}
+
+document.getElementById('create-account-btn').addEventListener('click', async () => {
+  const email = document.getElementById('new-account-email').value.trim();
+  const password = document.getElementById('new-account-password').value;
+  const role = document.getElementById('new-account-role').value;
+  const resultEl = document.getElementById('create-account-result');
+  const btn = document.getElementById('create-account-btn');
+  btn.disabled = true;
+  resultEl.textContent = '';
+  try {
+    const res = await fetch('/api/supadmin/accounts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, role }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Échec de la création.');
+    resultEl.textContent = `Compte créé (${email}, ${ROLE_LABELS[role]}). Communique-lui son mot de passe initial de façon sécurisée — il pourra le changer depuis « Changer mon mot de passe ».`;
+    document.getElementById('new-account-email').value = '';
+    document.getElementById('new-account-password').value = '';
+    loadSuperadminAccounts();
+  } catch (err) {
+    resultEl.textContent = `Échec : ${err.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// --- Changer son propre mot de passe ---
+
+const passwordModal = document.getElementById('password-modal-overlay');
+document.getElementById('change-password-btn').addEventListener('click', () => {
+  document.getElementById('current-password-input').value = '';
+  document.getElementById('new-password-input').value = '';
+  document.getElementById('password-modal-error').style.display = 'none';
+  passwordModal.classList.add('show');
+});
+document.getElementById('password-modal-cancel-btn').addEventListener('click', () => {
+  passwordModal.classList.remove('show');
+});
+document.getElementById('password-modal-save-btn').addEventListener('click', async () => {
+  const errorEl = document.getElementById('password-modal-error');
+  errorEl.style.display = 'none';
+  const btn = document.getElementById('password-modal-save-btn');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/supadmin/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        current_password: document.getElementById('current-password-input').value,
+        new_password: document.getElementById('new-password-input').value,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Échec.');
+    passwordModal.classList.remove('show');
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+(async () => {
+  await loadMe();
+  loadWorkspaces();
+  loadDbStats();
+  loadAuditLog();
+  loadFeedback();
+  loadSecurityEvents();
+  loadKbArticles();
+  loadVpsSnapshot();
+  loadSuperadminAccounts();
+})();
 
 // --- Suggestions ---
 
