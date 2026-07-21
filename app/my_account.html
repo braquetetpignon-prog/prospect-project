@@ -19,10 +19,35 @@
 function onAuthReady(me) {
   renderAccount(me);
   loadPinStatus();
+  loadProfile(me);
 }
 
 function renderAccount(me) {
   document.getElementById('account-root').innerHTML = `
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Mes informations</h2>
+        <p>Facultatif — utile pour te contacter et, si tu es administrateur, pour identifier ton entreprise. Rien n'est obligatoire.</p>
+      </div>
+      <div class="panel-body">
+        <form id="profile-form">
+          <div class="field"><label for="profile-first-name">Prénom</label><input id="profile-first-name" maxlength="100"></div>
+          <div class="field"><label for="profile-last-name">Nom</label><input id="profile-last-name" maxlength="100"></div>
+          <div class="field"><label for="profile-phone">Téléphone</label><input id="profile-phone" type="tel" maxlength="30"></div>
+          <div id="profile-company-fields" style="display:none;">
+            <div class="field"><label for="profile-company-name">Nom de l'entreprise</label><input id="profile-company-name" maxlength="255"></div>
+            <div class="field"><label for="profile-siret">SIRET</label><input id="profile-siret" maxlength="14" pattern="[0-9]{14}" title="14 chiffres"></div>
+            <div class="field"><label for="profile-adresse">Adresse</label><input id="profile-adresse" maxlength="500"></div>
+            <div class="field" style="display:flex; gap:10px;">
+              <div style="flex:0 0 120px;"><label for="profile-code-postal">Code postal</label><input id="profile-code-postal" maxlength="5" pattern="[0-9]{5}"></div>
+              <div style="flex:1;"><label for="profile-ville">Ville</label><input id="profile-ville" maxlength="255"></div>
+            </div>
+          </div>
+          <button class="btn btn-primary btn-sm" type="submit">Enregistrer mes informations</button>
+        </form>
+      </div>
+    </div>
+
     <div class="panel">
       <div class="panel-head"><h2>Changer mon mot de passe</h2></div>
       <div class="panel-body">
@@ -55,8 +80,56 @@ function renderAccount(me) {
     </div>
   `;
 
+  if (me.role === 'admin') {
+    document.getElementById('profile-company-fields').style.display = 'block';
+  }
+
+  document.getElementById('profile-form').addEventListener('submit', saveProfile);
   document.getElementById('password-form').addEventListener('submit', savePassword);
   document.getElementById('pin-form').addEventListener('submit', savePin);
+}
+
+async function loadProfile() {
+  try {
+    const data = await fetchJSON('/api/auth/profile');
+    document.getElementById('profile-first-name').value = data.first_name || '';
+    document.getElementById('profile-last-name').value = data.last_name || '';
+    document.getElementById('profile-phone').value = data.phone || '';
+    const companyNameEl = document.getElementById('profile-company-name');
+    if (companyNameEl) {
+      companyNameEl.value = data.company_name || '';
+      document.getElementById('profile-siret').value = data.siret || '';
+      document.getElementById('profile-adresse').value = data.adresse || '';
+      document.getElementById('profile-code-postal').value = data.code_postal || '';
+      document.getElementById('profile-ville').value = data.ville || '';
+    }
+  } catch (e) { /* silencieux : formulaire reste vide, pas bloquant */ }
+}
+
+async function saveProfile(e) {
+  e.preventDefault();
+  const body = {
+    first_name: document.getElementById('profile-first-name').value,
+    last_name: document.getElementById('profile-last-name').value,
+    phone: document.getElementById('profile-phone').value,
+  };
+  const companyNameEl = document.getElementById('profile-company-name');
+  if (companyNameEl) {
+    body.company_name = companyNameEl.value;
+    body.siret = document.getElementById('profile-siret').value;
+    body.adresse = document.getElementById('profile-adresse').value;
+    body.code_postal = document.getElementById('profile-code-postal').value;
+    body.ville = document.getElementById('profile-ville').value;
+  }
+  try {
+    await fetchJSON('/api/auth/profile', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    showToast('Informations enregistrées.');
+  } catch (err) {
+    showToast(err.message, true);
+  }
 }
 
 async function loadPinStatus() {

@@ -35,6 +35,7 @@ from app import security_events
 from app import kb
 from app import mollie_billing
 from app import vps_monitoring
+from app import client_sync
 from app.app_logging import logger
 from flask import Response
 
@@ -505,6 +506,21 @@ def auth_pin():
         auth.set_pin(session["user_id"], current_password, pin)
     except auth.AuthError as exc:
         return jsonify(error=str(exc)), 400
+    return jsonify(status="ok")
+
+
+@app.route("/api/auth/profile", methods=["GET", "PUT"])
+@login_required
+def auth_profile():
+    """Informations facultatives de Mon compte (identité + entreprise).
+    Les champs entreprise (SIRET, adresse...) ne sont modifiables que par
+    un admin — vérifié dans auth.update_profile, pas seulement ici."""
+    if request.method == "GET":
+        return jsonify(**auth.get_profile(session["user_id"], session["workspace_id"]))
+
+    body = request.get_json(silent=True) or {}
+    is_admin = session.get("role") == "admin"
+    auth.update_profile(session["user_id"], session["workspace_id"], is_admin, body)
     return jsonify(status="ok")
 
 
@@ -2134,6 +2150,25 @@ def auth_end_impersonation():
 @superadmin.login_required
 def supadmin_audit_log():
     return jsonify(entries=superadmin.list_audit_log())
+
+
+@app.route("/api/supadmin/crm-sync", methods=["GET", "PUT"])
+@superadmin.admin_required
+def supadmin_crm_sync_settings():
+    if request.method == "GET":
+        return jsonify(target_workspace_id=client_sync.get_crm_target_workspace_id())
+
+    body = request.get_json(silent=True) or {}
+    workspace_id = body.get("target_workspace_id")
+    client_sync.set_crm_target_workspace_id(int(workspace_id) if workspace_id else None)
+    return jsonify(status="ok", target_workspace_id=client_sync.get_crm_target_workspace_id())
+
+
+@app.route("/api/supadmin/crm-sync/run", methods=["POST"])
+@superadmin.admin_required
+def supadmin_crm_sync_run():
+    count = client_sync.sync_all_workspaces()
+    return jsonify(status="ok", processed=count)
 
 
 @app.route("/api/supadmin/me")

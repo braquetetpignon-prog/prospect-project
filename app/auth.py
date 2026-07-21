@@ -338,6 +338,89 @@ def has_pin(user_id):
         conn.close()
 
 
+PROFILE_PERSONAL_FIELDS = ("first_name", "last_name", "phone")
+PROFILE_COMPANY_FIELDS = ("name", "siret", "adresse", "code_postal", "ville")
+
+
+def get_profile(user_id, workspace_id):
+    """Informations personnelles (users) + entreprise (workspaces) pour la
+    page Mon compte. Les champs entreprise sont renvoyés pour tout le monde
+    (affichage), mais seul un admin peut les modifier — voir update_profile."""
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT first_name, last_name, phone FROM users WHERE id = %s", (user_id,)
+            )
+            personal = cur.fetchone()
+            cur.execute(
+                "SELECT name, siret, adresse, code_postal, ville FROM workspaces WHERE id = %s",
+                (workspace_id,),
+            )
+            company = cur.fetchone()
+    finally:
+        conn.close()
+    return {
+        "first_name": personal[0], "last_name": personal[1], "phone": personal[2],
+        "company_name": company[0], "siret": company[1], "adresse": company[2],
+        "code_postal": company[3], "ville": company[4],
+    }
+
+
+def update_profile(user_id, workspace_id, is_admin, fields):
+    """Met à jour les informations facultatives de Mon compte. Les champs
+    personnels (nom, prénom, téléphone) sont modifiables par n'importe quel
+    utilisateur pour lui-même ; les champs entreprise (nom, SIRET, adresse)
+    ne le sont que par un admin de l'espace de travail — un commercial ne
+    doit pas pouvoir changer le SIRET de l'entreprise depuis son propre
+    compte. Tous les champs sont facultatifs (aucun n'est requis) :
+    minimisation des données, personne n'est forcé de les renseigner."""
+    personal_updates = {
+        k: (fields.get(k) or "").strip() or None
+        for k in PROFILE_PERSONAL_FIELDS if k in fields
+    }
+    company_updates = {}
+    if is_admin:
+        company_updates = {
+            k: (fields.get(k) or "").strip() or None
+            for k in PROFILE_COMPANY_FIELDS if k in fields
+        }
+        # "name" du côté workspaces, mais la clé publique de l'API est
+        # "company_name" pour rester explicite côté formulaire.
+        if "company_name" in fields:
+            company_updates["name"] = (fields.get("company_name") or "").strip() or None
+
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            if personal_updates:
+                set_clause = ", ".join(f"{k} = %s" for k in personal_updates)
+                cur.execute(
+                    f"UPDATE users SET {set_clause} WHERE id = %s",
+                    (*personal_updates.values(), user_id),
+                )
+            if company_updates:
+                # "name" ne doit jamais être vidé (NOT NULL en base) : on
+                # ignore une valeur vide pour cette colonne précise plutôt
+                # que de risquer une erreur SQL qui ferait perdre aussi les
+                # autres champs de la même requête.
+                if "name" in company_updates and not company_updates["name"]:
+                    company_updates.pop("name")
+                if company_updates:
+                    set_clause = ", ".join(f"{k} = %s" for k in company_updates)
+                    cur.execute(
+                        f"UPDATE workspaces SET {set_clause} WHERE id = %s",
+                        (*company_updates.values(), workspace_id),
+                    )
+        conn.commit()
+    finally:
+        conn.close()
+
+    if is_admin:
+        from app import client_sync
+        client_sync.sync_workspace_admin_to_crm(workspace_id)
+
+
 def reset_password_with_pin(email, pin, new_password):
     """Réinitialise le mot de passe via le code PIN — auto-service, sans
     passer par un e-mail. Message d'erreur volontairement générique dans

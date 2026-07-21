@@ -154,6 +154,7 @@
     <button type="button" data-target="vue-ensemble" class="is-active">Vue d'ensemble</button>
     <button type="button" data-target="etat-vps">État du VPS</button>
     <button type="button" data-target="espaces-travail">Espaces de travail</button>
+    <button type="button" data-target="crm-sync" data-admin-only="1">Synchro Gestion Client</button>
     <button type="button" data-target="base-donnees">Base de données</button>
     <button type="button" data-target="comptes-superadmin" data-admin-only="1">Comptes superadmin</button>
     <button type="button" data-target="email-systeme">E-mail système</button>
@@ -201,6 +202,27 @@
     </div>
     <div id="table-container">
       <div class="empty-state">Chargement…</div>
+    </div>
+  </div>
+
+  <div class="panel" id="crm-sync" hidden data-admin-only="1">
+    <div class="panel-head">
+      <h2>Synchro Gestion Client</h2>
+      <p>Fait remonter automatiquement le profil de l'administrateur de chaque espace de travail (nom, entreprise, SIRET, adresse, contact) vers ta propre rubrique Gestion Client, dans l'espace de travail choisi ci-dessous. Se déclenche à chaque fois qu'un administrateur enregistre ses informations depuis « Mon compte ».</p>
+    </div>
+    <div class="panel-body">
+      <div style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
+        <div style="flex:1; min-width:260px;">
+          <label for="crm-target-select">Espace de travail cible (le tien)</label>
+          <select id="crm-target-select">
+            <option value="">— Désactivé —</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" id="crm-target-save-btn" type="button">Enregistrer</button>
+        <button class="btn btn-ghost" id="crm-sync-run-btn" type="button">Resynchroniser tout maintenant</button>
+      </div>
+      <div id="crm-sync-result" class="muted" style="margin-top:10px;"></div>
+      <p class="muted" style="margin-top:14px;">Ne synchronise que les champs volontairement renseignés (jamais de mot de passe, jamais de PIN). Les fiches créées portent la mention « Client ClickProspect — profil synchronisé automatiquement » et le statut « Client » directement.</p>
     </div>
   </div>
 
@@ -1257,6 +1279,7 @@ const panelSubtitles = {
   'vue-ensemble': "Vue d'ensemble de la supervision ClickProspect.",
   'etat-vps': "État du serveur en temps quasi réel.",
   'espaces-travail': "Gestion des espaces de travail clients.",
+  'crm-sync': "Faire de ClickProspect ton propre outil de gestion client.",
   'base-donnees': "Statistiques et opérations de maintenance de la base.",
   'comptes-superadmin': "Gestion des comptes ayant accès à cette console.",
   'email-systeme': "Vérification de la configuration d'envoi.",
@@ -1413,6 +1436,66 @@ async function loadVpsSnapshot() {
   } catch (err) {
     container.innerHTML = '<div class="empty-state">Impossible de charger l\'état du VPS.</div>';
   }
+}
+
+// --- Synchro Gestion Client ---
+
+async function loadCrmSyncSettings() {
+  const select = document.getElementById('crm-target-select');
+  try {
+    const [wsData, settingsData] = await Promise.all([
+      fetch('/api/supadmin/workspaces').then((r) => r.json()),
+      fetch('/api/supadmin/crm-sync').then((r) => r.json()),
+    ]);
+    const current = settingsData.target_workspace_id;
+    select.innerHTML = '<option value="">— Désactivé —</option>' + wsData.workspaces.map((w) =>
+      `<option value="${w.id}"${String(w.id) === String(current) ? ' selected' : ''}>${escapeHtml(w.name)} (${escapeHtml(w.admin_email || '—')})</option>`
+    ).join('');
+  } catch (err) {
+    select.innerHTML = '<option value="">Impossible de charger les espaces</option>';
+  }
+}
+
+const crmSaveBtn = document.getElementById('crm-target-save-btn');
+if (crmSaveBtn) {
+  crmSaveBtn.addEventListener('click', async () => {
+    const resultEl = document.getElementById('crm-sync-result');
+    crmSaveBtn.disabled = true;
+    try {
+      const value = document.getElementById('crm-target-select').value;
+      const res = await fetch('/api/supadmin/crm-sync', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_workspace_id: value || null }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Échec.');
+      resultEl.textContent = value ? 'Espace cible enregistré.' : 'Synchronisation désactivée.';
+    } catch (err) {
+      resultEl.textContent = `Échec : ${err.message}`;
+    } finally {
+      crmSaveBtn.disabled = false;
+    }
+  });
+}
+
+const crmRunBtn = document.getElementById('crm-sync-run-btn');
+if (crmRunBtn) {
+  crmRunBtn.addEventListener('click', async () => {
+    const resultEl = document.getElementById('crm-sync-result');
+    crmRunBtn.disabled = true;
+    resultEl.textContent = 'Resynchronisation en cours…';
+    try {
+      const res = await fetch('/api/supadmin/crm-sync/run', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Échec.');
+      resultEl.textContent = `${data.processed} espace(s) traité(s).`;
+    } catch (err) {
+      resultEl.textContent = `Échec : ${err.message}`;
+    } finally {
+      crmRunBtn.disabled = false;
+    }
+  });
 }
 
 // --- Comptes superadmin ---
@@ -1587,6 +1670,7 @@ document.getElementById('pin-modal-save-btn').addEventListener('click', async ()
   loadKbArticles();
   loadVpsSnapshot();
   loadSuperadminAccounts();
+  loadCrmSyncSettings();
 })();
 
 // --- Suggestions ---
