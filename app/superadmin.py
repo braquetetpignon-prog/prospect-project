@@ -4,12 +4,20 @@ abonnement, et réinitialisation de mot de passe en cas de besoin. Totalement
 séparé des comptes utilisateurs normaux (table dédiée `superadmins`, session
 distincte) — accessible uniquement via /supadmin, jamais lié depuis l'app.
 
-Bootstrap : le premier (et normalement unique) compte superadmin est créé
+Deux rôles : 'administrateur' (accès complet) et 'technicien' (support —
+consultation, réinitialisation de mot de passe d'un admin d'espace de
+travail, mais jamais login-as, jamais changement d'abonnement/suppression).
+Voir login_required (n'importe quel rôle) vs admin_required (administrateur
+uniquement) — la distinction est toujours vérifiée côté serveur.
+
+Bootstrap : le premier compte superadmin (toujours 'administrateur') est créé
 automatiquement au démarrage à partir des variables d'environnement
 SUPERADMIN_EMAIL / SUPERADMIN_PASSWORD, définies directement sur Coolify —
 jamais saisies ni vues côté code applicatif au-delà de cette création initiale.
 Si ces variables ne sont pas définies, ou si un compte existe déjà, rien ne
 se passe (idempotent, sûr à appeler à chaque démarrage de chaque worker).
+D'autres comptes (administrateur ou technicien) se créent ensuite depuis
+/supadmin lui-même, réservé aux administrateurs (create_superadmin).
 """
 import os
 import secrets
@@ -50,7 +58,7 @@ def login(email, password):
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, password_hash, email FROM superadmins WHERE email = %s",
+                "SELECT id, password_hash, email, role, is_active FROM superadmins WHERE email = %s",
                 (email.lower().strip(),),
             )
             row = cur.fetchone()
@@ -59,10 +67,13 @@ def login(email, password):
 
     if not row or not check_password_hash(row[1], password):
         raise SuperadminError("Adresse e-mail ou mot de passe incorrect.")
+    if not row[4]:
+        raise SuperadminError("Ce compte a été désactivé.")
 
     session.clear()
     session["superadmin_id"] = row[0]
     session["superadmin_email"] = row[2]
+    session["superadmin_role"] = row[3]
     session.permanent = True
 
 
@@ -123,11 +134,32 @@ def current_superadmin_id():
     return session.get("superadmin_id")
 
 
+def current_superadmin_role():
+    return session.get("superadmin_role")
+
+
 def login_required(f):
+    """N'importe quel compte superadmin actif — administrateur ou technicien.
+    Utilisé pour les actions de consultation et de support (voir Article
+    des rôles en tête de fichier)."""
     @wraps(f)
     def wrapper(*args, **kwargs):
         if "superadmin_id" not in session:
             return jsonify(error="Authentification superadmin requise."), 401
+        return f(*args, **kwargs)
+    return wrapper
+
+
+def admin_required(f):
+    """Réservé au rôle 'administrateur' — actions destructives, financières,
+    ou touchant à la confidentialité d'un client (login-as). Toujours
+    vérifié côté serveur, jamais seulement masqué côté interface."""
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if "superadmin_id" not in session:
+            return jsonify(error="Authentification superadmin requise."), 401
+        if session.get("superadmin_role") != "administrateur":
+            return jsonify(error="Action réservée au rôle administrateur."), 403
         return f(*args, **kwargs)
     return wrapper
 
@@ -143,11 +175,11 @@ def _log_action(action, workspace_id=None, workspace_name=None, details=None,
     l'appelant a déjà modifié la session (ex: login_as, qui bascule sur une
     session utilisateur normale avant de journaliser) — sinon, lus depuis la
     session courante."""
-    if superadmin_id is None:
-        superadmin_id = current_superadmin_id()
-    if superadmin_email is None:
-        superadmin_email = session.get("superadmin_email", "?")
     try:
+        if superadmin_id is None:
+            superadmin_id = current_superadmin_id()
+        if superadmin_email is None:
+            superadmin_email = session.get("superadmin_email", "?")
         conn = get_db()
         try:
             with conn.cursor() as cur:
@@ -579,7 +611,95 @@ def get_workspace_detail(workspace_id):
     }
 
 
-def list_feedback(limit=200):
+def list_superadmins():
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, email, role, is_active, created_at FROM superadmins ORDER BY created_at"
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    return [
+        {"id": r[0], "email": r[1], "role": r[2], "is_active": r[3], "created_at": r[4]}
+        for r in rows
+    ]
+
+
+def create_superadmin(email, password, role):
+    if role not in ("administrateur", "technicien"):
+        raise SuperadminError("Rôle invalide.")
+    if not password or len(password) < 8:
+        raise SuperadminError("Le mot de passe doit contenir au moins 8 caractères.")
+
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM superadmins WHERE email = %s", (email.lower().strip(),))
+            if cur.fetchone():
+                raise SuperadminError("Un compte superadmin existe déjà avec cet e-mail.")
+            cur.execute(
+                "INSERT INTO superadmins (email, password_hash, role) VALUES (%s, %s, %s) RETURNING id",
+                (email.lower().strip(), generate_password_hash(password), role),
+            )
+            new_id = cur.fetchone()[0]
+        conn.commit()
+    finally:
+        conn.close()
+
+    _log_action("create_superadmin", details=f"{email} ({role})")
+    return new_id
+
+
+def set_superadmin_active(superadmin_id, is_active):
+    """Désactive ou réactive un compte superadmin — jamais de suppression
+    définitive, pour garder l'historique du journal d'audit lisible
+    (superadmin_id y référence toujours un compte existant tant qu'on ne le
+    supprime pas). On ne peut jamais se désactiver soi-même, pour éviter de
+    se retrouver bloqué dehors par erreur."""
+    if superadmin_id == current_superadmin_id() and not is_active:
+        raise SuperadminError("Impossible de désactiver votre propre compte.")
+
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE superadmins SET is_active = %s WHERE id = %s RETURNING email",
+                (is_active, superadmin_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise SuperadminError("Compte superadmin introuvable.")
+        conn.commit()
+    finally:
+        conn.close()
+
+    _log_action("deactivate_superadmin" if not is_active else "reactivate_superadmin", details=row[0])
+
+
+def change_own_password(current_password, new_password):
+    superadmin_id = current_superadmin_id()
+    if not new_password or len(new_password) < 8:
+        raise SuperadminError("Le nouveau mot de passe doit contenir au moins 8 caractères.")
+
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT password_hash FROM superadmins WHERE id = %s", (superadmin_id,))
+            row = cur.fetchone()
+            if not row or not check_password_hash(row[0], current_password):
+                raise SuperadminError("Mot de passe actuel incorrect.")
+            cur.execute(
+                "UPDATE superadmins SET password_hash = %s WHERE id = %s",
+                (generate_password_hash(new_password), superadmin_id),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+
     conn = get_db()
     try:
         with conn.cursor() as cur:
