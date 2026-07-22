@@ -312,6 +312,9 @@ def set_plan(workspace_id, plan, paid_until=None):
         details=f"Nouveau statut : {plan}" + (f" jusqu'au {paid_until}" if plan == "paid" else ""),
     )
 
+    from app import client_sync
+    client_sync.sync_subscription_status(workspace_id)
+
 
 def set_ia_search_quota_override(workspace_id, quota_override):
     """quota_override : entier >= 1, ou None pour revenir au quota global par défaut."""

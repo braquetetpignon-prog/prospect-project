@@ -308,6 +308,14 @@ CREATE INDEX IF NOT EXISTS idx_prospects_siren ON prospects(siren);
 ALTER TABLE prospects ADD COLUMN IF NOT EXISTS synced_from_workspace_id INTEGER REFERENCES workspaces(id) ON DELETE SET NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_prospects_synced_from_unique
     ON prospects(workspace_id, synced_from_workspace_id) WHERE synced_from_workspace_id IS NOT NULL;
+-- Statut d'abonnement au moment de la dernière synchronisation (voir
+-- app/client_sync.py) — "Essai", "Payant mensuel", "Payant annuel" ou
+-- "Gratuit", avec sa date de fin le cas échéant. Sert à filtrer facilement
+-- les renouvellements récents pour la facturation manuelle (export CSV).
+-- Mis à jour à chaque renouvellement Mollie, pas seulement à l'enregistrement
+-- du profil — voir mollie_billing.py et superadmin.py::set_plan.
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS synced_subscription_status TEXT;
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS synced_subscription_end_date DATE;
 
 -- Nom du contact (pour personnaliser "Bonjour {prenom}" dans les emails de campagne).
 -- ALTER plutôt que colonne dans le CREATE TABLE ci-dessus : la table existe déjà en
