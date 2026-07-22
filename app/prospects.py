@@ -210,6 +210,7 @@ def search_prospects(workspace_id, query=None, statut=None, prospect_type_id=Non
                        p.telephone, p.statut, p.source, pt.nom AS type_nom, p.created_at,
                        p.prochaine_action, p.prochaine_action_date, p.potentiel, p.valeur_estimee,
                        p.adresse, p.code_postal, p.batiment, p.etage, p.notes,
+                       p.synced_subscription_status, p.synced_subscription_end_date,
                        EXISTS (
                            SELECT 1 FROM rendez_vous rv
                            WHERE rv.prospect_id = p.id AND rv.date_heure > now()
@@ -225,7 +226,8 @@ def search_prospects(workspace_id, query=None, statut=None, prospect_type_id=Non
         cols = ["id", "nom_entreprise", "contact_prenom", "contact_nom", "ville", "email",
                 "telephone", "statut", "source", "type_nom", "created_at",
                 "prochaine_action", "prochaine_action_date", "potentiel", "valeur_estimee",
-                "adresse", "code_postal", "batiment", "etage", "notes", "has_upcoming_rdv"]
+                "adresse", "code_postal", "batiment", "etage", "notes",
+                "synced_subscription_status", "synced_subscription_end_date", "has_upcoming_rdv"]
         return [dict(zip(cols, r)) for r in rows]
     finally:
         conn.close()
@@ -238,7 +240,7 @@ def export_csv(workspace_id, statut=None):
     writer.writerow([
         "Entreprise", "Prénom contact", "Nom contact", "Ville", "Adresse", "Code postal",
         "Bâtiment", "Étage", "Email", "Téléphone", "Statut", "Type", "Source",
-        "Potentiel", "Valeur estimée", "Notes",
+        "Potentiel", "Valeur estimée", "Abonnement", "Fin abonnement", "Notes",
     ])
     for p in prospects:
         writer.writerow([
@@ -247,6 +249,8 @@ def export_csv(workspace_id, statut=None):
             p["email"] or "", p["telephone"] or "", p["statut"], p["type_nom"] or "", p["source"] or "",
             p["potentiel"] if p["potentiel"] is not None else "",
             p["valeur_estimee"] if p["valeur_estimee"] is not None else "",
+            p.get("synced_subscription_status") or "",
+            p.get("synced_subscription_end_date") or "",
             p["notes"] or "",
         ])
     return buf.getvalue()

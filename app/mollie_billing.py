@@ -417,6 +417,8 @@ def handle_webhook_payment(payment_id):
         finally:
             conn.close()
         _log_event(workspace_id, payment_id, "first_payment_paid", "Abonnement créé, espace activé.")
+        from app import client_sync
+        client_sync.sync_subscription_status(workspace_id)
     else:
         # Paiement de renouvellement : on prolonge simplement l'accès.
         conn = get_db()
@@ -434,3 +436,5 @@ def handle_webhook_payment(payment_id):
         finally:
             conn.close()
         _log_event(workspace_id, payment_id, "renewal_payment_paid")
+        from app import client_sync
+        client_sync.sync_subscription_status(workspace_id)
