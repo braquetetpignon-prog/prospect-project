@@ -135,6 +135,13 @@
   .purge-row:first-of-type { border-top: none; }
   .table-scroll { max-height: 480px; overflow-y: auto; }
   .table-scroll thead th { position: sticky; top: 0; z-index: 1; }
+  /* Le tableau des espaces de travail a beaucoup de colonnes + jusqu'à 6
+     boutons d'action par ligne — trop large pour tenir sur beaucoup
+     d'écrans. Plutôt que de laisser .panel (overflow:hidden) couper le
+     contenu, on le rend défilable horizontalement dans son propre cadre. */
+  .table-scroll-x { overflow-x: auto; }
+  .table-scroll-x table { min-width: 980px; }
+  .table-scroll-x .row-actions { flex-wrap: nowrap; }
 </style>
 </head>
 <body>
@@ -772,6 +779,7 @@ function renderTable(list) {
     return;
   }
   document.getElementById('table-container').innerHTML = `
+    <div class="table-scroll-x">
     <table>
       <thead><tr><th>Espace</th><th>Admin</th><th>Membres</th><th>Créé le</th><th>Dernière activité</th><th>Statut</th><th>Formule</th><th>Quota IA</th><th></th></tr></thead>
       <tbody>
@@ -796,8 +804,8 @@ function renderTable(list) {
                 <button class="btn btn-ghost" data-action="detail" data-id="${w.id}">Détails</button>
                 <button class="btn btn-ghost" data-action="plan" data-id="${w.id}">Abonnement</button>
                 <button class="btn btn-ghost" data-action="ia-quota" data-id="${w.id}">Quota IA</button>
-                <button class="btn btn-ghost" data-action="reset" data-id="${w.id}">Réinit. mot de passe</button>
-                ${w.admin_email ? `<button class="btn btn-ghost" data-action="login-as" data-id="${w.id}">Se connecter en tant que</button>` : ''}
+                <button class="btn btn-ghost" data-action="reset" data-id="${w.id}">Réinit. mdp</button>
+                ${w.admin_email ? `<button class="btn btn-ghost" data-action="login-as" data-id="${w.id}">Connexion client</button>` : ''}
                 ${w.deletion_requested_at ? `<button class="btn btn-ghost" data-action="dismiss" data-id="${w.id}">Ignorer la demande</button>` : ''}
                 <button class="btn btn-danger" data-action="delete" data-id="${w.id}">Supprimer</button>
               </div>
@@ -809,6 +817,7 @@ function renderTable(list) {
         `).join('')}
       </tbody>
     </table>
+    </div>
   `;
 
   document.querySelectorAll('[data-action="detail"]').forEach(btn => {
