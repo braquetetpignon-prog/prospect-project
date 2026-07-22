@@ -108,12 +108,22 @@ _ALL_LABEL_SYNONYMS = sorted(
     reverse=True,
 )
 
-# Repère un espace juste avant un libellé reconnu suivi (après espaces éventuels)
-# d'un ":" — c'est-à-dire un nouveau champ qui démarre au milieu d'une ligne au
-# lieu d'être sur sa propre ligne.
+# Repère la position juste avant un libellé reconnu suivi (après espaces éventuels)
+# d'un ":" — c'est-à-dire un nouveau champ qui démarre au milieu d'une ligne au lieu
+# d'être sur sa propre ligne. Zéro espace accepté avant le libellé (pas seulement un
+# espace minimum) : certains outils IA, quand plusieurs résultats sont copiés d'un
+# coup depuis leur interface (plutôt qu'un par un), aplatissent le texte sans même
+# laisser un espace entre la fin d'une valeur et le libellé suivant — ex.
+# "...HOLDINGActivité :" au lieu de "...HOLDING Activité :".
+#
+# Le premier lookahead (majuscule obligatoire, casse stricte) empêche de couper en
+# plein milieu d'un mot quand un synonyme court se trouve être aussi une sous-chaîne
+# d'un mot plus long : "phone" est un synonyme de téléphone, mais aussi la fin du mot
+# "Téléphone" lui-même — sans cette exigence, le texte se coupait en "Télé" + "phone :
+# ...", cassant tout. Idem pour "mail" à l'intérieur d'"Email". Le second lookahead
+# fait le vrai test du libellé, insensible à la casse.
 _INLINE_LABEL_BOUNDARY = re.compile(
-    r"[ \t]+(?=(?:" + "|".join(re.escape(s) for s in _ALL_LABEL_SYNONYMS) + r")\s*[:：])",
-    re.IGNORECASE,
+    r"[ \t]*(?=[A-ZÀ-ÖØ-Þ])(?=(?i:" + "|".join(re.escape(s) for s in _ALL_LABEL_SYNONYMS) + r")\s*[:：])"
 )
 
 
