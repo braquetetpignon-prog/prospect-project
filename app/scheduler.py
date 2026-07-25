@@ -15,6 +15,7 @@ from app import ia_search
 from app import lifecycle
 from app import automations
 from app import vps_monitoring
+from app import regulatory_watch
 from app.app_logging import logger
 
 SCHEDULER_INTERVAL_SECONDS = int(os.environ.get("SCHEDULER_INTERVAL_SECONDS", "30"))
@@ -47,6 +48,10 @@ def _loop():
             vps_monitoring.maybe_collect_sample()
         except Exception:
             logger.exception("Échec de vps_monitoring.maybe_collect_sample()")
+        try:
+            regulatory_watch.run_due_checks()
+        except Exception:
+            logger.exception("Échec de regulatory_watch.run_due_checks()")
         time.sleep(SCHEDULER_INTERVAL_SECONDS)
 
 

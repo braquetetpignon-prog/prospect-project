@@ -169,6 +169,7 @@
     <button type="button" data-target="journal-audit">Journal d'audit</button>
     <button type="button" data-target="evenements-securite">Événements de sécurité</button>
     <button type="button" data-target="base-connaissances">Base de connaissances</button>
+    <button type="button" data-target="veille-reglementaire">Veille réglementaire</button>
   </nav>
 
   <div class="sidebar-foot">
@@ -299,6 +300,54 @@
       <button class="btn btn-primary" id="kb-new-btn" type="button">+ Nouvel article</button>
     </div>
     <div id="kb-articles-container">
+      <div class="empty-state">Chargement…</div>
+    </div>
+  </div>
+
+  <div class="panel" id="veille-reglementaire" hidden>
+    <div class="panel-head">
+      <h2>Veille réglementaire</h2>
+      <p>Vérifie chaque jour les sources ci-dessous et signale tout changement de contenu détecté, avec un résumé assisté par IA. Rien n'est jamais appliqué automatiquement — chaque alerte reste à examiner et à traiter manuellement.</p>
+    </div>
+
+    <div class="panel-body">
+      <h3 style="margin:0 0 10px;">Sources surveillées</h3>
+      <div style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; margin-bottom:14px;">
+        <div style="flex:1; min-width:200px;">
+          <label for="rw-source-name">Nom</label>
+          <input id="rw-source-name" type="text" placeholder="ex : CNIL — Actualités">
+        </div>
+        <div style="flex:2; min-width:260px;">
+          <label for="rw-source-url">URL</label>
+          <input id="rw-source-url" type="url" placeholder="https://www.cnil.fr/fr/actualites">
+        </div>
+        <div style="flex:1; min-width:160px;">
+          <label for="rw-source-category">Catégorie</label>
+          <input id="rw-source-category" type="text" placeholder="CNIL, service-public...">
+        </div>
+        <button class="btn btn-primary" id="rw-add-source-btn" type="button">+ Ajouter</button>
+        <button class="btn btn-ghost" id="rw-check-now-btn" type="button">Vérifier maintenant</button>
+      </div>
+      <div id="rw-source-error" class="muted" style="color:#A2502E; display:none; margin-bottom:10px;"></div>
+    </div>
+    <div id="rw-sources-container">
+      <div class="empty-state">Chargement…</div>
+    </div>
+
+    <div class="panel-body" style="border-top:1px solid var(--border, #eee); margin-top:6px;">
+      <h3 style="margin:16px 0 10px;">Alertes</h3>
+      <div style="display:flex; gap:8px; align-items:center; margin-bottom:12px;">
+        <label for="rw-alert-filter" style="margin:0;">Filtrer :</label>
+        <select id="rw-alert-filter" style="width:auto;">
+          <option value="">Toutes</option>
+          <option value="nouveau">Nouveau</option>
+          <option value="en_cours">En cours</option>
+          <option value="traite">Traité</option>
+          <option value="sans_suite">Sans suite</option>
+        </select>
+      </div>
+    </div>
+    <div id="rw-alerts-container">
       <div class="empty-state">Chargement…</div>
     </div>
   </div>
@@ -1296,6 +1345,7 @@ const panelSubtitles = {
   'journal-audit': "Historique des actions superadmin.",
   'evenements-securite': "Activité de sécurité récente.",
   'base-connaissances': "Articles d'aide affichés dans l'application.",
+  'veille-reglementaire': "Surveillance automatique de sources officielles (CNIL, service-public...) et alertes de changement.",
 };
 
 function showPanel(targetId) {
@@ -1680,6 +1730,8 @@ document.getElementById('pin-modal-save-btn').addEventListener('click', async ()
   loadVpsSnapshot();
   loadSuperadminAccounts();
   loadCrmSyncSettings();
+  loadRegulatorySources();
+  loadRegulatoryAlerts();
 })();
 
 // --- Suggestions ---
@@ -1866,6 +1918,178 @@ async function deleteKbArticle(id) {
     alert(err.message);
   }
 }
+
+// --- Veille réglementaire ---
+
+const RW_STATUS_LABELS = {
+  nouveau: 'Nouveau',
+  en_cours: 'En cours',
+  traite: 'Traité',
+  sans_suite: 'Sans suite',
+};
+
+async function loadRegulatorySources() {
+  try {
+    const data = await fetchJSON('/api/supadmin/regulatory-watch/sources');
+    renderRegulatorySources(data.sources);
+  } catch (err) {
+    document.getElementById('rw-sources-container').innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderRegulatorySources(sources) {
+  if (!sources.length) {
+    document.getElementById('rw-sources-container').innerHTML = `<div class="empty-state">Aucune source configurée pour l'instant.</div>`;
+    return;
+  }
+  document.getElementById('rw-sources-container').innerHTML = `
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Nom</th><th>Catégorie</th><th>Dernière vérification</th><th>Statut</th><th>Active</th><th></th></tr></thead>
+        <tbody>
+          ${sources.map(s => `
+            <tr>
+              <td><a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.name)}</a></td>
+              <td class="muted">${escapeHtml(s.category || '—')}</td>
+              <td class="muted">${s.last_checked_at ? formatDateTime(s.last_checked_at) : 'Jamais'}</td>
+              <td>${s.last_check_error ? `<span class="badge badge-flagged" title="${escapeHtml(s.last_check_error)}">Erreur</span>` : '<span class="badge badge-paid">OK</span>'}</td>
+              <td>
+                <input type="checkbox" ${s.active ? 'checked' : ''} onchange="toggleRegulatorySource(${s.id}, this.checked)">
+              </td>
+              <td style="white-space:nowrap;">
+                <button class="btn btn-ghost" type="button" onclick="deleteRegulatorySource(${s.id})">Supprimer</button>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+document.getElementById('rw-add-source-btn').addEventListener('click', async () => {
+  const errorEl = document.getElementById('rw-source-error');
+  errorEl.style.display = 'none';
+  const body = {
+    name: document.getElementById('rw-source-name').value.trim(),
+    url: document.getElementById('rw-source-url').value.trim(),
+    category: document.getElementById('rw-source-category').value.trim(),
+  };
+  try {
+    await fetchJSON('/api/supadmin/regulatory-watch/sources', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    document.getElementById('rw-source-name').value = '';
+    document.getElementById('rw-source-url').value = '';
+    document.getElementById('rw-source-category').value = '';
+    loadRegulatorySources();
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.style.display = 'block';
+  }
+});
+
+document.getElementById('rw-check-now-btn').addEventListener('click', async (evt) => {
+  evt.target.disabled = true;
+  evt.target.textContent = 'Vérification en cours…';
+  try {
+    await fetchJSON('/api/supadmin/regulatory-watch/check-now', { method: 'POST' });
+    await loadRegulatorySources();
+    await loadRegulatoryAlerts();
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    evt.target.disabled = false;
+    evt.target.textContent = 'Vérifier maintenant';
+  }
+});
+
+async function toggleRegulatorySource(id, active) {
+  try {
+    await fetchJSON(`/api/supadmin/regulatory-watch/sources/${id}/active`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active }),
+    });
+  } catch (err) {
+    alert(err.message);
+    loadRegulatorySources();
+  }
+}
+
+async function deleteRegulatorySource(id) {
+  if (!confirm("Supprimer cette source et toutes ses alertes associées ?")) return;
+  try {
+    await fetchJSON(`/api/supadmin/regulatory-watch/sources/${id}`, { method: 'DELETE' });
+    loadRegulatorySources();
+    loadRegulatoryAlerts();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function loadRegulatoryAlerts() {
+  const status = document.getElementById('rw-alert-filter').value;
+  try {
+    const qs = status ? `?status=${encodeURIComponent(status)}` : '';
+    const data = await fetchJSON(`/api/supadmin/regulatory-watch/alerts${qs}`);
+    renderRegulatoryAlerts(data.alerts);
+  } catch (err) {
+    document.getElementById('rw-alerts-container').innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderRegulatoryAlerts(alerts) {
+  if (!alerts.length) {
+    document.getElementById('rw-alerts-container').innerHTML = `<div class="empty-state">Aucune alerte pour l'instant.</div>`;
+    return;
+  }
+  document.getElementById('rw-alerts-container').innerHTML = alerts.map(a => `
+    <div class="panel-body" style="border-top:1px solid var(--border, #eee);">
+      <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:baseline;">
+        <div>
+          <strong>${escapeHtml(a.source_name)}</strong>
+          <span class="muted"> — ${formatDateTime(a.detected_at)}</span>
+        </div>
+        <a href="${escapeHtml(a.source_url)}" target="_blank" rel="noopener" style="font-size:12.5px;">Ouvrir la source ↗</a>
+      </div>
+      <p>${escapeHtml(a.resume || '')}</p>
+      <p class="muted"><em>Pertinence ClickProspect (évaluation IA, à vérifier) : ${escapeHtml(a.pertinence || 'Non évalué.')}</em></p>
+      <div style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
+        <div style="flex:1; min-width:220px;">
+          <label>Notes</label>
+          <textarea id="rw-notes-${a.id}" rows="2" style="width:100%; box-sizing:border-box; font-family:inherit;">${escapeHtml(a.notes || '')}</textarea>
+        </div>
+        <div>
+          <label>Statut</label>
+          <select id="rw-status-${a.id}">
+            ${Object.entries(RW_STATUS_LABELS).map(([val, label]) => `<option value="${val}" ${a.status === val ? 'selected' : ''}>${label}</option>`).join('')}
+          </select>
+        </div>
+        <button class="btn btn-primary" type="button" onclick="saveRegulatoryAlert(${a.id})">Enregistrer</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function saveRegulatoryAlert(id) {
+  const status = document.getElementById(`rw-status-${id}`).value;
+  const notes = document.getElementById(`rw-notes-${id}`).value;
+  try {
+    await fetchJSON(`/api/supadmin/regulatory-watch/alerts/${id}/status`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, notes }),
+    });
+    loadRegulatoryAlerts();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+document.getElementById('rw-alert-filter').addEventListener('change', loadRegulatoryAlerts);
 </script>
 </body>
 </html>

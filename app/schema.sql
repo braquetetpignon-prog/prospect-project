@@ -1443,3 +1443,33 @@ CREATE INDEX IF NOT EXISTS idx_team_notifications_workspace ON team_notification
 -- Empêche de renotifier en boucle pour le même prospect/règle tant qu'une
 -- notification précédente n'a pas été marquée comme lue.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_team_notif_dedup ON team_notifications(workspace_id, prospect_id, rule_id) WHERE read_at IS NULL;
+
+-- Veille réglementaire : liste de sources officielles surveillées (CNIL,
+-- service-public.fr, Légifrance...) + historique des changements détectés.
+-- Ne déclenche jamais aucune action automatique — chaque alerte est un
+-- simple signalement à examiner manuellement dans /supadmin.
+CREATE TABLE IF NOT EXISTS regulatory_sources (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    url TEXT NOT NULL,
+    category TEXT,                     -- ex: 'CNIL', 'service-public', 'Légifrance'
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    last_checked_at TIMESTAMPTZ,
+    last_check_error TEXT,             -- dernière erreur de récupération, le cas échéant (source injoignable...)
+    last_content_hash TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS regulatory_alerts (
+    id SERIAL PRIMARY KEY,
+    source_id INTEGER NOT NULL REFERENCES regulatory_sources(id) ON DELETE CASCADE,
+    detected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    resume TEXT,                       -- résumé généré par IA (Gemini) de ce qui a changé
+    pertinence TEXT,                   -- évaluation IA de la pertinence pour ClickProspect
+    status TEXT NOT NULL DEFAULT 'nouveau',  -- nouveau / en_cours / traite / sans_suite
+    notes TEXT,                        -- notes manuelles de l'administrateur
+    reviewed_at TIMESTAMPTZ,
+    reviewed_by INTEGER REFERENCES superadmins(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_regulatory_alerts_status ON regulatory_alerts(status, detected_at DESC);
+CREATE INDEX IF NOT EXISTS idx_regulatory_alerts_source ON regulatory_alerts(source_id);

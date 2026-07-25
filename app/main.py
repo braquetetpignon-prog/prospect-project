@@ -33,6 +33,7 @@ from app import rate_limit
 from app import activity
 from app import security_events
 from app import kb
+from app import regulatory_watch
 from app import mollie_billing
 from app import vps_monitoring
 from app import client_sync
@@ -2411,6 +2412,68 @@ def supadmin_test_email():
         return jsonify(error=str(exc)), 400
     except Exception as exc:  # filet de sécurité : jamais de 500 brut sur ce test
         return jsonify(error=f"Erreur inattendue : {exc}"), 400
+    return jsonify(status="ok")
+
+
+@app.route("/api/supadmin/regulatory-watch/sources", methods=["GET", "POST"])
+@superadmin.admin_required
+def supadmin_regulatory_sources():
+    if request.method == "POST":
+        body = request.get_json(silent=True) or {}
+        try:
+            regulatory_watch.add_source(
+                body.get("name"), body.get("url"), body.get("category")
+            )
+        except regulatory_watch.RegulatoryWatchError as exc:
+            return jsonify(error=str(exc)), 400
+    return jsonify(sources=regulatory_watch.list_sources())
+
+
+@app.route("/api/supadmin/regulatory-watch/sources/<int:source_id>/active", methods=["PUT"])
+@superadmin.admin_required
+def supadmin_regulatory_source_active(source_id):
+    body = request.get_json(silent=True) or {}
+    regulatory_watch.set_source_active(source_id, bool(body.get("active")))
+    return jsonify(status="ok")
+
+
+@app.route("/api/supadmin/regulatory-watch/sources/<int:source_id>", methods=["DELETE"])
+@superadmin.admin_required
+def supadmin_regulatory_source_delete(source_id):
+    regulatory_watch.delete_source(source_id)
+    return jsonify(status="ok")
+
+
+@app.route("/api/supadmin/regulatory-watch/alerts")
+@superadmin.login_required
+def supadmin_regulatory_alerts():
+    status = request.args.get("status") or None
+    return jsonify(alerts=regulatory_watch.list_alerts(status=status))
+
+
+@app.route("/api/supadmin/regulatory-watch/alerts/<int:alert_id>/status", methods=["PUT"])
+@superadmin.admin_required
+def supadmin_regulatory_alert_status(alert_id):
+    body = request.get_json(silent=True) or {}
+    try:
+        regulatory_watch.set_alert_status(
+            alert_id,
+            body.get("status"),
+            notes=body.get("notes"),
+            reviewed_by=superadmin.current_superadmin_id(),
+        )
+    except regulatory_watch.RegulatoryWatchError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(status="ok")
+
+
+@app.route("/api/supadmin/regulatory-watch/check-now", methods=["POST"])
+@superadmin.admin_required
+def supadmin_regulatory_check_now():
+    # Déclenchement manuel immédiat, hors du rythme quotidien normal — utile
+    # juste après l'ajout d'une nouvelle source, plutôt que d'attendre le
+    # prochain passage automatique.
+    regulatory_watch.run_due_checks(force=True)
     return jsonify(status="ok")
 
 
