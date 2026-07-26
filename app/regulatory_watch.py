@@ -277,12 +277,29 @@ def _matches_keywords(text, keywords_raw):
     return any(kw in haystack for kw in keywords)
 
 
+def _repair_unescaped_ampersands(xml_bytes):
+    """Corrige le défaut XML le plus fréquent sur des flux RSS réels : une
+    esperluette brute (`&`) non échappée en `&amp;`, qui fait échouer un
+    parseur XML strict alors que n'importe quel lecteur RSS l'ignore
+    silencieusement. Ne touche qu'aux `&` qui ne sont pas déjà le début d'une
+    entité valide (&amp; &lt; &gt; &quot; &apos; ou &#123;)."""
+    text = xml_bytes.decode("utf-8", errors="replace")
+    text = re.sub(r"&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)", "&amp;", text)
+    return text.encode("utf-8")
+
+
 def _parse_feed(xml_bytes):
     """Parse un flux RSS 2.0 ou Atom, retourne une liste de
     {key, title, link, summary}. `key` (guid/id, ou lien à défaut) sert à
     savoir si l'entrée a déjà été vue. Tolérant : une entrée mal formée est
-    ignorée plutôt que de faire échouer tout le flux."""
-    root = ET.fromstring(xml_bytes)
+    ignorée plutôt que de faire échouer tout le flux. Si le XML brut est
+    légèrement invalide (esperluette non échappée — assez courant même sur
+    des flux officiels), une seconde tentative corrige ce défaut avant
+    d'abandonner."""
+    try:
+        root = ET.fromstring(xml_bytes)
+    except ET.ParseError:
+        root = ET.fromstring(_repair_unescaped_ampersands(xml_bytes))
     items = []
 
     # RSS 2.0 : <rss><channel><item>...
