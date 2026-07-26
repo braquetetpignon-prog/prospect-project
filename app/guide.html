@@ -3,6 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/static/img/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/img/apple-touch-icon.png">
+<link rel="manifest" href="/static/img/site.webmanifest">
 <title>Guide de prise en main — ClickProspect</title>
 <meta name="description" content="Le guide complet de ClickProspect : 11 étapes clés, de la première connexion jusqu'à la fidélisation client.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -21,7 +25,8 @@
   }
   .wrap { max-width: 980px; margin: 0 auto; padding: 32px 24px 64px; }
   .logo { display: flex; align-items: center; gap: 8px; font-family: 'Fraunces', serif; font-weight: 700; font-size: 20px; margin-bottom: 8px; text-decoration: none; color: var(--text); }
-  .logo-mark { width: 26px; height: 26px; border-radius: 8px; background: linear-gradient(135deg, var(--terracotta), var(--sauge)); }
+  .logo-mark { width: 26px; height: 26px; object-fit: contain; }
+  .logo-accent { color: var(--terracotta); }
   .top-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; }
   .back { font-size: 14px; color: var(--text-soft); text-decoration: none; }
   .back:hover { color: var(--terracotta-deep); }
@@ -93,7 +98,7 @@
 <body>
 <div class="wrap">
   <div class="top-row">
-    <a href="/" class="logo"><span class="logo-mark"></span>ClickProspect</a>
+    <a href="/" class="logo"><img src="/static/img/logo-icon-nav.png" alt="" class="logo-mark">Click<span class="logo-accent">Prospect</span></a>
     <a href="/" class="back">← Retour à l'accueil</a>
   </div>
 

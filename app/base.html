@@ -3,6 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/static/img/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/img/apple-touch-icon.png">
+<link rel="manifest" href="/static/img/site.webmanifest">
 <title>{% block title %}Tableau de bord{% endblock %} — ClickProspect</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -38,7 +42,8 @@
   /* --- Sidebar --- */
   .sidebar { background: var(--white); border-right: 1px solid var(--border); padding: 26px 20px; display: flex; flex-direction: column; gap: 28px; }
   .logo { font-family: 'Fraunces', serif; font-weight: 700; font-size: 20px; display: flex; align-items: center; gap: 8px; padding: 0 6px; }
-  .logo-mark { width: 26px; height: 26px; border-radius: 8px; background: linear-gradient(135deg, var(--terracotta), var(--sauge)); }
+  .logo-mark { width: 26px; height: 26px; object-fit: contain; }
+  .logo-accent { color: var(--terracotta); }
 
   .workspace-picker { background: var(--cream); border-radius: 14px; padding: 10px 12px; }
   .workspace-picker label { display: block; font-size: 11.5px; font-weight: 600; color: var(--text-soft); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
@@ -269,7 +274,7 @@
 
 <div class="shell">
   <aside class="sidebar">
-    <a href="/" class="logo"><span class="logo-mark"></span>ClickProspect</a>
+    <a href="/" class="logo"><img src="/static/img/logo-icon-nav.png" alt="" class="logo-mark">Click<span class="logo-accent">Prospect</span></a>
 
     <div class="workspace-picker">
       <img id="workspace-logo-img" style="display:none; max-height:32px; max-width:100%; margin-bottom:8px; border-radius:4px;">
