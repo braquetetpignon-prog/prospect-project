@@ -64,6 +64,20 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 IS_DEPLOYED_ENV = os.environ.get("ENV") in ("preproduction", "production")
 app.config["SESSION_COOKIE_SECURE"] = IS_DEPLOYED_ENV
 
+# Référencement (SEO) : IS_PRODUCTION_ENV distingue la vraie prod de la
+# préproduction — les deux tournent sur le même code, mais seule la prod
+# doit jamais être indexée par les moteurs de recherche (sinon risque de
+# contenu dupliqué pénalisant pour le référencement du vrai site).
+IS_PRODUCTION_ENV = os.environ.get("ENV") == "production"
+# Seules ces pages (marketing + légales) ont une valeur de référencement et
+# sont sans authentification. Tout le reste (app connectée, /supadmin,
+# /login, /signup, /api/...) est explicitement exclu de l'indexation via
+# set_security_headers ci-dessous, quel que soit l'environnement — cette
+# liste blanche protège aussi automatiquement toute page ajoutée plus tard
+# sans qu'on ait à y penser (contrairement à une liste noire, toujours
+# susceptible d'oublier une page).
+SEO_INDEXABLE_PATHS = {"/", "/tarifs", "/guide", "/contact", "/cgv", "/confidentialite", "/dpa"}
+
 MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 Mo
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
 
@@ -118,6 +132,12 @@ def set_security_headers(response):
     )
     if IS_DEPLOYED_ENV:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    # Référencement (SEO) : noindex sur tout sauf les pages publiques listées
+    # en prod. Header plutôt que seule balise <meta> dans les gabarits — plus
+    # robuste (s'applique même aux réponses JSON/API, et protège toute
+    # nouvelle page ajoutée sans qu'on ait à y penser). Voir SEO_INDEXABLE_PATHS.
+    if not IS_PRODUCTION_ENV or request.path not in SEO_INDEXABLE_PATHS:
+        response.headers["X-Robots-Tag"] = "noindex, nofollow"
     return response
 
 
@@ -154,6 +174,72 @@ def _restricted_response():
 @app.route("/")
 def index():
     return flask_render_template("landing.html")
+
+
+@app.route("/robots.txt")
+def robots_txt():
+    """En prod : autorise le crawl des pages publiques, bloque explicitement
+    l'app connectée et les routes techniques. Hors prod (préprod, local) :
+    bloque tout — le header X-Robots-Tag (voir set_security_headers) fait
+    déjà ce travail de façon plus fiable, robots.txt est une couche
+    supplémentaire, pas la seule protection (un robots.txt Disallow
+    n'empêche pas forcément l'indexation d'une URL déjà connue par ailleurs,
+    contrairement au header)."""
+    if IS_PRODUCTION_ENV:
+        lines = [
+            "User-agent: *",
+            "Allow: /",
+            "Disallow: /dashboard",
+            "Disallow: /prospects",
+            "Disallow: /clients",
+            "Disallow: /pipeline",
+            "Disallow: /rapports-equipe",
+            "Disallow: /campagnes",
+            "Disallow: /import",
+            "Disallow: /calendrier",
+            "Disallow: /parametres",
+            "Disallow: /mon-compte",
+            "Disallow: /changer-mot-de-passe",
+            "Disallow: /mot-de-passe-oublie",
+            "Disallow: /supadmin",
+            "Disallow: /api/",
+            "Disallow: /login",
+            "Disallow: /signup",
+            "",
+            "Sitemap: https://clickprospect.fr/sitemap.xml",
+        ]
+    else:
+        lines = ["User-agent: *", "Disallow: /"]
+    return Response("\n".join(lines) + "\n", mimetype="text/plain")
+
+
+@app.route("/sitemap.xml")
+def sitemap_xml():
+    """Liste statique des pages publiques référençables (voir
+    SEO_INDEXABLE_PATHS). Servie dans tous les environnements par simplicité
+    — sans conséquence hors prod puisque robots.txt et le header
+    X-Robots-Tag bloquent déjà l'indexation ailleurs."""
+    urls = [
+        ("/", "1.0", "weekly"),
+        ("/tarifs", "0.8", "monthly"),
+        ("/guide", "0.6", "monthly"),
+        ("/contact", "0.5", "yearly"),
+        ("/cgv", "0.3", "yearly"),
+        ("/confidentialite", "0.3", "yearly"),
+        ("/dpa", "0.3", "yearly"),
+    ]
+    entries = "\n".join(
+        f"  <url><loc>https://clickprospect.fr{path}</loc>"
+        f"<changefreq>{freq}</changefreq><priority>{priority}</priority></url>"
+        for path, priority, freq in urls
+    )
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        f"{entries}\n"
+        "</urlset>\n"
+    )
+    return Response(xml, mimetype="application/xml")
 
 
 @app.route("/tarifs")
