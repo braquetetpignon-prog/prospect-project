@@ -556,11 +556,35 @@
   </div>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce }}">
 let workspaces = [];
 let currentPlanWorkspaceId = null;
 let currentFeedbackReplyId = null;
 let currentDeleteWorkspaceId = null;
+
+// Listeners délégués globaux pour les boutons/champs générés dynamiquement
+// (innerHTML) — remplace les anciens onclick="..."/onchange="..." inline
+// dispersés dans le HTML généré, nécessaire pour retirer 'unsafe-inline'
+// du CSP. Un seul listener par type d'événement, actif quel que soit le
+// contenu réellement rendu à un instant donné (event delegation).
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-action]');
+  if (!el) return;
+  const id = el.dataset.id ? parseInt(el.dataset.id, 10) : null;
+  switch (el.dataset.action) {
+    case 'open-kb-modal': openKbModal(id); break;
+    case 'delete-kb-article': deleteKbArticle(id); break;
+    case 'edit-regulatory-source': startEditRegulatorySource(id); break;
+    case 'delete-regulatory-source': deleteRegulatorySource(id); break;
+    case 'save-edit-regulatory-source': saveEditRegulatorySource(id); break;
+    case 'cancel-edit-regulatory-source': loadRegulatorySources(); break;
+    case 'save-regulatory-alert': saveRegulatoryAlert(id); break;
+  }
+});
+document.addEventListener('change', (e) => {
+  const el = e.target.closest('[data-action="toggle-regulatory-source"]');
+  if (el) toggleRegulatorySource(parseInt(el.dataset.id, 10), el.checked);
+});
 
 async function fetchJSON(url, options) {
   const res = await fetch(url, options);
@@ -1869,8 +1893,8 @@ function renderKbArticles(articles) {
               <td class="muted">${escapeHtml(a.slug)}</td>
               <td class="muted">${formatDateTime(a.updated_at)}</td>
               <td style="white-space:nowrap;">
-                <button class="btn btn-ghost" type="button" onclick="openKbModal(${a.id})">Modifier</button>
-                <button class="btn btn-ghost" type="button" onclick="deleteKbArticle(${a.id})">Supprimer</button>
+                <button class="btn btn-ghost" type="button" data-action="open-kb-modal" data-id="${a.id}">Modifier</button>
+                <button class="btn btn-ghost" type="button" data-action="delete-kb-article" data-id="${a.id}">Supprimer</button>
               </td>
             </tr>
           `).join('')}
@@ -1981,11 +2005,11 @@ function renderRegulatorySourceRow(s) {
       <td class="muted">${s.last_checked_at ? formatDateTime(s.last_checked_at) : 'Jamais'}</td>
       <td>${s.last_check_error ? `<span class="badge badge-flagged" title="${escapeHtml(s.last_check_error)}">Erreur</span>` : '<span class="badge badge-paid">OK</span>'}</td>
       <td>
-        <input type="checkbox" ${s.active ? 'checked' : ''} onchange="toggleRegulatorySource(${s.id}, this.checked)">
+        <input type="checkbox" ${s.active ? 'checked' : ''} data-action="toggle-regulatory-source" data-id="${s.id}">
       </td>
       <td style="white-space:nowrap;">
-        <button class="btn btn-ghost" type="button" onclick="startEditRegulatorySource(${s.id})">Modifier</button>
-        <button class="btn btn-ghost" type="button" onclick="deleteRegulatorySource(${s.id})">Supprimer</button>
+        <button class="btn btn-ghost" type="button" data-action="edit-regulatory-source" data-id="${s.id}">Modifier</button>
+        <button class="btn btn-ghost" type="button" data-action="delete-regulatory-source" data-id="${s.id}">Supprimer</button>
       </td>
     </tr>
   `;
@@ -2023,8 +2047,8 @@ function startEditRegulatorySource(id) {
         <input id="rw-edit-keywords-${id}" type="text" style="width:100%; max-width:640px; box-sizing:border-box;" value="${escapeHtml(s.keywords || '')}">
       </div>
       <div id="rw-edit-error-${id}" class="muted" style="color:#A2502E; display:none; margin-bottom:8px;"></div>
-      <button class="btn btn-primary" type="button" onclick="saveEditRegulatorySource(${id})">Enregistrer</button>
-      <button class="btn btn-ghost" type="button" onclick="loadRegulatorySources()">Annuler</button>
+      <button class="btn btn-primary" type="button" data-action="save-edit-regulatory-source" data-id="${id}">Enregistrer</button>
+      <button class="btn btn-ghost" type="button" data-action="cancel-edit-regulatory-source">Annuler</button>
     </td>
   `;
 }
@@ -2157,7 +2181,7 @@ function renderRegulatoryAlerts(alerts) {
             ${Object.entries(RW_STATUS_LABELS).map(([val, label]) => `<option value="${val}" ${a.status === val ? 'selected' : ''}>${label}</option>`).join('')}
           </select>
         </div>
-        <button class="btn btn-primary" type="button" onclick="saveRegulatoryAlert(${a.id})">Enregistrer</button>
+        <button class="btn btn-primary" type="button" data-action="save-regulatory-alert" data-id="${a.id}">Enregistrer</button>
       </div>
     </div>
   `).join('');

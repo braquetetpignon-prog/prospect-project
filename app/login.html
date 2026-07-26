@@ -63,7 +63,7 @@
   <div class="footer-link">Pas encore de compte ? <a href="/signup">Créer un espace de travail</a></div>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce }}">
 const form = document.getElementById('login-form');
 const errorBox = document.getElementById('error-box');
 

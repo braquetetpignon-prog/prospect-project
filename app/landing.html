@@ -392,7 +392,7 @@
     .footer-inner { flex-direction: column; gap: 16px; text-align: center; }
   }
 </style>
-<script type="application/ld+json">
+<script type="application/ld+json" nonce="{{ csp_nonce }}">
 {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
@@ -582,7 +582,7 @@
   </div>
 </footer>
 
-<script>
+<script nonce="{{ csp_nonce }}">
 (function () {
   var carousel = document.getElementById('testimonial-carousel');
   if (!carousel) return;

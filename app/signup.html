@@ -82,7 +82,7 @@
   <div class="footer-link">Déjà un compte ? <a href="/login">Se connecter</a></div>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce }}">
 const form = document.getElementById('signup-form');
 const errorBox = document.getElementById('error-box');
 
