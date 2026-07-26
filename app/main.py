@@ -2422,7 +2422,9 @@ def supadmin_regulatory_sources():
         body = request.get_json(silent=True) or {}
         try:
             regulatory_watch.add_source(
-                body.get("name"), body.get("url"), body.get("category")
+                body.get("name"), body.get("url"), body.get("category"),
+                source_type=body.get("source_type") or "html_diff",
+                keywords=body.get("keywords"),
             )
         except regulatory_watch.RegulatoryWatchError as exc:
             return jsonify(error=str(exc)), 400

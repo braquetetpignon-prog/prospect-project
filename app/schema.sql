@@ -1459,11 +1459,23 @@ CREATE TABLE IF NOT EXISTS regulatory_sources (
     last_content_hash TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- 'html_diff' (comportement d'origine : hash de la page entière, adapté à une
+-- page de recommandation statique) ou 'rss' (suit un flux RSS/Atom et
+-- n'alerte que sur les entrées réellement nouvelles — indispensable pour un
+-- blog ou un fil d'actualité qui publie souvent, sous peine de spam d'alertes
+-- à chaque republication non pertinente).
+ALTER TABLE regulatory_sources ADD COLUMN IF NOT EXISTS source_type TEXT NOT NULL DEFAULT 'html_diff';
+-- Filtre mots-clés, séparés par des virgules (ex: "RGPD,CNIL,données personnelles,cookies").
+-- NULL ou vide = pas de filtre, tout changement/entrée déclenche une alerte.
+-- Sert de "semblant de recherche" pour ignorer le bruit d'un site généraliste
+-- (ex: Village de la Justice couvre bien plus que le seul droit du numérique).
+ALTER TABLE regulatory_sources ADD COLUMN IF NOT EXISTS keywords TEXT;
 
 CREATE TABLE IF NOT EXISTS regulatory_alerts (
     id SERIAL PRIMARY KEY,
     source_id INTEGER NOT NULL REFERENCES regulatory_sources(id) ON DELETE CASCADE,
     detected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    url TEXT,                          -- lien précis (l'article du flux RSS, ou l'URL de la source en mode diff)
     resume TEXT,                       -- résumé généré par IA (Gemini) de ce qui a changé
     pertinence TEXT,                   -- évaluation IA de la pertinence pour ClickProspect
     status TEXT NOT NULL DEFAULT 'nouveau',  -- nouveau / en_cours / traite / sans_suite
@@ -1473,3 +1485,15 @@ CREATE TABLE IF NOT EXISTS regulatory_alerts (
 );
 CREATE INDEX IF NOT EXISTS idx_regulatory_alerts_status ON regulatory_alerts(status, detected_at DESC);
 CREATE INDEX IF NOT EXISTS idx_regulatory_alerts_source ON regulatory_alerts(source_id);
+-- Ajoutée après la mise en prod initiale (table déjà existante à ce moment) —
+-- indispensable pour que init_db() la crée sur les environnements déjà déployés.
+ALTER TABLE regulatory_alerts ADD COLUMN IF NOT EXISTS url TEXT;
+-- Article/entrée d'un lien titre déjà vu dans un flux RSS d'une source —
+-- empêche de re-signaler indéfiniment le même article à chaque passage.
+CREATE TABLE IF NOT EXISTS regulatory_feed_items (
+    id SERIAL PRIMARY KEY,
+    source_id INTEGER NOT NULL REFERENCES regulatory_sources(id) ON DELETE CASCADE,
+    item_key TEXT NOT NULL,            -- hash du guid (ou du lien, à défaut) de l'entrée du flux
+    seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_regulatory_feed_items_dedup ON regulatory_feed_items(source_id, item_key);

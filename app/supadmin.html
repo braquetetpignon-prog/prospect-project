@@ -325,8 +325,19 @@
           <label for="rw-source-category">Catégorie</label>
           <input id="rw-source-category" type="text" placeholder="CNIL, service-public...">
         </div>
+        <div style="min-width:140px;">
+          <label for="rw-source-type">Type</label>
+          <select id="rw-source-type">
+            <option value="html_diff">Diff de page</option>
+            <option value="rss">Flux RSS</option>
+          </select>
+        </div>
         <button class="btn btn-primary" id="rw-add-source-btn" type="button">+ Ajouter</button>
         <button class="btn btn-ghost" id="rw-check-now-btn" type="button">Vérifier maintenant</button>
+      </div>
+      <div style="margin-bottom:10px;">
+        <label for="rw-source-keywords">Mots-clés (optionnel — séparés par des virgules ; filtre les changements/articles non pertinents, ex : "RGPD,CNIL,données personnelles")</label>
+        <input id="rw-source-keywords" type="text" style="width:100%; max-width:640px; box-sizing:border-box;" placeholder="RGPD,CNIL,données personnelles,cookies...">
       </div>
       <div id="rw-source-error" class="muted" style="color:#A2502E; display:none; margin-bottom:10px;"></div>
     </div>
@@ -1945,12 +1956,14 @@ function renderRegulatorySources(sources) {
   document.getElementById('rw-sources-container').innerHTML = `
     <div class="table-scroll">
       <table>
-        <thead><tr><th>Nom</th><th>Catégorie</th><th>Dernière vérification</th><th>Statut</th><th>Active</th><th></th></tr></thead>
+        <thead><tr><th>Nom</th><th>Catégorie</th><th>Type</th><th>Mots-clés</th><th>Dernière vérification</th><th>Statut</th><th>Active</th><th></th></tr></thead>
         <tbody>
           ${sources.map(s => `
             <tr>
               <td><a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.name)}</a></td>
               <td class="muted">${escapeHtml(s.category || '—')}</td>
+              <td class="muted">${s.source_type === 'rss' ? 'Flux RSS' : 'Diff de page'}</td>
+              <td class="muted" style="max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(s.keywords || '')}">${escapeHtml(s.keywords || '—')}</td>
               <td class="muted">${s.last_checked_at ? formatDateTime(s.last_checked_at) : 'Jamais'}</td>
               <td>${s.last_check_error ? `<span class="badge badge-flagged" title="${escapeHtml(s.last_check_error)}">Erreur</span>` : '<span class="badge badge-paid">OK</span>'}</td>
               <td>
@@ -1974,6 +1987,8 @@ document.getElementById('rw-add-source-btn').addEventListener('click', async () 
     name: document.getElementById('rw-source-name').value.trim(),
     url: document.getElementById('rw-source-url').value.trim(),
     category: document.getElementById('rw-source-category').value.trim(),
+    source_type: document.getElementById('rw-source-type').value,
+    keywords: document.getElementById('rw-source-keywords').value.trim(),
   };
   try {
     await fetchJSON('/api/supadmin/regulatory-watch/sources', {
@@ -1984,6 +1999,8 @@ document.getElementById('rw-add-source-btn').addEventListener('click', async () 
     document.getElementById('rw-source-name').value = '';
     document.getElementById('rw-source-url').value = '';
     document.getElementById('rw-source-category').value = '';
+    document.getElementById('rw-source-keywords').value = '';
+    document.getElementById('rw-source-type').value = 'html_diff';
     loadRegulatorySources();
   } catch (err) {
     errorEl.textContent = err.message;
@@ -2053,7 +2070,7 @@ function renderRegulatoryAlerts(alerts) {
           <strong>${escapeHtml(a.source_name)}</strong>
           <span class="muted"> — ${formatDateTime(a.detected_at)}</span>
         </div>
-        <a href="${escapeHtml(a.source_url)}" target="_blank" rel="noopener" style="font-size:12.5px;">Ouvrir la source ↗</a>
+        <a href="${escapeHtml(a.url || a.source_url)}" target="_blank" rel="noopener" style="font-size:12.5px;">Ouvrir ↗</a>
       </div>
       <p>${escapeHtml(a.resume || '')}</p>
       <p class="muted"><em>Pertinence ClickProspect (évaluation IA, à vérifier) : ${escapeHtml(a.pertinence || 'Non évalué.')}</em></p>
