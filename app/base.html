@@ -454,7 +454,7 @@
   </div>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce }}">
 const roleLabels = { admin: 'Administrateur', commercial: 'Commercial', lecture_seule: 'Lecture seule' };
 
 async function fetchJSON(url, options) {
@@ -527,6 +527,15 @@ function closeKbPanel() {
 
 document.getElementById('kb-panel-close-btn').addEventListener('click', closeKbPanel);
 document.getElementById('kb-overlay').addEventListener('click', closeKbPanel);
+
+// Listener délégué unique pour tous les boutons d'aide contextuelle
+// (.kb-help-btn[data-kb-article]) de l'app, quelle que soit la page —
+// remplace les anciens onclick="openKbArticle(...)" inline dispersés dans
+// chaque template, nécessaire pour retirer 'unsafe-inline' du CSP.
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.kb-help-btn[data-kb-article]');
+  if (btn) openKbArticle(btn.dataset.kbArticle);
+});
 
 // --- Visite guidée (carrousel) ---
 (function () {

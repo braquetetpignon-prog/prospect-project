@@ -336,7 +336,7 @@ function renderProspects(list) {
         <tbody>
           ${list.map(p => `
             <tr class="prospect-row" data-id="${p.id}">
-              ${canWrite ? `<td class="checkbox-cell" onclick="event.stopPropagation()"><input type="checkbox" class="row-checkbox" value="${p.id}"></td>` : ''}
+              ${canWrite ? `<td class="checkbox-cell"><input type="checkbox" class="row-checkbox" value="${p.id}"></td>` : ''}
               <td>
                 <div class="prospect-name">${escapeHtml(p.nom_entreprise)}</div>
                 <div class="prospect-meta">${escapeHtml(p.email || "Pas d'e-mail")}</div>
@@ -357,7 +357,10 @@ function renderProspects(list) {
     </div>
   `;
   container.querySelectorAll('.prospect-row').forEach(row => {
-    row.addEventListener('click', () => openModal(parseInt(row.dataset.id, 10)));
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('.checkbox-cell')) return;
+      openModal(parseInt(row.dataset.id, 10));
+    });
   });
 
   if (canWrite) {

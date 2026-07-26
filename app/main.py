@@ -1,8 +1,9 @@
 import os
+import secrets
 from zoneinfo import ZoneInfo
 from datetime import datetime, timedelta
 
-from flask import Flask, jsonify, request, session, redirect, render_template as flask_render_template
+from flask import Flask, jsonify, request, session, redirect, render_template as flask_render_template, g
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from app.db import get_db
@@ -104,31 +105,87 @@ def _maintenance_gate():
     return None
 
 
+@app.before_request
+def _set_csp_nonce():
+    # Valeur aléatoire différente à chaque requête, utilisée pour autoriser
+    # spécifiquement les <script> légitimes du gabarit servi (voir
+    # set_security_headers) sans avoir besoin de 'unsafe-inline' dans le CSP.
+    g.csp_nonce = secrets.token_urlsafe(16)
+
+
+@app.context_processor
+def _inject_csp_nonce():
+    # Rend {{ csp_nonce }} disponible dans TOUS les templates (hérités de
+    # base.html ou autonomes) sans avoir à le passer explicitement à chaque
+    # appel de render_template — les ~200 routes existantes n'ont pas besoin
+    # d'être modifiées pour ça.
+    return {"csp_nonce": g.get("csp_nonce", "")}
+
+
+# Endpoints d'écriture externes légitimes, appelés par un serveur tiers et
+# non par le navigateur d'un utilisateur — un webhook Mollie n'envoie jamais
+# d'en-tête Origin/Referer correspondant à notre propre domaine (ce n'est
+# pas un navigateur), donc la vérification CSRF ci-dessous les laisserait
+# de toute façon passer (aucun Origin envoyé), mais on le documente
+# explicitement pour éviter qu'un futur correctif plus strict les bloque
+# par erreur.
+CSRF_EXEMPT_PREFIXES = ("/webhook",)
+
+
+@app.before_request
+def _csrf_origin_check():
+    """Protection CSRF pour les requêtes de mutation (POST/PUT/PATCH/DELETE).
+    Vérifie que l'en-tête Origin (ou Referer à défaut) correspond bien à
+    notre propre domaine — un navigateur ne ment jamais sur cet en-tête,
+    contrairement à n'importe quel autre champ de la requête, ce qui en fait
+    une protection fiable sans avoir à générer/valider un token CSRF sur
+    chacun des ~200 endpoints existants (recommandation OWASP "Verifying
+    Origin With Standard Headers"). Si aucun des deux en-têtes n'est présent
+    (cas des appels serveur-à-serveur légitimes, ex. webhook Mollie), on
+    laisse passer plutôt que de bloquer un client non-navigateur légitime.
+    """
+    if request.method not in ("POST", "PUT", "PATCH", "DELETE"):
+        return None
+    if request.path.startswith(CSRF_EXEMPT_PREFIXES):
+        return None
+
+    origin = request.headers.get("Origin") or request.headers.get("Referer")
+    if not origin:
+        return None
+
+    from urllib.parse import urlparse
+    origin_host = urlparse(origin).netloc
+    if origin_host and origin_host != request.host:
+        logger.warning("Requête bloquée (Origin/Referer suspect) : %s vers %s", origin, request.path)
+        return jsonify(error="Origine de la requête non autorisée."), 403
+    return None
+
+
 def _client_ip():
     return request.remote_addr
 
 
 @app.after_request
 def set_security_headers(response):
-    # Durcissement HTTP standard (défense en profondeur). CSP volontairement
-    # permissive sur script-src car tout le JS de l'app est inline (pas de
-    # système de nonce en place) — retirer 'unsafe-inline' demanderait de
-    # réécrire l'injection de JS dans les gabarits, hors périmètre de ce
-    # correctif. object-src/frame-ancestors/base-uri restent stricts.
+    # Durcissement HTTP standard (défense en profondeur). script-src
+    # n'autorise plus que les <script> portant le nonce généré pour cette
+    # requête précise (voir _set_csp_nonce) — un script injecté par un
+    # attaquant (XSS réussi malgré l'échappement Jinja2) n'aurait aucun
+    # moyen de deviner ce nonce et resterait bloqué par le navigateur.
+    # object-src/frame-ancestors/base-uri restent stricts.
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers.setdefault(
-        "Content-Security-Policy",
+    response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline'; "
+        f"script-src 'self' 'nonce-{g.get('csp_nonce', '')}'; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com data:; "
         "img-src 'self' data: https:; "
         "connect-src 'self'; "
         "object-src 'none'; "
         "frame-ancestors 'none'; "
-        "base-uri 'self'",
+        "base-uri 'self'"
     )
     if IS_DEPLOYED_ENV:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
