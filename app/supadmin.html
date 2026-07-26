@@ -28,7 +28,8 @@
     padding: 24px 16px; display: flex; flex-direction: column; gap: 22px; position: sticky; top: 0; height: 100vh;
   }
   .sidebar-logo { display: flex; align-items: center; gap: 9px; padding: 0 6px; }
-  .sidebar-logo .mark { width: 26px; height: 26px; border-radius: 8px; background: linear-gradient(135deg, var(--terracotta), var(--sauge)); flex-shrink: 0; }
+  .sidebar-logo .mark { width: 26px; height: 26px; object-fit: contain; flex-shrink: 0; }
+  .sidebar-logo .name .accent { color: var(--terracotta); }
   .sidebar-logo .name { font-family: 'Fraunces', serif; font-weight: 700; font-size: 17px; }
   .sidebar-logo .tag { font-size: 11px; color: var(--text-soft); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
   .sidebar-who { background: var(--cream); border-radius: 12px; padding: 12px 14px; font-size: 12.5px; }
@@ -152,8 +153,8 @@
 
 <aside class="sidebar">
   <div class="sidebar-logo">
-    <span class="mark"></span>
-    <div><div class="name">ClickProspect</div><div class="tag">Superadmin</div></div>
+    <img src="/static/img/logo-icon-nav.png" alt="" class="mark">
+    <div><div class="name">Click<span class="accent">Prospect</span></div><div class="tag">Superadmin</div></div>
   </div>
 
   <div class="sidebar-who">
