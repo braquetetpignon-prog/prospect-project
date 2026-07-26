@@ -300,6 +300,27 @@ CREATE TABLE IF NOT EXISTS prospects (
 CREATE INDEX IF NOT EXISTS idx_prospects_workspace ON prospects(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_prospects_statut ON prospects(statut);
 CREATE INDEX IF NOT EXISTS idx_prospects_siren ON prospects(siren);
+
+-- Purge RGPD des prospects "recalés" (spec §6 / écart documenté v6 §2).
+-- recale_source distingue un marquage manuel (NULL) d'un marquage
+-- automatique via BODACC ('bodacc') — seul ce dernier peut être annulé
+-- par l'utilisateur (voir app/prospect_lifecycle.py::cancel_automatic_recalage).
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS recale_source TEXT;
+-- Statut restauré si un marquage automatique BODACC est annulé. NULL pour
+-- un marquage manuel (l'annulation n'a alors pas de sens applicatif : il
+-- suffit de repasser par le changement de statut normal).
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS statut_avant_recalage TEXT;
+
+-- Archive minimale (RGPD, minimisation) des prospects recalés purgés :
+-- nom d'entreprise, ou SIRET si le nom est absent — jamais les deux,
+-- jamais aucune autre donnée. Purgée elle-même 1 jour après création
+-- (voir app/prospect_lifecycle.py::purge_expired_archives).
+CREATE TABLE IF NOT EXISTS prospect_archives (
+    id SERIAL PRIMARY KEY,
+    archive_data TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Renseigné uniquement pour une fiche créée automatiquement par
 -- app/client_sync.py : identifie l'espace de travail client dont ce profil
 -- a été synchronisé, pour permettre une mise à jour (upsert) plutôt qu'un

@@ -22,6 +22,7 @@ from app import rate_limit
 from app import subscriptions
 from app import system_mail
 from app import mollie_billing
+from app import prospect_lifecycle
 
 INACTIVITY_DAYS = 30
 _LAST_RUN_KEY = "lifecycle_last_inactivity_check_date"
@@ -494,6 +495,8 @@ def run_daily_maintenance():
         return
     flag_inactive_free_workspaces()
     rate_limit.purge_old_attempts()
+    prospect_lifecycle.purge_recale_prospects()
+    prospect_lifecycle.purge_expired_archives()
     send_weekly_summaries()
     send_trial_ending_reminders()
     send_annual_renewal_reminders()

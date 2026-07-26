@@ -37,6 +37,7 @@ from app import regulatory_watch
 from app import mollie_billing
 from app import vps_monitoring
 from app import client_sync
+from app import prospect_lifecycle
 from app.app_logging import logger
 from flask import Response
 
@@ -1600,6 +1601,23 @@ def prospect_update_statut(prospect_id):
     except prospects.ProspectError as exc:
         return jsonify(error=str(exc)), 400
     return jsonify(status="updated")
+
+
+@app.route("/api/prospects/<int:prospect_id>/annuler-recalage-auto", methods=["POST"])
+@login_required
+@require_role(*WRITE_ROLES)
+def prospect_cancel_automatic_recalage(prospect_id):
+    """Annule un marquage 'recale' déclenché automatiquement par la
+    vérification BODACC (jamais un marquage manuel — voir
+    prospect_lifecycle.cancel_automatic_recalage). Restaure le statut
+    précédent du prospect."""
+    try:
+        statut_restaure = prospect_lifecycle.cancel_automatic_recalage(
+            prospect_id, session.get("workspace_id"), user_id=session.get("user_id")
+        )
+    except prospect_lifecycle.ProspectLifecycleError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(status="updated", statut=statut_restaure)
 
 
 @app.route("/api/prospects/<int:prospect_id>/activity")
