@@ -355,11 +355,10 @@
       <div style="display:flex; gap:8px; align-items:center; margin-bottom:12px;">
         <label for="rw-alert-filter" style="margin:0;">Filtrer :</label>
         <select id="rw-alert-filter" style="width:auto;">
-          <option value="">Toutes</option>
-          <option value="nouveau">Nouveau</option>
+          <option value="">Voir tout</option>
           <option value="en_cours">En cours</option>
-          <option value="traite">Traité</option>
           <option value="sans_suite">Sans suite</option>
+          <option value="traite">Traité</option>
         </select>
       </div>
     </div>
@@ -1938,10 +1937,9 @@ async function deleteKbArticle(id) {
 // --- Veille réglementaire ---
 
 const RW_STATUS_LABELS = {
-  nouveau: 'Nouveau',
   en_cours: 'En cours',
-  traite: 'Traité',
   sans_suite: 'Sans suite',
+  traite: 'Traité',
 };
 
 let regulatorySourcesCache = [];
