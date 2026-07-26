@@ -3,6 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/static/img/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/img/apple-touch-icon.png">
+<link rel="manifest" href="/static/img/site.webmanifest">
 <title>Tarifs — ClickProspect</title>
 <meta name="description" content="Des tarifs simples et accessibles pour les artisans et TPE : essai gratuit, version gratuite, ou Premium à 12€/mois.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -32,7 +36,8 @@
   nav { position: sticky; top: 0; z-index: 40; background: rgba(250, 246, 240, 0.88); backdrop-filter: blur(10px); border-bottom: 1px solid rgba(53, 48, 42, 0.06); }
   .nav-inner { display: flex; align-items: center; justify-content: space-between; padding: 20px 0; }
   .logo { font-family: 'Fraunces', serif; font-weight: 700; font-size: 22px; letter-spacing: -0.02em; display: flex; align-items: center; gap: 8px; text-decoration: none; color: var(--text); }
-  .logo-mark { width: 30px; height: 30px; border-radius: 10px; background: linear-gradient(135deg, var(--terracotta), var(--sauge)); }
+  .logo-mark { width: 30px; height: 30px; object-fit: contain; }
+  .logo-accent { color: var(--terracotta); }
   .nav-links { display: flex; align-items: center; gap: 36px; list-style: none; margin: 0; padding: 0; font-size: 15px; font-weight: 500; }
   .nav-links a { text-decoration: none; color: var(--text-soft); transition: color .15s; }
   .nav-links a:hover { color: var(--text); }
@@ -101,7 +106,7 @@
 
 <nav>
   <div class="wrap nav-inner">
-    <a href="/" class="logo"><span class="logo-mark"></span>ClickProspect</a>
+    <a href="/" class="logo"><img src="/static/img/logo-icon-nav.png" alt="" class="logo-mark">Click<span class="logo-accent">Prospect</span></a>
     <ul class="nav-links">
       <li><a href="/#fonctionnalites">Fonctionnalités</a></li>
       <li><a href="/#comment-ca-marche">Comment ça marche</a></li>
