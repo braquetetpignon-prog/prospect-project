@@ -130,6 +130,38 @@ def add_source(name, url, category=None, source_type="html_diff", keywords=None)
         conn.close()
 
 
+def update_source(source_id, name, url, category=None, source_type="html_diff", keywords=None):
+    name = (name or "").strip()
+    url = (url or "").strip()
+    if not name or not url:
+        raise RegulatoryWatchError("Le nom et l'URL de la source sont obligatoires.")
+    if not (url.startswith("http://") or url.startswith("https://")):
+        raise RegulatoryWatchError("L'URL doit commencer par http:// ou https://.")
+    if source_type not in ("html_diff", "rss"):
+        raise RegulatoryWatchError(f"Type de source inconnu : {source_type}")
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            # Si l'URL change, on invalide le hash/relevé de référence : sinon
+            # un ancien hash comparé au contenu d'une page totalement
+            # différente déclencherait une fausse alerte au prochain passage.
+            cur.execute(
+                """
+                UPDATE regulatory_sources
+                SET name = %s, url = %s, category = %s, source_type = %s, keywords = %s,
+                    last_content_hash = CASE WHEN url != %s THEN NULL ELSE last_content_hash END
+                WHERE id = %s
+                """,
+                (name, url, (category or "").strip() or None, source_type, (keywords or "").strip() or None,
+                 url, source_id),
+            )
+            if cur.rowcount == 0:
+                raise RegulatoryWatchError("Source introuvable.")
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def set_source_active(source_id, active):
     conn = get_db()
     try:

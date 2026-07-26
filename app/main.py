@@ -2439,10 +2439,21 @@ def supadmin_regulatory_source_active(source_id):
     return jsonify(status="ok")
 
 
-@app.route("/api/supadmin/regulatory-watch/sources/<int:source_id>", methods=["DELETE"])
+@app.route("/api/supadmin/regulatory-watch/sources/<int:source_id>", methods=["PUT", "DELETE"])
 @superadmin.admin_required
-def supadmin_regulatory_source_delete(source_id):
-    regulatory_watch.delete_source(source_id)
+def supadmin_regulatory_source_update_or_delete(source_id):
+    if request.method == "DELETE":
+        regulatory_watch.delete_source(source_id)
+        return jsonify(status="ok")
+    body = request.get_json(silent=True) or {}
+    try:
+        regulatory_watch.update_source(
+            source_id, body.get("name"), body.get("url"), body.get("category"),
+            source_type=body.get("source_type") or "html_diff",
+            keywords=body.get("keywords"),
+        )
+    except regulatory_watch.RegulatoryWatchError as exc:
+        return jsonify(error=str(exc)), 400
     return jsonify(status="ok")
 
 

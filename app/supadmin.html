@@ -1939,9 +1939,12 @@ const RW_STATUS_LABELS = {
   sans_suite: 'Sans suite',
 };
 
+let regulatorySourcesCache = [];
+
 async function loadRegulatorySources() {
   try {
     const data = await fetchJSON('/api/supadmin/regulatory-watch/sources');
+    regulatorySourcesCache = data.sources;
     renderRegulatorySources(data.sources);
   } catch (err) {
     document.getElementById('rw-sources-container').innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
@@ -1958,26 +1961,92 @@ function renderRegulatorySources(sources) {
       <table>
         <thead><tr><th>Nom</th><th>Catégorie</th><th>Type</th><th>Mots-clés</th><th>Dernière vérification</th><th>Statut</th><th>Active</th><th></th></tr></thead>
         <tbody>
-          ${sources.map(s => `
-            <tr>
-              <td><a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.name)}</a></td>
-              <td class="muted">${escapeHtml(s.category || '—')}</td>
-              <td class="muted">${s.source_type === 'rss' ? 'Flux RSS' : 'Diff de page'}</td>
-              <td class="muted" style="max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(s.keywords || '')}">${escapeHtml(s.keywords || '—')}</td>
-              <td class="muted">${s.last_checked_at ? formatDateTime(s.last_checked_at) : 'Jamais'}</td>
-              <td>${s.last_check_error ? `<span class="badge badge-flagged" title="${escapeHtml(s.last_check_error)}">Erreur</span>` : '<span class="badge badge-paid">OK</span>'}</td>
-              <td>
-                <input type="checkbox" ${s.active ? 'checked' : ''} onchange="toggleRegulatorySource(${s.id}, this.checked)">
-              </td>
-              <td style="white-space:nowrap;">
-                <button class="btn btn-ghost" type="button" onclick="deleteRegulatorySource(${s.id})">Supprimer</button>
-              </td>
-            </tr>
-          `).join('')}
+          ${sources.map(s => renderRegulatorySourceRow(s)).join('')}
         </tbody>
       </table>
     </div>
   `;
+}
+
+function renderRegulatorySourceRow(s) {
+  return `
+    <tr id="rw-source-row-${s.id}">
+      <td><a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.name)}</a></td>
+      <td class="muted">${escapeHtml(s.category || '—')}</td>
+      <td class="muted">${s.source_type === 'rss' ? 'Flux RSS' : 'Diff de page'}</td>
+      <td class="muted" style="max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(s.keywords || '')}">${escapeHtml(s.keywords || '—')}</td>
+      <td class="muted">${s.last_checked_at ? formatDateTime(s.last_checked_at) : 'Jamais'}</td>
+      <td>${s.last_check_error ? `<span class="badge badge-flagged" title="${escapeHtml(s.last_check_error)}">Erreur</span>` : '<span class="badge badge-paid">OK</span>'}</td>
+      <td>
+        <input type="checkbox" ${s.active ? 'checked' : ''} onchange="toggleRegulatorySource(${s.id}, this.checked)">
+      </td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn-ghost" type="button" onclick="startEditRegulatorySource(${s.id})">Modifier</button>
+        <button class="btn btn-ghost" type="button" onclick="deleteRegulatorySource(${s.id})">Supprimer</button>
+      </td>
+    </tr>
+  `;
+}
+
+function startEditRegulatorySource(id) {
+  const s = regulatorySourcesCache.find(x => x.id === id);
+  if (!s) return;
+  const row = document.getElementById(`rw-source-row-${id}`);
+  row.innerHTML = `
+    <td colspan="8">
+      <div style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; padding:8px 0;">
+        <div style="flex:1; min-width:180px;">
+          <label>Nom</label>
+          <input id="rw-edit-name-${id}" type="text" value="${escapeHtml(s.name)}">
+        </div>
+        <div style="flex:2; min-width:240px;">
+          <label>URL</label>
+          <input id="rw-edit-url-${id}" type="url" value="${escapeHtml(s.url)}">
+        </div>
+        <div style="flex:1; min-width:140px;">
+          <label>Catégorie</label>
+          <input id="rw-edit-category-${id}" type="text" value="${escapeHtml(s.category || '')}">
+        </div>
+        <div style="min-width:130px;">
+          <label>Type</label>
+          <select id="rw-edit-type-${id}">
+            <option value="html_diff" ${s.source_type !== 'rss' ? 'selected' : ''}>Diff de page</option>
+            <option value="rss" ${s.source_type === 'rss' ? 'selected' : ''}>Flux RSS</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-bottom:8px;">
+        <label>Mots-clés</label>
+        <input id="rw-edit-keywords-${id}" type="text" style="width:100%; max-width:640px; box-sizing:border-box;" value="${escapeHtml(s.keywords || '')}">
+      </div>
+      <div id="rw-edit-error-${id}" class="muted" style="color:#A2502E; display:none; margin-bottom:8px;"></div>
+      <button class="btn btn-primary" type="button" onclick="saveEditRegulatorySource(${id})">Enregistrer</button>
+      <button class="btn btn-ghost" type="button" onclick="loadRegulatorySources()">Annuler</button>
+    </td>
+  `;
+}
+
+async function saveEditRegulatorySource(id) {
+  const errorEl = document.getElementById(`rw-edit-error-${id}`);
+  errorEl.style.display = 'none';
+  const body = {
+    name: document.getElementById(`rw-edit-name-${id}`).value.trim(),
+    url: document.getElementById(`rw-edit-url-${id}`).value.trim(),
+    category: document.getElementById(`rw-edit-category-${id}`).value.trim(),
+    source_type: document.getElementById(`rw-edit-type-${id}`).value,
+    keywords: document.getElementById(`rw-edit-keywords-${id}`).value.trim(),
+  };
+  try {
+    await fetchJSON(`/api/supadmin/regulatory-watch/sources/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    loadRegulatorySources();
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.style.display = 'block';
+  }
 }
 
 document.getElementById('rw-add-source-btn').addEventListener('click', async () => {
