@@ -16,6 +16,7 @@ from app import lifecycle
 from app import automations
 from app import vps_monitoring
 from app import regulatory_watch
+from app import prospect_lifecycle
 from app.app_logging import logger
 
 SCHEDULER_INTERVAL_SECONDS = int(os.environ.get("SCHEDULER_INTERVAL_SECONDS", "30"))
@@ -52,6 +53,10 @@ def _loop():
             regulatory_watch.run_due_checks()
         except Exception:
             logger.exception("Échec de regulatory_watch.run_due_checks()")
+        try:
+            prospect_lifecycle.run_weekly_bodacc_check()
+        except Exception:
+            logger.exception("Échec de prospect_lifecycle.run_weekly_bodacc_check()")
         time.sleep(SCHEDULER_INTERVAL_SECONDS)
 
 
