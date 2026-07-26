@@ -1,13 +1,29 @@
 """
 Veille réglementaire automatisée.
 
-Surveille une liste de sources officielles (CNIL, service-public.fr,
-Légifrance...) configurées par le superadmin dans /supadmin. Une fois par
-jour, chaque source active est récupérée, son contenu texte est comparé au
-dernier relevé connu (hash) ; en cas de changement, un résumé assisté par
-IA (Gemini, même mécanisme et même clé que la Recherche IA — voir
-app/ia_search.py) tente d'expliquer ce qui a changé et si ça peut concerner
-ClickProspect.
+Surveille une liste de sources officielles (CNIL, EDPB, service-public.fr,
+Légifrance, blogs juridiques spécialisés...) configurées par le superadmin
+dans /supadmin. Deux modes par source :
+
+- 'html_diff' : hash du contenu texte de la page entière, alerte si ça
+  change depuis le dernier relevé. Adapté à une page stable (ex: une
+  recommandation ou une fiche pratique), inadapté à un site qui publie
+  souvent (blog, fil d'actualité) — ça alerterait à chaque republication,
+  pertinente ou non.
+- 'rss' : suit un flux RSS/Atom, ne signale que les entrées réellement
+  nouvelles (jamais vues, table regulatory_feed_items) — bien plus précis
+  pour un blog ou un fil d'actualité à publication fréquente.
+
+Dans les deux modes, un filtre mots-clés optionnel (`keywords`, séparés par
+des virgules) sert de "semblant de recherche" pour ignorer le bruit d'une
+source généraliste (ex: Village de la Justice couvre bien plus que le seul
+droit du numérique) : seul un contenu/une entrée qui matche au moins un
+mot-clé déclenche une alerte. Sans mots-clés configurés, tout déclenche.
+
+Une fois par jour, chaque source active est vérifiée ; en cas de changement
+ou d'entrée nouvelle jugée pertinente, un résumé assisté par IA (Gemini,
+même mécanisme et même clé que la Recherche IA — voir app/ia_search.py)
+tente d'expliquer ce qui a changé et si ça peut concerner ClickProspect.
 
 Important, dans le même esprit que les autres automatisations de l'app
 (app/automations.py, app/lifecycle.py) : cette tâche ne modifie JAMAIS rien
@@ -27,6 +43,7 @@ par jour (throttle via app_settings), pas à chaque passage du planificateur
 import hashlib
 import json
 import re
+import xml.etree.ElementTree as ET
 
 import requests
 
@@ -76,7 +93,7 @@ def list_sources():
             cur.execute(
                 """
                 SELECT id, name, url, category, active, last_checked_at, last_check_error,
-                       last_content_hash
+                       last_content_hash, source_type, keywords
                 FROM regulatory_sources
                 ORDER BY category NULLS LAST, name
                 """
@@ -87,19 +104,24 @@ def list_sources():
         conn.close()
 
 
-def add_source(name, url, category=None):
+def add_source(name, url, category=None, source_type="html_diff", keywords=None):
     name = (name or "").strip()
     url = (url or "").strip()
     if not name or not url:
         raise RegulatoryWatchError("Le nom et l'URL de la source sont obligatoires.")
     if not (url.startswith("http://") or url.startswith("https://")):
         raise RegulatoryWatchError("L'URL doit commencer par http:// ou https://.")
+    if source_type not in ("html_diff", "rss"):
+        raise RegulatoryWatchError(f"Type de source inconnu : {source_type}")
     conn = get_db()
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO regulatory_sources (name, url, category) VALUES (%s, %s, %s) RETURNING id",
-                (name, url, (category or "").strip() or None),
+                """
+                INSERT INTO regulatory_sources (name, url, category, source_type, keywords)
+                VALUES (%s, %s, %s, %s, %s) RETURNING id
+                """,
+                (name, url, (category or "").strip() or None, source_type, (keywords or "").strip() or None),
             )
             new_id = cur.fetchone()[0]
         conn.commit()
@@ -139,7 +161,7 @@ def list_alerts(status=None, limit=200):
         with conn.cursor() as cur:
             query = """
                 SELECT a.id, a.source_id, s.name AS source_name, s.url AS source_url,
-                       s.category, a.detected_at, a.resume, a.pertinence, a.status,
+                       s.category, a.detected_at, a.url, a.resume, a.pertinence, a.status,
                        a.notes, a.reviewed_at
                 FROM regulatory_alerts a
                 JOIN regulatory_sources s ON s.id = a.source_id
@@ -177,16 +199,16 @@ def set_alert_status(alert_id, status, notes=None, reviewed_by=None):
         conn.close()
 
 
-def _insert_alert(source_id, resume, pertinence):
+def _insert_alert(source_id, resume, pertinence, url=None):
     conn = get_db()
     try:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO regulatory_alerts (source_id, resume, pertinence)
-                VALUES (%s, %s, %s)
+                INSERT INTO regulatory_alerts (source_id, resume, pertinence, url)
+                VALUES (%s, %s, %s, %s)
                 """,
-                (source_id, resume, pertinence),
+                (source_id, resume, pertinence, url),
             )
         conn.commit()
     finally:
@@ -208,6 +230,83 @@ def _fetch_page_text(url):
 
 def _content_hash(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _matches_keywords(text, keywords_raw):
+    """Filtre mots-clés ('semblant de recherche') : sans mots-clés configurés,
+    tout matche (comportement d'origine, pas de filtre). Avec mots-clés,
+    il suffit qu'UN SEUL soit présent (insensible à la casse/accents basiques)
+    pour considérer le contenu pertinent — reste volontairement permissif,
+    le tri fin reste au résumé IA puis à la relecture humaine."""
+    keywords = [k.strip().lower() for k in (keywords_raw or "").split(",") if k.strip()]
+    if not keywords:
+        return True
+    haystack = text.lower()
+    return any(kw in haystack for kw in keywords)
+
+
+def _parse_feed(xml_bytes):
+    """Parse un flux RSS 2.0 ou Atom, retourne une liste de
+    {key, title, link, summary}. `key` (guid/id, ou lien à défaut) sert à
+    savoir si l'entrée a déjà été vue. Tolérant : une entrée mal formée est
+    ignorée plutôt que de faire échouer tout le flux."""
+    root = ET.fromstring(xml_bytes)
+    items = []
+
+    # RSS 2.0 : <rss><channel><item>...
+    for item in root.findall("./channel/item"):
+        title = (item.findtext("title") or "").strip()
+        link = (item.findtext("link") or "").strip()
+        guid = (item.findtext("guid") or "").strip()
+        summary = (item.findtext("description") or "").strip()
+        key = guid or link
+        if key:
+            items.append({"key": key, "title": title, "link": link, "summary": summary})
+
+    # Atom : <feed xmlns="..."><entry>... (espace de noms variable selon le flux)
+    for entry in root.findall(".//{http://www.w3.org/2005/Atom}entry"):
+        title = (entry.findtext("{http://www.w3.org/2005/Atom}title") or "").strip()
+        link_el = entry.find("{http://www.w3.org/2005/Atom}link")
+        link = link_el.get("href", "").strip() if link_el is not None else ""
+        entry_id = (entry.findtext("{http://www.w3.org/2005/Atom}id") or "").strip()
+        summary = (
+            entry.findtext("{http://www.w3.org/2005/Atom}summary")
+            or entry.findtext("{http://www.w3.org/2005/Atom}content")
+            or ""
+        ).strip()
+        key = entry_id or link
+        if key:
+            items.append({"key": key, "title": title, "link": link, "summary": summary})
+
+    return items
+
+
+def _seen_item_keys(source_id, keys):
+    if not keys:
+        return set()
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT item_key FROM regulatory_feed_items WHERE source_id = %s AND item_key = ANY(%s)",
+                (source_id, [_content_hash(k) for k in keys]),
+            )
+            return {row[0] for row in cur.fetchall()}
+    finally:
+        conn.close()
+
+
+def _mark_item_seen(source_id, key):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO regulatory_feed_items (source_id, item_key) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                (source_id, _content_hash(key)),
+            )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def _summarize_change(source_name, url, content):
@@ -273,6 +372,15 @@ def _summarize_change(source_name, url, content):
 
 
 def check_source(source):
+    """Point d'entrée : aiguille vers le bon mode de vérification selon
+    source['source_type']. Ne lève jamais d'exception vers l'appelant."""
+    if source.get("source_type") == "rss":
+        _check_rss_source(source)
+    else:
+        _check_html_diff_source(source)
+
+
+def _check_html_diff_source(source):
     """Vérifie une source, insère une alerte si le contenu a changé depuis le
     dernier relevé. Ne lève pas d'exception vers l'appelant — toute erreur est
     consignée sur la source elle-même (last_check_error) pour rester visible
@@ -310,10 +418,65 @@ def check_source(source):
         if source.get("last_content_hash") is None:
             return
 
-        if changed:
+        if changed and _matches_keywords(text, source.get("keywords")):
             resume, pertinence = _summarize_change(source["name"], source["url"], text)
-            _insert_alert(source["id"], resume, pertinence)
+            _insert_alert(source["id"], resume, pertinence, url=source["url"])
     finally:
+        conn.close()
+
+
+def _check_rss_source(source):
+    """Vérifie un flux RSS/Atom : ne signale que les entrées jamais vues
+    auparavant (regulatory_feed_items) ET matchant le filtre mots-clés le cas
+    échéant. Toutes les entrées rencontrées sont marquées comme vues, qu'elles
+    matchent ou non le filtre — sinon un changement de mots-clés ferait
+    ressurgir de vieux articles non pertinents."""
+    conn = get_db()
+    try:
+        try:
+            resp = requests.get(source["url"], headers={"User-Agent": FETCH_USER_AGENT}, timeout=FETCH_TIMEOUT)
+            resp.raise_for_status()
+            items = _parse_feed(resp.content)
+        except Exception as exc:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE regulatory_sources SET last_checked_at = now(), last_check_error = %s WHERE id = %s",
+                    (str(exc)[:500], source["id"]),
+                )
+            conn.commit()
+            return
+
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE regulatory_sources SET last_checked_at = now(), last_check_error = NULL WHERE id = %s",
+                (source["id"],),
+            )
+        conn.commit()
+
+        is_first_check = source.get("last_checked_at") is None
+        seen = _seen_item_keys(source["id"], [it["key"] for it in items])
+
+        for it in items:
+            item_hash = _content_hash(it["key"])
+            if item_hash in seen:
+                continue
+            _mark_item_seen(source["id"], it["key"])
+            # Premier relevé d'un flux neuf : on enregistre tous les articles
+            # déjà publiés comme "vus" sans les signaler un par un — sinon un
+            # flux qui a 20 ans d'archives générerait 20 ans d'alertes d'un
+            # coup. Seuls les articles publiés APRÈS ce premier relevé seront
+            # signalés.
+            if is_first_check:
+                continue
+            text_for_filter = f"{it['title']} {it['summary']}"
+            if not _matches_keywords(text_for_filter, source.get("keywords")):
+                continue
+            resume, pertinence = _summarize_change(
+                source["name"], it["link"] or source["url"], text_for_filter
+            )
+            _insert_alert(source["id"], resume, pertinence, url=it["link"] or source["url"])
+    finally:
+        conn.close()
         conn.close()
 
 
