@@ -525,19 +525,37 @@ def auth_signup():
     password = body.get("password") or ""
     cgv_accepted = bool(body.get("cgv_accepted"))
     rgpd_accepted = bool(body.get("rgpd_accepted"))
+    # Champ piège invisible pour les robots (voir app/signup.html) : un vrai
+    # visiteur ne le remplit jamais. On répond succès sans rien faire, pour
+    # ne pas révéler le piège — même principe que /api/contact.
+    honeypot = (body.get("website") or "").strip()
+    if honeypot:
+        return jsonify(status="ok", workspace_id=0), 201
 
     if not workspace_name or not email or not password:
         return jsonify(error="workspace_name, email et password sont requis"), 400
     if not cgv_accepted or not rgpd_accepted:
         return jsonify(error="L'acceptation des CGV et du traitement des données est obligatoire."), 400
 
+    ip = _client_ip()
+    # Contexte 'signup' dédié : sépare ce compteur (identifiant ET IP) de
+    # celui du login normal — voir app/rate_limit.py.
+    limited, retry_after = rate_limit.is_rate_limited(
+        email, ip, "signup", max_per_identifier=5, max_per_ip=15,
+    )
+    if limited:
+        logger.warning("Création de compte bloquée (trop de tentatives) pour %s depuis %s", email, ip)
+        return jsonify(error="Trop de tentatives. Réessaie dans quelques minutes."), 429
+
     try:
         workspace_id, user_id = auth.create_workspace_with_admin(
-            workspace_name, email, password, consent_ip=_client_ip(),
+            workspace_name, email, password, consent_ip=ip,
         )
     except auth.AuthError as exc:
+        rate_limit.record_attempt(email, ip, success=False, context="signup")
         return jsonify(error=str(exc)), 400
 
+    rate_limit.record_attempt(email, ip, success=True, context="signup")
     auth.login(email, password)
     return jsonify(status="ok", workspace_id=workspace_id), 201
 
@@ -551,7 +569,7 @@ def auth_login():
         return jsonify(error="email et password sont requis"), 400
 
     ip = _client_ip()
-    limited, retry_after = rate_limit.is_rate_limited(email, ip)
+    limited, retry_after = rate_limit.is_rate_limited(email, ip, "login")
     if limited:
         logger.warning("Connexion bloquée (trop de tentatives) pour %s depuis %s", email, ip)
         return jsonify(error="Trop de tentatives échouées. Réessaie dans quelques minutes."), 429
@@ -559,11 +577,11 @@ def auth_login():
     try:
         auth.login(email, password)
     except auth.AuthError as exc:
-        rate_limit.record_attempt(email, ip, success=False)
+        rate_limit.record_attempt(email, ip, success=False, context="login")
         logger.warning("Échec de connexion pour %s depuis %s", email, ip)
         return jsonify(error=str(exc)), 401
 
-    rate_limit.record_attempt(email, ip, success=True)
+    rate_limit.record_attempt(email, ip, success=True, context="login")
     return jsonify(status="ok")
 
 
@@ -738,9 +756,8 @@ def auth_forgot_password():
         return jsonify(error="email, pin et new_password sont requis"), 400
 
     ip = _client_ip()
-    identifier = f"pinreset:{email}"
     limited, retry_after = rate_limit.is_rate_limited(
-        identifier, ip, max_per_identifier=5, max_per_ip=15,
+        email, ip, "forgot_password", max_per_identifier=5, max_per_ip=15,
     )
     if limited:
         logger.warning("Réinitialisation par PIN bloquée (trop de tentatives) pour %s depuis %s", email, ip)
@@ -750,10 +767,10 @@ def auth_forgot_password():
     try:
         workspace_id = auth.reset_password_with_pin(email, pin, new_password)
     except auth.AuthError as exc:
-        rate_limit.record_attempt(identifier, ip, success=False)
+        rate_limit.record_attempt(email, ip, success=False, context="forgot_password")
         return jsonify(error=str(exc)), 400
 
-    rate_limit.record_attempt(identifier, ip, success=True)
+    rate_limit.record_attempt(email, ip, success=True, context="forgot_password")
     logger.warning("Mot de passe réinitialisé via PIN pour %s depuis %s", email, ip)
     security_events.notify_password_reset_via_pin(workspace_id, email, ip)
     return jsonify(status="ok")
@@ -2186,7 +2203,7 @@ def supadmin_login():
 
     ip = _client_ip()
     limited, retry_after = rate_limit.is_rate_limited(
-        email, ip,
+        email, ip, "superadmin",
         max_per_identifier=rate_limit.MAX_ATTEMPTS_SUPERADMIN_IDENTIFIER,
         max_per_ip=rate_limit.MAX_ATTEMPTS_SUPERADMIN_IP,
     )
@@ -2197,11 +2214,11 @@ def supadmin_login():
     try:
         superadmin.login(email, password)
     except superadmin.SuperadminError as exc:
-        rate_limit.record_attempt(email, ip, success=False)
+        rate_limit.record_attempt(email, ip, success=False, context="superadmin")
         logger.warning("Échec de connexion superadmin pour %s depuis %s", email, ip)
         return jsonify(error=str(exc)), 401
 
-    rate_limit.record_attempt(email, ip, success=True)
+    rate_limit.record_attempt(email, ip, success=True, context="superadmin")
     return jsonify(status="ok")
 
 
