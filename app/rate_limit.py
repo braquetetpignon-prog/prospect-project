@@ -16,6 +16,13 @@ deux s'applique.
 Le compte superadmin est traité à part avec un seuil plus bas : c'est la
 cible la plus sensible du site (accès à tous les espaces de travail), et il
 n'y a qu'un seul compte, donc pas de risque de bloquer un client légitime.
+
+IMPORTANT — `context` est obligatoire et distingue la surface concernée
+('login', 'superadmin', 'forgot_password', 'signup'...). Le comptage PAR IP
+est lui aussi filtré par ce contexte : sans ça, un pic de tentatives sur une
+surface (ex: tester le formulaire d'inscription) ferait déborder le même
+compteur IP que celui du login normal ou du superadmin, bloquant tout le
+monde derrière la même adresse pour des surfaces sans rapport.
 """
 from app.db import get_db
 
@@ -26,20 +33,20 @@ MAX_ATTEMPTS_SUPERADMIN_IDENTIFIER = 5
 MAX_ATTEMPTS_SUPERADMIN_IP = 8
 
 
-def record_attempt(identifier, ip_address, success):
+def record_attempt(identifier, ip_address, success, context):
     conn = get_db()
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO login_attempts (identifier, ip_address, success) VALUES (%s, %s, %s)",
-                (identifier.lower().strip() if identifier else None, ip_address, success),
+                "INSERT INTO login_attempts (identifier, ip_address, success, context) VALUES (%s, %s, %s, %s)",
+                (identifier.lower().strip() if identifier else None, ip_address, success, context),
             )
         conn.commit()
     finally:
         conn.close()
 
 
-def is_rate_limited(identifier, ip_address, max_per_identifier=MAX_ATTEMPTS_PER_IDENTIFIER, max_per_ip=MAX_ATTEMPTS_PER_IP):
+def is_rate_limited(identifier, ip_address, context, max_per_identifier=MAX_ATTEMPTS_PER_IDENTIFIER, max_per_ip=MAX_ATTEMPTS_PER_IP):
     """Renvoie (limited: bool, retry_after_seconds: int)."""
     identifier = identifier.lower().strip() if identifier else None
     conn = get_db()
@@ -48,20 +55,20 @@ def is_rate_limited(identifier, ip_address, max_per_identifier=MAX_ATTEMPTS_PER_
             cur.execute(
                 """
                 SELECT count(*) FROM login_attempts
-                WHERE identifier = %s AND success = FALSE
+                WHERE identifier = %s AND success = FALSE AND context = %s
                   AND created_at > now() - (%s || ' minutes')::interval
                 """,
-                (identifier, WINDOW_MINUTES),
+                (identifier, context, WINDOW_MINUTES),
             )
             by_identifier = cur.fetchone()[0]
 
             cur.execute(
                 """
                 SELECT count(*) FROM login_attempts
-                WHERE ip_address = %s AND success = FALSE
+                WHERE ip_address = %s AND success = FALSE AND context = %s
                   AND created_at > now() - (%s || ' minutes')::interval
                 """,
-                (ip_address, WINDOW_MINUTES),
+                (ip_address, context, WINDOW_MINUTES),
             )
             by_ip = cur.fetchone()[0]
         limited = by_identifier >= max_per_identifier or by_ip >= max_per_ip

@@ -243,6 +243,16 @@ CREATE TABLE IF NOT EXISTS login_attempts (
 );
 CREATE INDEX IF NOT EXISTS idx_login_attempts_identifier ON login_attempts(identifier, created_at);
 CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON login_attempts(ip_address, created_at);
+-- Sépare le compteur anti brute-force par surface ('login', 'superadmin',
+-- 'forgot_password', 'signup'...) : sans cette colonne, le comptage PAR IP
+-- (voir app/rate_limit.py::is_rate_limited) mélangeait tous les échecs d'une
+-- même adresse IP quelle que soit leur origine — tester la création de
+-- compte depuis un bureau pouvait ainsi bloquer par erreur la connexion et
+-- le superadmin pour tout le monde derrière la même IP. NULL pour les lignes
+-- créées avant cette colonne (elles ne comptent simplement plus dans aucun
+-- contexte, sans conséquence : la fenêtre glissante est de 15 minutes).
+ALTER TABLE login_attempts ADD COLUMN IF NOT EXISTS context TEXT;
+CREATE INDEX IF NOT EXISTS idx_login_attempts_context ON login_attempts(context, ip_address, created_at);
 
 -- Messages envoyés depuis le formulaire public /contact (visiteurs non
 -- connectés, pas de workspace associé — distinct de admin_feedback qui vient
