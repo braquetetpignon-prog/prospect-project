@@ -3,189 +3,189 @@
 {% block title %}Campagnes{% endblock %}
 
 {% block extra_css %}
-  .type-cards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; padding: 20px 24px; }
-  .type-card { border: 1.5px solid var(--border); border-radius: 16px; padding: 18px; background: var(--white); }
-  .type-card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-  .type-card-head strong { font-size: 15px; }
-  .type-card-count { background: var(--cream); color: var(--text-soft); font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; }
-  .type-card-empty { font-size: 13px; color: var(--text-soft); margin: 10px 0; }
-  .type-card-coverage { font-size: 12.5px; color: var(--text-soft); margin-bottom: 12px; }
-  .campaign-row { cursor: pointer; }
-  .campaign-row:hover td { background: var(--cream); }
-  .type-badge-avis { background: var(--sauge-light); color: #4F6647; }
-  .type-badge-publicitaire { background: #FDECE3; color: var(--terracotta-deep); }
-  .type-badge-newsletter { background: #EAF0FF; color: #3454A8; }
-  .type-badge-relance { background: #F3E8D9; color: #8A5A2B; }
-  .detail-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 20px; align-items: start; }
-  .send-status-envoye { background: var(--sauge-light); color: #4F6647; }
-  .send-status-planifie { background: #EAF0FF; color: #3454A8; }
-  .send-status-echec { background: #F3E3E3; color: #9B4646; }
-  .send-status-en_cours { background: var(--cream-warm); color: var(--text-soft); }
-  .send-status-annule { background: #EDEDED; color: #6B6B6B; }
-  .prospect-check-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
-  .prospect-check-row:last-child { border-bottom: none; }
-  .checklist { max-height: 260px; overflow-y: auto; padding: 4px 24px; }
-  .back-link { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; font-weight: 600; color: var(--text-soft); margin-bottom: 16px; cursor: pointer; }
-  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-  @media (max-width: 900px) { .detail-grid { grid-template-columns: 1fr; } .field-row { grid-template-columns: 1fr; } }
+.type-cards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; padding: 20px 24px; }
+.type-card { border: 1.5px solid var(--border); border-radius: 16px; padding: 18px; background: var(--white); }
+.type-card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.type-card-head strong { font-size: 15px; }
+.type-card-count { background: var(--cream); color: var(--text-soft); font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; }
+.type-card-empty { font-size: 13px; color: var(--text-soft); margin: 10px 0; }
+.type-card-coverage { font-size: 12.5px; color: var(--text-soft); margin-bottom: 12px; }
+.campaign-row { cursor: pointer; }
+.campaign-row:hover td { background: var(--cream); }
+.type-badge-avis { background: var(--sauge-light); color: #4F6647; }
+.type-badge-publicitaire { background: #FDECE3; color: var(--terracotta-deep); }
+.type-badge-newsletter { background: #EAF0FF; color: #3454A8; }
+.type-badge-relance { background: #F3E8D9; color: #8A5A2B; }
+.detail-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 20px; align-items: start; }
+.send-status-envoye { background: var(--sauge-light); color: #4F6647; }
+.send-status-planifie { background: #EAF0FF; color: #3454A8; }
+.send-status-echec { background: #F3E3E3; color: #9B4646; }
+.send-status-en_cours { background: var(--cream-warm); color: var(--text-soft); }
+.send-status-annule { background: #EDEDED; color: #6B6B6B; }
+.prospect-check-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+.prospect-check-row:last-child { border-bottom: none; }
+.checklist { max-height: 260px; overflow-y: auto; padding: 4px 24px; }
+.back-link { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; font-weight: 600; color: var(--text-soft); margin-bottom: 16px; cursor: pointer; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 900px) { .detail-grid { grid-template-columns: 1fr; } .field-row { grid-template-columns: 1fr; } }
 {% endblock %}
 
 {% block content %}
 <div id="list-view">
-  <div class="topbar">
-    <div>
-      <h1>Campagnes <button type="button" class="kb-help-btn" data-kb-article="campagnes-premiere-utilisation" aria-label="Aide sur les campagnes">?</button></h1>
-      <p>Avis, publicité, newsletter — jusqu'à 10 campagnes actives.</p>
-    </div>
-    <button class="btn btn-primary" id="new-campaign-btn">+ Nouvelle campagne</button>
-  </div>
+<div class="topbar">
+<div>
+<h1>Campagnes <button type="button" class="kb-help-btn" data-kb-article="campagnes-premiere-utilisation" aria-label="Aide sur les campagnes">?</button></h1>
+<p>Avis, publicité, newsletter — jusqu'à 10 campagnes actives.</p>
+</div>
+<button class="btn btn-primary" id="new-campaign-btn">+ Nouvelle campagne</button>
+</div>
 
-  <div class="panel">
-    <div class="panel-head"><h2>Envoyer par type de statut</h2></div>
-    <div id="type-cards-container"><div class="panel-body"><div class="skeleton" style="height:100px;"></div></div></div>
-  </div>
+<div class="panel">
+<div class="panel-head"><h2>Envoyer par type de statut</h2></div>
+<div id="type-cards-container"><div class="panel-body"><div class="skeleton" style="height:100px;"></div></div></div>
+</div>
 
-  <div class="panel">
-    <div class="panel-head"><h2>Toutes les campagnes</h2><span id="campaign-count" style="font-size:13px; color:var(--text-soft);"></span></div>
-    <div id="campaigns-container"><div class="panel-body"><div class="skeleton" style="height:160px;"></div></div></div>
-  </div>
+<div class="panel">
+<div class="panel-head"><h2>Toutes les campagnes</h2><span id="campaign-count" style="font-size:13px; color:var(--text-soft);"></span></div>
+<div id="campaigns-container"><div class="panel-body"><div class="skeleton" style="height:160px;"></div></div></div>
+</div>
 </div>
 
 <div class="modal-overlay" id="type-send-modal-overlay">
-  <div class="modal">
-    <h3 id="type-send-title">Configurer & envoyer</h3>
-    <p style="font-size:12.5px; color:var(--text-soft); margin-top:-8px;">Seuls les prospects qualifiés ou clients de ce type recevront la campagne.</p>
-    <div class="field">
-      <label for="type-send-campaign">Campagne à utiliser</label>
-      <select id="type-send-campaign"></select>
-    </div>
-    <div class="modal-actions">
-      <button type="button" class="btn btn-ghost btn-sm" id="type-send-cancel-btn">Annuler</button>
-      <button type="button" class="btn btn-primary btn-sm" id="type-send-confirm-btn">Envoyer</button>
-    </div>
-  </div>
+<div class="modal">
+<h3 id="type-send-title">Configurer & envoyer</h3>
+<p style="font-size:12.5px; color:var(--text-soft); margin-top:-8px;">Seuls les prospects qualifiés ou clients de ce type recevront la campagne.</p>
+<div class="field">
+<label for="type-send-campaign">Campagne à utiliser</label>
+<select id="type-send-campaign"></select>
+</div>
+<div class="modal-actions">
+<button type="button" class="btn btn-ghost btn-sm" id="type-send-cancel-btn">Annuler</button>
+<button type="button" class="btn btn-primary btn-sm" id="type-send-confirm-btn">Envoyer</button>
+</div>
+</div>
 </div>
 
 <div id="detail-view" style="display:none;">
-  <span class="back-link" id="back-to-list">← Toutes les campagnes</span>
-  <div class="topbar">
-    <div>
-      <h1 id="detail-title">Campagne</h1>
-      <p id="detail-sub"></p>
-    </div>
-    <div style="display:flex; gap:10px;">
-      <button class="btn btn-ghost" id="toggle-active-btn"></button>
-    </div>
-  </div>
+<span class="back-link" id="back-to-list">← Toutes les campagnes</span>
+<div class="topbar">
+<div>
+<h1 id="detail-title">Campagne</h1>
+<p id="detail-sub"></p>
+</div>
+<div style="display:flex; gap:10px;">
+<button class="btn btn-ghost" id="toggle-active-btn"></button>
+</div>
+</div>
 
-  <div class="detail-grid">
-    <div>
-      <div class="panel">
-        <div class="panel-head"><h2>Contenu</h2></div>
-        <div class="panel-body">
-          <form id="edit-form">
-            <div class="field"><label for="edit-sujet">Sujet</label><input id="edit-sujet"></div>
-            <div class="field">
-              <label for="edit-contenu">Message</label>
-              <textarea id="edit-contenu" rows="8"></textarea>
-              <p style="font-size:12px; color:var(--text-soft); margin:4px 0 0;">
-                Variables disponibles : <code>{prenom}</code> (contact du destinataire),
-                <code>{nom_entreprise}</code> (le nom de <strong>ton</strong> entreprise, pour signer),
-                <code>{entreprise_prospect}</code> (l'entreprise du destinataire),
-                <code>{lien_avis_google}</code>, <code>{lien_desinscription}</code>, <code>{image}</code>
-                (position de l'image — sinon ajoutée à la fin).
-              </p>
-              <button class="btn btn-ghost btn-sm" type="button" id="improve-ai-btn" style="margin-top:8px;">✨ Améliorer avec l'IA</button>
-            </div>
-            <div class="field-row">
-              <div class="field"><label for="edit-quota">Quota d'envois/jour</label><input id="edit-quota" type="number" min="1"></div>
-            </div>
-            <button class="btn btn-primary btn-sm" type="submit">Enregistrer les modifications</button>
-          </form>
-        </div>
-      </div>
+<div class="detail-grid">
+<div>
+<div class="panel">
+<div class="panel-head"><h2>Contenu</h2></div>
+<div class="panel-body">
+<form id="edit-form">
+<div class="field"><label for="edit-sujet">Sujet</label><input id="edit-sujet"></div>
+<div class="field">
+<label for="edit-contenu">Message</label>
+<textarea id="edit-contenu" rows="8"></textarea>
+<p style="font-size:12px; color:var(--text-soft); margin:4px 0 0;">
+Variables disponibles : <code>{prenom}</code> (contact du destinataire),
+<code>{nom_entreprise}</code> (le nom de <strong>ton</strong> entreprise, pour signer),
+<code>{entreprise_prospect}</code> (l'entreprise du destinataire),
+<code>{lien_avis_google}</code>, <code>{lien_desinscription}</code>, <code>{image}</code>
+(position de l'image — sinon ajoutée à la fin).
+</p>
+<button class="btn btn-ghost btn-sm" type="button" id="improve-ai-btn" style="margin-top:8px;">✨ Améliorer avec l'IA</button>
+</div>
+<div class="field-row">
+<div class="field"><label for="edit-quota">Quota d'envois/jour</label><input id="edit-quota" type="number" min="1"></div>
+</div>
+<button class="btn btn-primary btn-sm" type="submit">Enregistrer les modifications</button>
+</form>
+</div>
+</div>
 
-      <div class="panel">
-        <div class="panel-head"><h2>Image dans le message</h2><p style="margin:0;">Optionnelle — 200 Ko maximum, compressée automatiquement.</p></div>
-        <div class="panel-body">
-          <div id="image-current-preview" style="display:none; margin-bottom:14px;">
-            <img id="image-current-img" style="max-width:100%; max-height:180px; border-radius:8px; border:1px solid var(--border);">
-            <div style="margin-top:8px;"><button class="btn btn-ghost btn-sm" type="button" id="remove-image-btn">Supprimer l'image</button></div>
-          </div>
-          <input type="file" id="image-file-input" accept="image/jpeg,image/png,image/webp,image/gif">
-          <div id="crop-editor" style="display:none; margin-top:14px;">
-            <div style="position:relative; max-width:420px; overflow:hidden; border-radius:8px; border:1px solid var(--border);">
-              <img id="crop-source-img" style="display:block; width:100%; height:auto;">
-              <div id="crop-box" style="position:absolute; border:2px solid var(--terracotta-deep); box-sizing:border-box; cursor:move;"></div>
-            </div>
-            <p style="font-size:12px; color:var(--text-soft); margin:8px 0;">Fais glisser le cadre pour choisir la zone à conserver.</p>
-            <button class="btn btn-primary btn-sm" type="button" id="upload-image-btn">Envoyer l'image</button>
-            <button class="btn btn-ghost btn-sm" type="button" id="cancel-image-btn">Annuler</button>
-          </div>
-        </div>
-      </div>
+<div class="panel">
+<div class="panel-head"><h2>Image dans le message</h2><p style="margin:0;">Optionnelle — 200 Ko maximum, compressée automatiquement.</p></div>
+<div class="panel-body">
+<div id="image-current-preview" style="display:none; margin-bottom:14px;">
+<img id="image-current-img" style="max-width:100%; max-height:180px; border-radius:8px; border:1px solid var(--border);">
+<div style="margin-top:8px;"><button class="btn btn-ghost btn-sm" type="button" id="remove-image-btn">Supprimer l'image</button></div>
+</div>
+<input type="file" id="image-file-input" accept="image/jpeg,image/png,image/webp,image/gif">
+<div id="crop-editor" style="display:none; margin-top:14px;">
+<div style="position:relative; max-width:420px; overflow:hidden; border-radius:8px; border:1px solid var(--border);">
+<img id="crop-source-img" style="display:block; width:100%; height:auto;">
+<div id="crop-box" style="position:absolute; border:2px solid var(--terracotta-deep); box-sizing:border-box; cursor:move;"></div>
+</div>
+<p style="font-size:12px; color:var(--text-soft); margin:8px 0;">Fais glisser le cadre pour choisir la zone à conserver, ou tire sur le coin bas-droit pour le redimensionner.</p>
+<button class="btn btn-primary btn-sm" type="button" id="upload-image-btn">Envoyer l'image</button>
+<button class="btn btn-ghost btn-sm" type="button" id="cancel-image-btn">Annuler</button>
+</div>
+</div>
+</div>
 
-      <div class="panel">
-        <div class="panel-head"><h2>Envoyer</h2><p style="margin:0;">Sélectionne les destinataires puis lance l'envoi.</p></div>
-        <p style="font-size:12.5px; color:var(--text-soft); margin:0; padding:0 24px 8px;">
-          Seuls les prospects <strong>qualifiés</strong> ou <strong>clients</strong> sont proposés ici —
-          les prospects en attente ne peuvent pas être sollicités par campagne, pour ne pas risquer de les perdre.
-        </p>
-        <div class="checklist" id="recipient-checklist"></div>
-        <div class="panel-body" style="padding-top:12px; border-top:1px solid var(--border);">
-          <div id="unsubscribe-rate-display" style="font-size:12.5px; color:var(--text-soft); margin-bottom:10px;"></div>
-          <div class="field"><label for="send-date">Planifier pour (optionnel)</label><input id="send-date" type="datetime-local"></div>
-          <button class="btn btn-ghost btn-sm" type="button" id="preview-send-btn" style="margin-right:8px;">Aperçu du mail</button>
-          <button class="btn btn-primary btn-sm" id="trigger-send-btn">Envoyer</button>
-        </div>
-      </div>
-    </div>
+<div class="panel">
+<div class="panel-head"><h2>Envoyer</h2><p style="margin:0;">Sélectionne les destinataires puis lance l'envoi.</p></div>
+<p style="font-size:12.5px; color:var(--text-soft); margin:0; padding:0 24px 8px;">
+Seuls les prospects <strong>qualifiés</strong> ou <strong>clients</strong> sont proposés ici —
+les prospects en attente ne peuvent pas être sollicités par campagne, pour ne pas risquer de les perdre.
+</p>
+<div class="checklist" id="recipient-checklist"></div>
+<div class="panel-body" style="padding-top:12px; border-top:1px solid var(--border);">
+<div id="unsubscribe-rate-display" style="font-size:12.5px; color:var(--text-soft); margin-bottom:10px;"></div>
+<div class="field"><label for="send-date">Planifier pour (optionnel)</label><input id="send-date" type="datetime-local"></div>
+<button class="btn btn-ghost btn-sm" type="button" id="preview-send-btn" style="margin-right:8px;">Aperçu du mail</button>
+<button class="btn btn-primary btn-sm" id="trigger-send-btn">Envoyer</button>
+</div>
+</div>
+</div>
 
-    <div class="modal-overlay" id="preview-modal-overlay">
-      <div class="modal" style="max-width:560px;">
-        <h3>Aperçu du mail</h3>
-        <p id="preview-meta" style="font-size:12.5px; color:var(--text-soft); margin-top:-6px;"></p>
-        <div style="border:1px solid var(--border); border-radius:8px; padding:16px; max-height:420px; overflow-y:auto; background:#FBF8F3;">
-          <div id="preview-subject" style="font-weight:600; margin-bottom:10px;"></div>
-          <div id="preview-body"></div>
-        </div>
-        <div class="modal-actions">
-          <button type="button" class="btn btn-ghost btn-sm" id="preview-close-btn">Fermer</button>
-        </div>
-      </div>
-    </div>
+<div class="modal-overlay" id="preview-modal-overlay">
+<div class="modal" style="max-width:560px;">
+<h3>Aperçu du mail</h3>
+<p id="preview-meta" style="font-size:12.5px; color:var(--text-soft); margin-top:-6px;"></p>
+<div style="border:1px solid var(--border); border-radius:8px; padding:16px; max-height:420px; overflow-y:auto; background:#FBF8F3;">
+<div id="preview-subject" style="font-weight:600; margin-bottom:10px;"></div>
+<div id="preview-body"></div>
+</div>
+<div class="modal-actions">
+<button type="button" class="btn btn-ghost btn-sm" id="preview-close-btn">Fermer</button>
+</div>
+</div>
+</div>
 
-    <div class="panel">
-      <div class="panel-head" style="display:flex; justify-content:space-between; align-items:center;">
-        <h2>Historique des envois</h2>
-        <button class="btn btn-ghost btn-sm" type="button" id="cancel-all-sends-btn" style="display:none;">Annuler tous les envois planifiés</button>
-      </div>
-      <div id="sends-container"></div>
-    </div>
-  </div>
+<div class="panel">
+<div class="panel-head" style="display:flex; justify-content:space-between; align-items:center;">
+<h2>Historique des envois</h2>
+<button class="btn btn-ghost btn-sm" type="button" id="cancel-all-sends-btn" style="display:none;">Annuler tous les envois planifiés</button>
+</div>
+<div id="sends-container"></div>
+</div>
+</div>
 </div>
 
 <div class="modal-overlay" id="campaign-modal-overlay">
-  <div class="modal">
-    <h3>Nouvelle campagne</h3>
-    <form id="campaign-form">
-      <div class="field">
-        <label for="c-type">Type</label>
-        <select id="c-type">
-          <option value="avis">Demande d'avis Google</option>
-          <option value="publicitaire">Publicitaire</option>
-          <option value="newsletter">Newsletter</option>
-          <option value="relance">Relance</option>
-        </select>
-      </div>
-      <div class="field"><label for="c-nom">Nom de la campagne</label><input id="c-nom" required placeholder="Ex : Avis clients été 2026"></div>
-      <p style="font-size:13px; color:var(--text-soft); margin-top:-4px;">Un modèle de message prérempli sera utilisé — modifiable ensuite.</p>
-      <div class="modal-actions">
-        <button type="button" class="btn btn-ghost btn-sm" id="campaign-cancel-btn">Annuler</button>
-        <button type="submit" class="btn btn-primary btn-sm">Créer</button>
-      </div>
-    </form>
-  </div>
+<div class="modal">
+<h3>Nouvelle campagne</h3>
+<form id="campaign-form">
+<div class="field">
+<label for="c-type">Type</label>
+<select id="c-type">
+<option value="avis">Demande d'avis Google</option>
+<option value="publicitaire">Publicitaire</option>
+<option value="newsletter">Newsletter</option>
+<option value="relance">Relance</option>
+</select>
+</div>
+<div class="field"><label for="c-nom">Nom de la campagne</label><input id="c-nom" required placeholder="Ex : Avis clients été 2026"></div>
+<p style="font-size:13px; color:var(--text-soft); margin-top:-4px;">Un modèle de message prérempli sera utilisé — modifiable ensuite.</p>
+<div class="modal-actions">
+<button type="button" class="btn btn-ghost btn-sm" id="campaign-cancel-btn">Annuler</button>
+<button type="submit" class="btn btn-primary btn-sm">Créer</button>
+</div>
+</form>
+</div>
 </div>
 {% endblock %}
 
@@ -194,526 +194,551 @@ const typeLabels = { avis: "Demande d'avis", publicitaire: 'Publicitaire', newsl
 const sendStatusLabels = { envoye: 'Envoyé', planifie: 'Planifié', echec: 'Échec', en_cours: 'En cours', annule: 'Annulé' };
 
 function formatSendDate(s) {
-  const fmt = (iso) => new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-  if (s.statut === 'envoye' && s.envoye_at) return `envoyé le ${fmt(s.envoye_at)}`;
-  if (s.statut === 'planifie' && s.planifie_pour) return `prévu le ${fmt(s.planifie_pour)}`;
-  if (s.statut === 'planifie') return `planifié le ${fmt(s.created_at)} (dès que possible)`;
-  if (s.statut === 'annule') return `mis en file le ${fmt(s.created_at)}`;
-  return fmt(s.created_at);
+const fmt = (iso) => new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+if (s.statut === 'envoye' && s.envoye_at) return `envoyé le ${fmt(s.envoye_at)}`;
+if (s.statut === 'planifie' && s.planifie_pour) return `prévu le ${fmt(s.planifie_pour)}`;
+if (s.statut === 'planifie') return `planifié le ${fmt(s.created_at)} (dès que possible)`;
+if (s.statut === 'annule') return `mis en file le ${fmt(s.created_at)}`;
+return fmt(s.created_at);
 }
 let workspaceId = null;
 let canWrite = false;
 let currentCampaign = null;
 
 function onAuthReady(me) {
-  workspaceId = me.workspace_id;
-  canWrite = me.role !== 'lecture_seule';
-  if (!canWrite) document.getElementById('new-campaign-btn').style.display = 'none';
+workspaceId = me.workspace_id;
+canWrite = me.role !== 'lecture_seule';
+if (!canWrite) document.getElementById('new-campaign-btn').style.display = 'none';
 
-  if (me.plan_effective === 'free') {
-    const typeSelect = document.getElementById('c-type');
-    Array.from(typeSelect.options).forEach(opt => { if (opt.value !== 'relance') opt.remove(); });
-    const hint = document.createElement('p');
-    hint.style.cssText = 'font-size:12.5px; color:var(--text-soft); margin-top:-4px;';
-    hint.textContent = 'Version gratuite : campagne de type Relance uniquement, 1 à la fois. Passe en Premium pour débloquer les autres types.';
-    typeSelect.closest('.field').after(hint);
-  }
+if (me.plan_effective === 'free') {
+const typeSelect = document.getElementById('c-type');
+Array.from(typeSelect.options).forEach(opt => { if (opt.value !== 'relance') opt.remove(); });
+const hint = document.createElement('p');
+hint.style.cssText = 'font-size:12.5px; color:var(--text-soft); margin-top:-4px;';
+hint.textContent = 'Version gratuite : campagne de type Relance uniquement, 1 à la fois. Passe en Premium pour débloquer les autres types.';
+typeSelect.closest('.field').after(hint);
+}
 
-  loadCampaigns();
-  loadTypeCards();
+loadCampaigns();
+loadTypeCards();
 
-  document.getElementById('new-campaign-btn').addEventListener('click', () => document.getElementById('campaign-modal-overlay').classList.add('show'));
-  document.getElementById('campaign-cancel-btn').addEventListener('click', () => document.getElementById('campaign-modal-overlay').classList.remove('show'));
-  document.getElementById('campaign-form').addEventListener('submit', createCampaign);
-  document.getElementById('type-send-cancel-btn').addEventListener('click', () => document.getElementById('type-send-modal-overlay').classList.remove('show'));
-  document.getElementById('back-to-list').addEventListener('click', showListView);
-  document.getElementById('edit-form').addEventListener('submit', saveCampaignEdits);
-  document.getElementById('trigger-send-btn').addEventListener('click', triggerSend);
-  document.getElementById('preview-send-btn').addEventListener('click', showPreview);
-  document.getElementById('preview-close-btn').addEventListener('click', () => document.getElementById('preview-modal-overlay').classList.remove('show'));
+document.getElementById('new-campaign-btn').addEventListener('click', () => document.getElementById('campaign-modal-overlay').classList.add('show'));
+document.getElementById('campaign-cancel-btn').addEventListener('click', () => document.getElementById('campaign-modal-overlay').classList.remove('show'));
+document.getElementById('campaign-form').addEventListener('submit', createCampaign);
+document.getElementById('type-send-cancel-btn').addEventListener('click', () => document.getElementById('type-send-modal-overlay').classList.remove('show'));
+document.getElementById('back-to-list').addEventListener('click', showListView);
+document.getElementById('edit-form').addEventListener('submit', saveCampaignEdits);
+document.getElementById('trigger-send-btn').addEventListener('click', triggerSend);
+document.getElementById('preview-send-btn').addEventListener('click', showPreview);
+document.getElementById('preview-close-btn').addEventListener('click', () => document.getElementById('preview-modal-overlay').classList.remove('show'));
 }
 
 async function showPreview() {
-  if (!currentCampaign) return;
-  const checked = document.querySelector('#recipient-checklist input[type="checkbox"]:checked');
-  if (!checked) { showToast('Sélectionne au moins un destinataire pour voir un aperçu.', true); return; }
-  try {
-    const preview = await fetchJSON(`/api/campaigns/${currentCampaign.id}/preview?prospect_id=${checked.value}`);
-    document.getElementById('preview-meta').textContent = `Destinataire : ${preview.to_email || 'sans e-mail'}`;
-    document.getElementById('preview-subject').textContent = preview.subject;
-    document.getElementById('preview-body').innerHTML = preview.body_html;
-    document.getElementById('preview-modal-overlay').classList.add('show');
-  } catch (err) {
-    showToast(err.message, true);
-  }
+if (!currentCampaign) return;
+const checked = document.querySelector('#recipient-checklist input[type="checkbox"]:checked');
+if (!checked) { showToast('Sélectionne au moins un destinataire pour voir un aperçu.', true); return; }
+try {
+const preview = await fetchJSON(`/api/campaigns/${currentCampaign.id}/preview?prospect_id=${checked.value}`);
+document.getElementById('preview-meta').textContent = `Destinataire : ${preview.to_email || 'sans e-mail'}`;
+document.getElementById('preview-subject').textContent = preview.subject;
+document.getElementById('preview-body').innerHTML = preview.body_html;
+document.getElementById('preview-modal-overlay').classList.add('show');
+} catch (err) {
+showToast(err.message, true);
+}
 }
 
 async function loadUnsubscribeRate(campaignId) {
-  const el = document.getElementById('unsubscribe-rate-display');
-  try {
-    const rate = await fetchJSON(`/api/campaigns/${campaignId}/unsubscribe-rate`);
-    if (!rate.sent) { el.textContent = ''; return; }
-    el.textContent = `Taux de désabonnement (sur cette catégorie) : ${rate.rate}% (${rate.unsubscribed}/${rate.sent} destinataires envoyés).`;
-  } catch (e) {
-    el.textContent = '';
-  }
+const el = document.getElementById('unsubscribe-rate-display');
+try {
+const rate = await fetchJSON(`/api/campaigns/${campaignId}/unsubscribe-rate`);
+if (!rate.sent) { el.textContent = ''; return; }
+el.textContent = `Taux de désabonnement (sur cette catégorie) : ${rate.rate}% (${rate.unsubscribed}/${rate.sent} destinataires envoyés).`;
+} catch (e) {
+el.textContent = '';
+}
 }
 
 async function loadCampaigns() {
-  const container = document.getElementById('campaigns-container');
-  try {
-    const data = await fetchJSON(`/api/campaigns?workspace_id=${workspaceId}`);
-    document.getElementById('campaign-count').textContent = `${data.campaigns.length} campagne${data.campaigns.length > 1 ? 's' : ''}`;
-    if (!data.campaigns.length) {
-      container.innerHTML = `<div class="empty-state"><h3>Aucune campagne</h3><p>Crée ta première campagne pour commencer à recontacter tes prospects.</p></div>`;
-      return;
-    }
-    container.innerHTML = `
-      <table>
-        <thead><tr><th>Nom</th><th>Type</th><th>Statut</th><th>Quota/jour</th><th>Créée le</th></tr></thead>
-        <tbody>
-          ${data.campaigns.map(c => `
-            <tr class="campaign-row" data-id="${c.id}">
-              <td style="font-weight:600;">${escapeHtml(c.nom)}</td>
-              <td><span class="badge type-badge-${c.type}">${typeLabels[c.type] || c.type}</span></td>
-              <td><span class="badge badge-${c.statut === 'active' ? 'active' : 'inactive'}">${c.statut === 'active' ? 'Active' : 'Inactive'}</span></td>
-              <td>${c.quota_par_jour}</td>
-              <td style="color:var(--text-soft); font-size:13px;">${new Date(c.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>`;
-    container.querySelectorAll('.campaign-row').forEach(row => {
-      row.addEventListener('click', () => openCampaign(parseInt(row.dataset.id, 10)));
-    });
-  } catch (e) {
-    container.innerHTML = `<div class="empty-state"><p>Impossible de charger les campagnes.</p></div>`;
-  }
+const container = document.getElementById('campaigns-container');
+try {
+const data = await fetchJSON(`/api/campaigns?workspace_id=${workspaceId}`);
+document.getElementById('campaign-count').textContent = `${data.campaigns.length} campagne${data.campaigns.length > 1 ? 's' : ''}`;
+if (!data.campaigns.length) {
+container.innerHTML = `<div class="empty-state"><h3>Aucune campagne</h3><p>Crée ta première campagne pour commencer à recontacter tes prospects.</p></div>`;
+return;
+}
+container.innerHTML = `
+<table>
+<thead><tr><th>Nom</th><th>Type</th><th>Statut</th><th>Quota/jour</th><th>Créée le</th></tr></thead>
+<tbody>
+${data.campaigns.map(c => `
+<tr class="campaign-row" data-id="${c.id}">
+<td style="font-weight:600;">${escapeHtml(c.nom)}</td>
+<td><span class="badge type-badge-${c.type}">${typeLabels[c.type] || c.type}</span></td>
+<td><span class="badge badge-${c.statut === 'active' ? 'active' : 'inactive'}">${c.statut === 'active' ? 'Active' : 'Inactive'}</span></td>
+<td>${c.quota_par_jour}</td>
+<td style="color:var(--text-soft); font-size:13px;">${new Date(c.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</td>
+</tr>
+`).join('')}
+</tbody>
+</table>`;
+container.querySelectorAll('.campaign-row').forEach(row => {
+row.addEventListener('click', () => openCampaign(parseInt(row.dataset.id, 10)));
+});
+} catch (e) {
+container.innerHTML = `<div class="empty-state"><p>Impossible de charger les campagnes.</p></div>`;
+}
 }
 
 async function createCampaign(e) {
-  e.preventDefault();
-  const btn = e.target.querySelector('button[type="submit"]');
-  btn.disabled = true;
-  try {
-    await fetchJSON('/api/campaigns', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        workspace_id: workspaceId,
-        type: document.getElementById('c-type').value,
-        nom: document.getElementById('c-nom').value.trim(),
-      }),
-    });
-    document.getElementById('campaign-modal-overlay').classList.remove('show');
-    document.getElementById('campaign-form').reset();
-    showToast('Campagne créée.');
-    loadCampaigns();
-  } catch (err) {
-    showToast(err.message, true);
-  } finally {
-    btn.disabled = false;
-  }
+e.preventDefault();
+const btn = e.target.querySelector('button[type="submit"]');
+btn.disabled = true;
+try {
+await fetchJSON('/api/campaigns', {
+method: 'POST', headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify({
+workspace_id: workspaceId,
+type: document.getElementById('c-type').value,
+nom: document.getElementById('c-nom').value.trim(),
+}),
+});
+document.getElementById('campaign-modal-overlay').classList.remove('show');
+document.getElementById('campaign-form').reset();
+showToast('Campagne créée.');
+loadCampaigns();
+} catch (err) {
+showToast(err.message, true);
+} finally {
+btn.disabled = false;
+}
 }
 
 function showListView() {
-  document.getElementById('detail-view').style.display = 'none';
-  document.getElementById('list-view').style.display = 'block';
-  currentCampaign = null;
+document.getElementById('detail-view').style.display = 'none';
+document.getElementById('list-view').style.display = 'block';
+currentCampaign = null;
 }
 
 async function openCampaign(id) {
-  const data = await fetchJSON(`/api/campaigns?workspace_id=${workspaceId}`);
-  currentCampaign = data.campaigns.find(c => c.id === id);
-  if (!currentCampaign) return;
+const data = await fetchJSON(`/api/campaigns?workspace_id=${workspaceId}`);
+currentCampaign = data.campaigns.find(c => c.id === id);
+if (!currentCampaign) return;
 
-  document.getElementById('list-view').style.display = 'none';
-  document.getElementById('detail-view').style.display = 'block';
+document.getElementById('list-view').style.display = 'none';
+document.getElementById('detail-view').style.display = 'block';
 
-  document.getElementById('detail-title').textContent = currentCampaign.nom;
-  document.getElementById('detail-sub').textContent = `${typeLabels[currentCampaign.type]} · ${currentCampaign.statut === 'active' ? 'Active' : 'Inactive'}`;
-  document.getElementById('edit-sujet').value = currentCampaign.sujet || '';
-  document.getElementById('edit-contenu').value = currentCampaign.contenu || '';
-  document.getElementById('edit-quota').value = currentCampaign.quota_par_jour;
+document.getElementById('detail-title').textContent = currentCampaign.nom;
+document.getElementById('detail-sub').textContent = `${typeLabels[currentCampaign.type]} · ${currentCampaign.statut === 'active' ? 'Active' : 'Inactive'}`;
+document.getElementById('edit-sujet').value = currentCampaign.sujet || '';
+document.getElementById('edit-contenu').value = currentCampaign.contenu || '';
+document.getElementById('edit-quota').value = currentCampaign.quota_par_jour;
 
-  const toggleBtn = document.getElementById('toggle-active-btn');
-  toggleBtn.textContent = currentCampaign.statut === 'active' ? 'Désactiver' : 'Réactiver';
-  toggleBtn.style.display = canWrite ? 'inline-flex' : 'none';
-  toggleBtn.onclick = () => toggleCampaignActive(currentCampaign);
+const toggleBtn = document.getElementById('toggle-active-btn');
+toggleBtn.textContent = currentCampaign.statut === 'active' ? 'Désactiver' : 'Réactiver';
+toggleBtn.style.display = canWrite ? 'inline-flex' : 'none';
+toggleBtn.onclick = () => toggleCampaignActive(currentCampaign);
 
-  document.getElementById('edit-form').querySelectorAll('input,textarea,button').forEach(el => el.disabled = !canWrite);
-  document.getElementById('trigger-send-btn').style.display = canWrite ? 'inline-flex' : 'none';
-  document.getElementById('image-file-input').style.display = canWrite ? 'block' : 'none';
-  document.getElementById('remove-image-btn').style.display = canWrite ? 'inline-flex' : 'none';
+document.getElementById('edit-form').querySelectorAll('input,textarea,button').forEach(el => el.disabled = !canWrite);
+document.getElementById('trigger-send-btn').style.display = canWrite ? 'inline-flex' : 'none';
+document.getElementById('image-file-input').style.display = canWrite ? 'block' : 'none';
+document.getElementById('remove-image-btn').style.display = canWrite ? 'inline-flex' : 'none';
 
-  loadRecipientChecklist();
-  loadSends(id);
-  loadCampaignImage(id);
-  loadUnsubscribeRate(id);
+loadRecipientChecklist();
+loadSends(id);
+loadCampaignImage(id);
+loadUnsubscribeRate(id);
 }
 
 document.getElementById('improve-ai-btn')?.addEventListener('click', async () => {
-  const textarea = document.getElementById('edit-contenu');
-  const draft = textarea.value;
-  if (!draft.trim()) { showToast('Rien à améliorer : le message est vide.', true); return; }
-  const btn = document.getElementById('improve-ai-btn');
-  btn.disabled = true; btn.textContent = 'Amélioration en cours…';
-  try {
-    const result = await fetchJSON(`/api/campaigns/${currentCampaign.id}/improve-content`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contenu: draft, type: currentCampaign.type }),
-    });
-    textarea.value = result.contenu;
-    showToast('Proposition insérée — relis-la puis enregistre si elle te convient.');
-  } catch (err) {
-    showToast(err.message, true);
-  } finally {
-    btn.disabled = false; btn.textContent = "✨ Améliorer avec l'IA";
-  }
+const textarea = document.getElementById('edit-contenu');
+const draft = textarea.value;
+if (!draft.trim()) { showToast('Rien à améliorer : le message est vide.', true); return; }
+const btn = document.getElementById('improve-ai-btn');
+btn.disabled = true; btn.textContent = 'Amélioration en cours…';
+try {
+const result = await fetchJSON(`/api/campaigns/${currentCampaign.id}/improve-content`, {
+method: 'POST', headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify({ contenu: draft, type: currentCampaign.type }),
+});
+textarea.value = result.contenu;
+showToast('Proposition insérée — relis-la puis enregistre si elle te convient.');
+} catch (err) {
+showToast(err.message, true);
+} finally {
+btn.disabled = false; btn.textContent = "✨ Améliorer avec l'IA";
+}
 });
 
 function loadCampaignImage(id) {
-  const previewWrap = document.getElementById('image-current-preview');
-  const img = document.getElementById('image-current-img');
-  img.onerror = () => { previewWrap.style.display = 'none'; };
-  img.onload = () => { previewWrap.style.display = 'block'; };
-  img.src = `/api/campaigns/${id}/image/preview?t=${Date.now()}`;
+const previewWrap = document.getElementById('image-current-preview');
+const img = document.getElementById('image-current-img');
+img.onerror = () => { previewWrap.style.display = 'none'; };
+img.onload = () => { previewWrap.style.display = 'block'; };
+img.src = `/api/campaigns/${id}/image/preview?t=${Date.now()}`;
 }
 
 document.getElementById('remove-image-btn')?.addEventListener('click', async () => {
-  if (!currentCampaign) return;
-  try {
-    await fetchJSON(`/api/campaigns/${currentCampaign.id}/image`, { method: 'DELETE' });
-    document.getElementById('image-current-preview').style.display = 'none';
-    showToast('Image supprimée.');
-  } catch (err) {
-    showToast(err.message, true);
-  }
+if (!currentCampaign) return;
+try {
+await fetchJSON(`/api/campaigns/${currentCampaign.id}/image`, { method: 'DELETE' });
+document.getElementById('image-current-preview').style.display = 'none';
+showToast('Image supprimée.');
+} catch (err) {
+showToast(err.message, true);
+}
 });
 
-// --- Upload + recadrage (glisser le cadre sur l'image) ---
+// --- Upload + recadrage (glisser le cadre sur l'image, redimensionnable via la poignée) ---
 let selectedImageFile = null;
 let cropState = { xPct: 10, yPct: 10, wPct: 80, hPct: 80 };
 
 document.getElementById('image-file-input')?.addEventListener('change', (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  selectedImageFile = file;
-  const reader = new FileReader();
-  reader.onload = (ev) => {
-    const sourceImg = document.getElementById('crop-source-img');
-    sourceImg.src = ev.target.result;
-    document.getElementById('crop-editor').style.display = 'block';
-    cropState = { xPct: 10, yPct: 10, wPct: 80, hPct: 80 };
-    sourceImg.onload = () => updateCropBoxDisplay();
-  };
-  reader.readAsDataURL(file);
+const file = e.target.files[0];
+if (!file) return;
+selectedImageFile = file;
+const reader = new FileReader();
+reader.onload = (ev) => {
+const sourceImg = document.getElementById('crop-source-img');
+sourceImg.src = ev.target.result;
+document.getElementById('crop-editor').style.display = 'block';
+cropState = { xPct: 10, yPct: 10, wPct: 80, hPct: 80 };
+sourceImg.onload = () => updateCropBoxDisplay();
+};
+reader.readAsDataURL(file);
 });
 
 document.getElementById('cancel-image-btn')?.addEventListener('click', () => {
-  selectedImageFile = null;
-  document.getElementById('crop-editor').style.display = 'none';
-  document.getElementById('image-file-input').value = '';
+selectedImageFile = null;
+document.getElementById('crop-editor').style.display = 'none';
+document.getElementById('image-file-input').value = '';
 });
 
 function updateCropBoxDisplay() {
-  const box = document.getElementById('crop-box');
-  box.style.left = cropState.xPct + '%';
-  box.style.top = cropState.yPct + '%';
-  box.style.width = cropState.wPct + '%';
-  box.style.height = cropState.hPct + '%';
+const box = document.getElementById('crop-box');
+box.style.left = cropState.xPct + '%';
+box.style.top = cropState.yPct + '%';
+box.style.width = cropState.wPct + '%';
+box.style.height = cropState.hPct + '%';
 }
 
 (function setupCropDrag() {
-  const box = document.getElementById('crop-box');
-  if (!box) return;
-  let dragging = false, startX = 0, startY = 0, startState = null;
+const box = document.getElementById('crop-box');
+if (!box) return;
+let dragging = false, resizing = false, startX = 0, startY = 0, startState = null;
+const MIN_SIZE_PCT = 10;
 
-  function pos(e) { return e.touches ? e.touches[0] : e; }
+function pos(e) { return e.touches ? e.touches[0] : e; }
 
-  function onDown(e) {
-    dragging = true;
-    const p = pos(e);
-    startX = p.clientX; startY = p.clientY;
-    startState = { ...cropState };
-    e.preventDefault();
-  }
-  function onMove(e) {
-    if (!dragging) return;
-    const container = box.parentElement;
-    const rect = container.getBoundingClientRect();
-    const p = pos(e);
-    const dxPct = ((p.clientX - startX) / rect.width) * 100;
-    const dyPct = ((p.clientY - startY) / rect.height) * 100;
-    let x = startState.xPct + dxPct;
-    let y = startState.yPct + dyPct;
-    x = Math.max(0, Math.min(100 - cropState.wPct, x));
-    y = Math.max(0, Math.min(100 - cropState.hPct, y));
-    cropState.xPct = x; cropState.yPct = y;
-    updateCropBoxDisplay();
-  }
-  function onUp() { dragging = false; }
+function onDown(e) {
+dragging = true;
+const p = pos(e);
+startX = p.clientX; startY = p.clientY;
+startState = { ...cropState };
+e.preventDefault();
+}
+function onMove(e) {
+if (!dragging && !resizing) return;
+const container = box.parentElement;
+const rect = container.getBoundingClientRect();
+const p = pos(e);
+const dxPct = ((p.clientX - startX) / rect.width) * 100;
+const dyPct = ((p.clientY - startY) / rect.height) * 100;
+if (resizing) {
+let w = startState.wPct + dxPct;
+let h = startState.hPct + dyPct;
+w = Math.max(MIN_SIZE_PCT, Math.min(100 - startState.xPct, w));
+h = Math.max(MIN_SIZE_PCT, Math.min(100 - startState.yPct, h));
+cropState.wPct = w; cropState.hPct = h;
+} else {
+let x = startState.xPct + dxPct;
+let y = startState.yPct + dyPct;
+x = Math.max(0, Math.min(100 - cropState.wPct, x));
+y = Math.max(0, Math.min(100 - cropState.hPct, y));
+cropState.xPct = x; cropState.yPct = y;
+}
+updateCropBoxDisplay();
+}
+function onUp() { dragging = false; resizing = false; }
 
-  box.addEventListener('mousedown', onDown);
-  window.addEventListener('mousemove', onMove);
-  window.addEventListener('mouseup', onUp);
-  box.addEventListener('touchstart', onDown, { passive: false });
-  window.addEventListener('touchmove', onMove, { passive: false });
-  window.addEventListener('touchend', onUp);
+box.addEventListener('mousedown', onDown);
+window.addEventListener('mousemove', onMove);
+window.addEventListener('mouseup', onUp);
+box.addEventListener('touchstart', onDown, { passive: false });
+window.addEventListener('touchmove', onMove, { passive: false });
+window.addEventListener('touchend', onUp);
+
+const handle = document.createElement('div');
+handle.id = 'crop-resize-handle';
+handle.style.cssText = 'position:absolute; right:-6px; bottom:-6px; width:14px; height:14px; background:var(--terracotta-deep); border:2px solid #fff; border-radius:3px; cursor:nwse-resize;';
+box.appendChild(handle);
+
+function onResizeDown(e) {
+resizing = true;
+const p = pos(e);
+startX = p.clientX; startY = p.clientY;
+startState = { ...cropState };
+e.preventDefault();
+e.stopPropagation();
+}
+handle.addEventListener('mousedown', onResizeDown);
+handle.addEventListener('touchstart', onResizeDown, { passive: false });
 })();
 
 document.getElementById('upload-image-btn')?.addEventListener('click', async () => {
-  if (!selectedImageFile || !currentCampaign) return;
-  const sourceImg = document.getElementById('crop-source-img');
-  const naturalW = sourceImg.naturalWidth, naturalH = sourceImg.naturalHeight;
+if (!selectedImageFile || !currentCampaign) return;
+const sourceImg = document.getElementById('crop-source-img');
+const naturalW = sourceImg.naturalWidth, naturalH = sourceImg.naturalHeight;
 
-  const left = Math.round((cropState.xPct / 100) * naturalW);
-  const top = Math.round((cropState.yPct / 100) * naturalH);
-  const right = Math.round(((cropState.xPct + cropState.wPct) / 100) * naturalW);
-  const bottom = Math.round(((cropState.yPct + cropState.hPct) / 100) * naturalH);
+const left = Math.round((cropState.xPct / 100) * naturalW);
+const top = Math.round((cropState.yPct / 100) * naturalH);
+const right = Math.round(((cropState.xPct + cropState.wPct) / 100) * naturalW);
+const bottom = Math.round(((cropState.yPct + cropState.hPct) / 100) * naturalH);
 
-  const formData = new FormData();
-  formData.append('image', selectedImageFile);
-  formData.append('crop_left', left);
-  formData.append('crop_top', top);
-  formData.append('crop_right', right);
-  formData.append('crop_bottom', bottom);
+const formData = new FormData();
+formData.append('image', selectedImageFile);
+formData.append('crop_left', left);
+formData.append('crop_top', top);
+formData.append('crop_right', right);
+formData.append('crop_bottom', bottom);
 
-  const btn = document.getElementById('upload-image-btn');
-  btn.disabled = true; btn.textContent = 'Envoi en cours…';
-  try {
-    const res = await fetch(`/api/campaigns/${currentCampaign.id}/image`, { method: 'POST', body: formData });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Échec de l\'envoi.');
-    showToast(`Image enregistrée (${Math.round(data.size_bytes / 1024)} Ko).`);
-    document.getElementById('crop-editor').style.display = 'none';
-    document.getElementById('image-file-input').value = '';
-    selectedImageFile = null;
-    loadCampaignImage(currentCampaign.id);
-  } catch (err) {
-    showToast(err.message, true);
-  } finally {
-    btn.disabled = false; btn.textContent = 'Envoyer l\'image';
-  }
+const btn = document.getElementById('upload-image-btn');
+btn.disabled = true; btn.textContent = 'Envoi en cours…';
+try {
+const res = await fetch(`/api/campaigns/${currentCampaign.id}/image`, { method: 'POST', body: formData });
+const data = await res.json();
+if (!res.ok) throw new Error(data.error || 'Échec de l\'envoi.');
+showToast(`Image enregistrée (${Math.round(data.size_bytes / 1024)} Ko).`);
+document.getElementById('crop-editor').style.display = 'none';
+document.getElementById('image-file-input').value = '';
+selectedImageFile = null;
+loadCampaignImage(currentCampaign.id);
+} catch (err) {
+showToast(err.message, true);
+} finally {
+btn.disabled = false; btn.textContent = 'Envoyer l\'image';
+}
 });
 
 async function toggleCampaignActive(campaign) {
-  try {
-    await fetchJSON(`/api/campaigns/${campaign.id}`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ statut: campaign.statut === 'active' ? 'inactive' : 'active' }),
-    });
-    showToast('Statut mis à jour.');
-    openCampaign(campaign.id);
-  } catch (err) {
-    showToast(err.message, true);
-  }
+try {
+await fetchJSON(`/api/campaigns/${campaign.id}`, {
+method: 'PUT', headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify({ statut: campaign.statut === 'active' ? 'inactive' : 'active' }),
+});
+showToast('Statut mis à jour.');
+openCampaign(campaign.id);
+} catch (err) {
+showToast(err.message, true);
+}
 }
 
 async function saveCampaignEdits(e) {
-  e.preventDefault();
-  try {
-    await fetchJSON(`/api/campaigns/${currentCampaign.id}`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sujet: document.getElementById('edit-sujet').value,
-        contenu: document.getElementById('edit-contenu').value,
-        quota_par_jour: parseInt(document.getElementById('edit-quota').value, 10) || undefined,
-      }),
-    });
-    showToast('Contenu enregistré.');
-  } catch (err) {
-    showToast(err.message, true);
-  }
+e.preventDefault();
+try {
+await fetchJSON(`/api/campaigns/${currentCampaign.id}`, {
+method: 'PUT', headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify({
+sujet: document.getElementById('edit-sujet').value,
+contenu: document.getElementById('edit-contenu').value,
+quota_par_jour: parseInt(document.getElementById('edit-quota').value, 10) || undefined,
+}),
+});
+showToast('Contenu enregistré.');
+} catch (err) {
+showToast(err.message, true);
+}
 }
 
 async function loadRecipientChecklist() {
-  const container = document.getElementById('recipient-checklist');
+const container = document.getElementById('recipient-checklist');
 
-  if (currentCampaign && currentCampaign.type === 'relance') {
-    try {
-      const data = await fetchJSON(`/api/campaigns/${currentCampaign.id}/relance-eligible`);
-      const eligibleHtml = data.eligible.length ? data.eligible.map(p => `
-        <label class="prospect-check-row">
-          <input type="checkbox" value="${p.id}" class="recipient-check" checked>
-          <span>${escapeHtml(p.nom_entreprise)} <span style="color:var(--text-soft); font-size:12.5px;">(${escapeHtml(p.email)})</span></span>
-        </label>
-      `).join('') : `<div class="empty-state"><p>Aucun prospect qualifié à relancer pour le moment.</p></div>`;
+if (currentCampaign && currentCampaign.type === 'relance') {
+try {
+const data = await fetchJSON(`/api/campaigns/${currentCampaign.id}/relance-eligible`);
+const eligibleHtml = data.eligible.length ? data.eligible.map(p => `
+<label class="prospect-check-row">
+<input type="checkbox" value="${p.id}" class="recipient-check" checked>
+<span>${escapeHtml(p.nom_entreprise)} <span style="color:var(--text-soft); font-size:12.5px;">(${escapeHtml(p.email)})</span></span>
+</label>
+`).join('') : `<div class="empty-state"><p>Aucun prospect qualifié à relancer pour le moment.</p></div>`;
 
-      const coolingHtml = data.cooling_down.length ? `
-        <p style="font-size:12px; color:var(--text-soft); margin:14px 0 6px;">Déjà relancés récemment — redeviendront proposés automatiquement après 14 jours :</p>
-        ${data.cooling_down.map(p => `
-          <label class="prospect-check-row" style="opacity:.55;">
-            <input type="checkbox" disabled>
-            <span>${escapeHtml(p.nom_entreprise)} <span style="color:var(--text-soft); font-size:12.5px;">— relançable de nouveau le ${new Date(p.eligible_again_at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span></span>
-          </label>
-        `).join('')}
-      ` : '';
+const coolingHtml = data.cooling_down.length ? `
+<p style="font-size:12px; color:var(--text-soft); margin:14px 0 6px;">Déjà relancés récemment — redeviendront proposés automatiquement après 14 jours :</p>
+${data.cooling_down.map(p => `
+<label class="prospect-check-row" style="opacity:.55;">
+<input type="checkbox" disabled>
+<span>${escapeHtml(p.nom_entreprise)} <span style="color:var(--text-soft); font-size:12.5px;">— relançable de nouveau le ${new Date(p.eligible_again_at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span></span>
+</label>
+`).join('')}
+` : '';
 
-      container.innerHTML = eligibleHtml + coolingHtml;
-    } catch (e) {
-      container.innerHTML = `<div class="empty-state"><p>Impossible de charger les prospects éligibles.</p></div>`;
-    }
-    return;
-  }
+container.innerHTML = eligibleHtml + coolingHtml;
+} catch (e) {
+container.innerHTML = `<div class="empty-state"><p>Impossible de charger les prospects éligibles.</p></div>`;
+}
+return;
+}
 
-  try {
-    const data = await fetchJSON(`/api/prospects?workspace_id=${workspaceId}&statut=qualifie&statut=client`);
-    if (!data.prospects.length) {
-      container.innerHTML = `<div class="empty-state"><p>Aucun prospect qualifié ou client à qui envoyer pour le moment.</p></div>`;
-      return;
-    }
-    container.innerHTML = data.prospects.filter(p => p.email).map(p => `
-      <label class="prospect-check-row">
-        <input type="checkbox" value="${p.id}" class="recipient-check">
-        <span>${escapeHtml(p.nom_entreprise)} <span style="color:var(--text-soft); font-size:12.5px;">(${escapeHtml(p.email)})</span></span>
-      </label>
-    `).join('') || `<div class="empty-state"><p>Aucun prospect avec e-mail.</p></div>`;
-  } catch (e) {
-    container.innerHTML = `<div class="empty-state"><p>Impossible de charger les prospects.</p></div>`;
-  }
+try {
+const data = await fetchJSON(`/api/prospects?workspace_id=${workspaceId}&statut=qualifie&statut=client`);
+if (!data.prospects.length) {
+container.innerHTML = `<div class="empty-state"><p>Aucun prospect qualifié ou client à qui envoyer pour le moment.</p></div>`;
+return;
+}
+container.innerHTML = data.prospects.filter(p => p.email).map(p => `
+<label class="prospect-check-row">
+<input type="checkbox" value="${p.id}" class="recipient-check">
+<span>${escapeHtml(p.nom_entreprise)} <span style="color:var(--text-soft); font-size:12.5px;">(${escapeHtml(p.email)})</span></span>
+</label>
+`).join('') || `<div class="empty-state"><p>Aucun prospect avec e-mail.</p></div>`;
+} catch (e) {
+container.innerHTML = `<div class="empty-state"><p>Impossible de charger les prospects.</p></div>`;
+}
 }
 
 async function triggerSend() {
-  const ids = Array.from(document.querySelectorAll('.recipient-check:checked')).map(c => parseInt(c.value, 10));
-  if (!ids.length) { showToast('Sélectionne au moins un destinataire.', true); return; }
+const ids = Array.from(document.querySelectorAll('.recipient-check:checked')).map(c => parseInt(c.value, 10));
+if (!ids.length) { showToast('Sélectionne au moins un destinataire.', true); return; }
 
-  const dateVal = document.getElementById('send-date').value;
-  const body = { prospect_ids: ids };
-  if (dateVal) body.planifie_pour = new Date(dateVal).toISOString();
+const dateVal = document.getElementById('send-date').value;
+const body = { prospect_ids: ids };
+if (dateVal) body.planifie_pour = new Date(dateVal).toISOString();
 
-  try {
-    const result = await fetchJSON(`/api/campaigns/${currentCampaign.id}/send`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const skipped = result.skipped || [];
-    showToast(`${result.queued.length} mis en file${skipped.length ? `, ${skipped.length} ignoré(s)` : ''}.`, skipped.length > 0 && result.queued.length === 0);
-    loadSends(currentCampaign.id);
-  } catch (err) {
-    showToast(err.message, true);
-  }
+try {
+const result = await fetchJSON(`/api/campaigns/${currentCampaign.id}/send`, {
+method: 'POST', headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify(body),
+});
+const skipped = result.skipped || [];
+showToast(`${result.queued.length} mis en file${skipped.length ? `, ${skipped.length} ignoré(s)` : ''}.`, skipped.length > 0 && result.queued.length === 0);
+loadSends(currentCampaign.id);
+} catch (err) {
+showToast(err.message, true);
+}
 }
 
 async function loadSends(campaignId) {
-  const container = document.getElementById('sends-container');
-  const cancelAllBtn = document.getElementById('cancel-all-sends-btn');
-  try {
-    const data = await fetchJSON(`/api/campaigns/${campaignId}/sends`);
-    if (!data.sends.length) {
-      container.innerHTML = `<div class="empty-state"><p>Aucun envoi pour l'instant.</p></div>`;
-      cancelAllBtn.style.display = 'none';
-      return;
-    }
-    const counts = data.sends.reduce((acc, s) => { acc[s.statut] = (acc[s.statut] || 0) + 1; return acc; }, {});
-    const total = data.sends.length;
-    const summary = `
-      <div style="padding:14px 24px; border-bottom:1px solid var(--border); font-size:13.5px;">
-        <strong>${counts.envoye || 0}/${total}</strong> envoyé(s)
-        ${counts.echec ? `<span style="color:#9B4646;"> · ${counts.echec} échec(s)</span>` : ''}
-        ${counts.planifie ? `<span style="color:var(--text-soft);"> · ${counts.planifie} planifié(s)</span>` : ''}
-        ${counts.en_cours ? `<span style="color:var(--text-soft);"> · ${counts.en_cours} en cours</span>` : ''}
-        ${counts.annule ? `<span style="color:var(--text-soft);"> · ${counts.annule} annulé(s)</span>` : ''}
-      </div>`;
-    container.innerHTML = summary + data.sends.slice(0, 30).map(s => `
-      <div class="activity-item" style="padding:14px 24px; border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
-        <div>
-          <span class="badge send-status-${s.statut}">${sendStatusLabels[s.statut] || s.statut}</span>
-          <span style="font-size:12.5px; color:var(--text-soft); margin-left:8px;">prospect #${s.prospect_id}</span>
-          <span style="font-size:12.5px; color:var(--text-soft); margin-left:8px;">${formatSendDate(s)}</span>
-        </div>
-        ${canWrite && s.statut === 'planifie' ? `<button class="btn btn-ghost btn-sm cancel-send-btn" data-send-id="${s.id}">Annuler</button>` : ''}
-      </div>
-    `).join('');
-    container.querySelectorAll('.cancel-send-btn').forEach(btn => {
-      btn.addEventListener('click', () => cancelOneSend(campaignId, parseInt(btn.dataset.sendId, 10)));
-    });
-    cancelAllBtn.style.display = (canWrite && counts.planifie) ? 'inline-flex' : 'none';
-  } catch (e) {
-    container.innerHTML = `<div class="empty-state"><p>Impossible de charger l'historique.</p></div>`;
-    cancelAllBtn.style.display = 'none';
-  }
+const container = document.getElementById('sends-container');
+const cancelAllBtn = document.getElementById('cancel-all-sends-btn');
+try {
+const data = await fetchJSON(`/api/campaigns/${campaignId}/sends`);
+if (!data.sends.length) {
+container.innerHTML = `<div class="empty-state"><p>Aucun envoi pour l'instant.</p></div>`;
+cancelAllBtn.style.display = 'none';
+return;
+}
+const counts = data.sends.reduce((acc, s) => { acc[s.statut] = (acc[s.statut] || 0) + 1; return acc; }, {});
+const total = data.sends.length;
+const summary = `
+<div style="padding:14px 24px; border-bottom:1px solid var(--border); font-size:13.5px;">
+<strong>${counts.envoye || 0}/${total}</strong> envoyé(s)
+${counts.echec ? `<span style="color:#9B4646;"> · ${counts.echec} échec(s)</span>` : ''}
+${counts.planifie ? `<span style="color:var(--text-soft);"> · ${counts.planifie} planifié(s)</span>` : ''}
+${counts.en_cours ? `<span style="color:var(--text-soft);"> · ${counts.en_cours} en cours</span>` : ''}
+${counts.annule ? `<span style="color:var(--text-soft);"> · ${counts.annule} annulé(s)</span>` : ''}
+</div>`;
+container.innerHTML = summary + data.sends.slice(0, 30).map(s => `
+<div class="activity-item" style="padding:14px 24px; border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+<div>
+<span class="badge send-status-${s.statut}">${sendStatusLabels[s.statut] || s.statut}</span>
+<span style="font-size:12.5px; color:var(--text-soft); margin-left:8px;">prospect #${s.prospect_id}</span>
+<span style="font-size:12.5px; color:var(--text-soft); margin-left:8px;">${formatSendDate(s)}</span>
+</div>
+${canWrite && s.statut === 'planifie' ? `<button class="btn btn-ghost btn-sm cancel-send-btn" data-send-id="${s.id}">Annuler</button>` : ''}
+</div>
+`).join('');
+container.querySelectorAll('.cancel-send-btn').forEach(btn => {
+btn.addEventListener('click', () => cancelOneSend(campaignId, parseInt(btn.dataset.sendId, 10)));
+});
+cancelAllBtn.style.display = (canWrite && counts.planifie) ? 'inline-flex' : 'none';
+} catch (e) {
+container.innerHTML = `<div class="empty-state"><p>Impossible de charger l'historique.</p></div>`;
+cancelAllBtn.style.display = 'none';
+}
 }
 
 async function cancelOneSend(campaignId, sendId) {
-  try {
-    await fetchJSON(`/api/campaigns/${campaignId}/sends/${sendId}/cancel`, { method: 'POST' });
-    showToast('Envoi annulé.');
-    loadSends(campaignId);
-  } catch (err) {
-    showToast(err.message, true);
-    loadSends(campaignId); // l'envoi a peut-être démarré entre-temps : on rafraîchit pour refléter l'état réel
-  }
+try {
+await fetchJSON(`/api/campaigns/${campaignId}/sends/${sendId}/cancel`, { method: 'POST' });
+showToast('Envoi annulé.');
+loadSends(campaignId);
+} catch (err) {
+showToast(err.message, true);
+loadSends(campaignId); // l'envoi a peut-être démarré entre-temps : on rafraîchit pour refléter l'état réel
+}
 }
 
 document.getElementById('cancel-all-sends-btn')?.addEventListener('click', async () => {
-  if (!currentCampaign) return;
-  if (!confirm("Annuler tous les envois encore planifiés pour cette campagne ? Les envois déjà partis ne sont pas concernés.")) return;
-  const btn = document.getElementById('cancel-all-sends-btn');
-  btn.disabled = true;
-  try {
-    const result = await fetchJSON(`/api/campaigns/${currentCampaign.id}/sends/cancel-all`, { method: 'POST' });
-    showToast(`${result.cancelled} envoi(s) annulé(s).`);
-    loadSends(currentCampaign.id);
-  } catch (err) {
-    showToast(err.message, true);
-  } finally {
-    btn.disabled = false;
-  }
+if (!currentCampaign) return;
+if (!confirm("Annuler tous les envois encore planifiés pour cette campagne ? Les envois déjà partis ne sont pas concernés.")) return;
+const btn = document.getElementById('cancel-all-sends-btn');
+btn.disabled = true;
+try {
+const result = await fetchJSON(`/api/campaigns/${currentCampaign.id}/sends/cancel-all`, { method: 'POST' });
+showToast(`${result.cancelled} envoi(s) annulé(s).`);
+loadSends(currentCampaign.id);
+} catch (err) {
+showToast(err.message, true);
+} finally {
+btn.disabled = false;
+}
 });
 
 let currentTypeSendId = null;
 
 async function loadTypeCards() {
-  const container = document.getElementById('type-cards-container');
-  try {
-    const data = await fetchJSON(`/api/workspaces/${workspaceId}/prospect-types-stats`);
-    if (!data.types.length) {
-      container.innerHTML = `<div class="empty-state"><p>Crée des types de statut dans les Paramètres pour les utiliser ici.</p></div>`;
-      return;
-    }
-    container.innerHTML = `<div class="type-cards-grid">` + data.types.map(t => `
-      <div class="type-card">
-        <div class="type-card-head"><strong>${escapeHtml(t.nom)}</strong><span class="type-card-count">${t.total}</span></div>
-        ${t.total === 0 ? '<div class="type-card-empty">Aucun prospect avec ce statut.</div>' : ''}
-        <div class="type-card-coverage">${t.eligibles} qualifié(s)/client(s) avec e-mail sur ${t.total}</div>
-        ${canWrite ? `<button class="btn btn-ghost btn-sm open-type-send-btn" data-id="${t.id}" data-nom="${escapeHtml(t.nom)}" ${t.eligibles === 0 ? 'disabled' : ''}>Configurer & envoyer</button>` : ''}
-      </div>
-    `).join('') + `</div>`;
+const container = document.getElementById('type-cards-container');
+try {
+const data = await fetchJSON(`/api/workspaces/${workspaceId}/prospect-types-stats`);
+if (!data.types.length) {
+container.innerHTML = `<div class="empty-state"><p>Crée des types de statut dans les Paramètres pour les utiliser ici.</p></div>`;
+return;
+}
+container.innerHTML = `<div class="type-cards-grid">` + data.types.map(t => `
+<div class="type-card">
+<div class="type-card-head"><strong>${escapeHtml(t.nom)}</strong><span class="type-card-count">${t.total}</span></div>
+${t.total === 0 ? '<div class="type-card-empty">Aucun prospect avec ce statut.</div>' : ''}
+<div class="type-card-coverage">${t.eligibles} qualifié(s)/client(s) avec e-mail sur ${t.total}</div>
+${canWrite ? `<button class="btn btn-ghost btn-sm open-type-send-btn" data-id="${t.id}" data-nom="${escapeHtml(t.nom)}" ${t.eligibles === 0 ? 'disabled' : ''}>Configurer & envoyer</button>` : ''}
+</div>
+`).join('') + `</div>`;
 
-    container.querySelectorAll('.open-type-send-btn').forEach(btn => {
-      btn.addEventListener('click', () => openTypeSendModal(btn.dataset.id, btn.dataset.nom));
-    });
-  } catch (e) {
-    container.innerHTML = `<div class="empty-state"><p>Impossible de charger les types.</p></div>`;
-  }
+container.querySelectorAll('.open-type-send-btn').forEach(btn => {
+btn.addEventListener('click', () => openTypeSendModal(btn.dataset.id, btn.dataset.nom));
+});
+} catch (e) {
+container.innerHTML = `<div class="empty-state"><p>Impossible de charger les types.</p></div>`;
+}
 }
 
 async function openTypeSendModal(typeId, typeNom) {
-  currentTypeSendId = typeId;
-  document.getElementById('type-send-title').textContent = `Envoyer à « ${typeNom} »`;
-  const data = await fetchJSON(`/api/campaigns?workspace_id=${workspaceId}`);
-  const active = data.campaigns.filter(c => c.statut === 'active');
-  const select = document.getElementById('type-send-campaign');
-  if (!active.length) {
-    select.innerHTML = '<option value="">Aucune campagne active — crée-en une d\'abord</option>';
-  } else {
-    select.innerHTML = active.map(c => `<option value="${c.id}">${escapeHtml(c.nom)} (${typeLabels[c.type]})</option>`).join('');
-  }
-  document.getElementById('type-send-modal-overlay').classList.add('show');
+currentTypeSendId = typeId;
+document.getElementById('type-send-title').textContent = `Envoyer à « ${typeNom} »`;
+const data = await fetchJSON(`/api/campaigns?workspace_id=${workspaceId}`);
+const active = data.campaigns.filter(c => c.statut === 'active');
+const select = document.getElementById('type-send-campaign');
+if (!active.length) {
+select.innerHTML = '<option value="">Aucune campagne active — crée-en une d\'abord</option>';
+} else {
+select.innerHTML = active.map(c => `<option value="${c.id}">${escapeHtml(c.nom)} (${typeLabels[c.type]})</option>`).join('');
+}
+document.getElementById('type-send-modal-overlay').classList.add('show');
 }
 
 document.getElementById('type-send-confirm-btn')?.addEventListener('click', async () => {
-  const campaignId = document.getElementById('type-send-campaign').value;
-  if (!campaignId) { showToast('Aucune campagne sélectionnée.', true); return; }
-  try {
-    const result = await fetchJSON(`/api/campaigns/${campaignId}/send-by-type`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prospect_type_id: currentTypeSendId }),
-    });
-    document.getElementById('type-send-modal-overlay').classList.remove('show');
-    showToast(`${result.queued.length} envoi(s) mis en file.`);
-  } catch (err) {
-    showToast(err.message, true);
-  }
+const campaignId = document.getElementById('type-send-campaign').value;
+if (!campaignId) { showToast('Aucune campagne sélectionnée.', true); return; }
+try {
+const result = await fetchJSON(`/api/campaigns/${campaignId}/send-by-type`, {
+method: 'POST', headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify({ prospect_type_id: currentTypeSendId }),
+});
+document.getElementById('type-send-modal-overlay').classList.remove('show');
+showToast(`${result.queued.length} envoi(s) mis en file.`);
+} catch (err) {
+showToast(err.message, true);
+}
 });
 {% endblock %}
