@@ -525,19 +525,39 @@ def auth_signup():
     password = body.get("password") or ""
     cgv_accepted = bool(body.get("cgv_accepted"))
     rgpd_accepted = bool(body.get("rgpd_accepted"))
+    # Champ piège invisible pour les robots (voir app/signup.html) : un vrai
+    # visiteur ne le remplit jamais. On répond succès sans rien faire, pour
+    # ne pas révéler le piège — même principe que /api/contact.
+    honeypot = (body.get("website") or "").strip()
+    if honeypot:
+        return jsonify(status="ok", workspace_id=0), 201
 
     if not workspace_name or not email or not password:
         return jsonify(error="workspace_name, email et password sont requis"), 400
     if not cgv_accepted or not rgpd_accepted:
         return jsonify(error="L'acceptation des CGV et du traitement des données est obligatoire."), 400
 
+    ip = _client_ip()
+    # Préfixé pour ne jamais se confondre avec les tentatives de connexion
+    # normales sur ce même e-mail (même principe que "pinreset:" pour la
+    # réinitialisation par PIN) — deux compteurs indépendants.
+    identifier = f"signup:{email}"
+    limited, retry_after = rate_limit.is_rate_limited(
+        identifier, ip, max_per_identifier=5, max_per_ip=15,
+    )
+    if limited:
+        logger.warning("Création de compte bloquée (trop de tentatives) pour %s depuis %s", email, ip)
+        return jsonify(error="Trop de tentatives. Réessaie dans quelques minutes."), 429
+
     try:
         workspace_id, user_id = auth.create_workspace_with_admin(
-            workspace_name, email, password, consent_ip=_client_ip(),
+            workspace_name, email, password, consent_ip=ip,
         )
     except auth.AuthError as exc:
+        rate_limit.record_attempt(identifier, ip, success=False)
         return jsonify(error=str(exc)), 400
 
+    rate_limit.record_attempt(identifier, ip, success=True)
     auth.login(email, password)
     return jsonify(status="ok", workspace_id=workspace_id), 201
 

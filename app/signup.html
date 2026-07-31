@@ -12,74 +12,83 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600,0,700&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  :root {
-    --cream: #FAF6F0; --terracotta: #C1653D; --terracotta-deep: #A2502E; --terracotta-darker: #894427;
-    --sauge: #7A9471; --sauge-light: #E7EDE3; --text: #35302A; --text-soft: #6E6459;
-    --white: #FFFFFF; --border: rgba(53,48,42,0.12);
-    --shadow: 0 16px 40px rgba(53,40,24,0.10);
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; min-height: 100vh; background: var(--cream); color: var(--text);
-    font-family: 'Figtree', sans-serif; display: flex; align-items: center; justify-content: center; padding: 24px;
-  }
-  .card { background: var(--white); border-radius: 24px; box-shadow: var(--shadow); padding: 44px; width: 100%; max-width: 420px; }
-  .logo { display: flex; align-items: center; gap: 8px; font-family: 'Fraunces', serif; font-weight: 700; font-size: 20px; margin-bottom: 28px; text-decoration: none; color: var(--text); }
-  .logo-mark { width: 26px; height: 26px; object-fit: contain; }
-  .logo-accent { color: var(--terracotta); }
-  h1 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 24px; margin: 0 0 6px; }
-  .sub { color: var(--text-soft); font-size: 14.5px; margin: 0 0 28px; }
-  label { display: block; font-size: 13.5px; font-weight: 600; margin-bottom: 6px; margin-top: 16px; }
-  label:first-of-type { margin-top: 0; }
-  input {
-    width: 100%; padding: 12px 14px; border-radius: 12px; border: 1.5px solid var(--border);
-    font-family: 'Figtree', sans-serif; font-size: 15px; background: var(--cream); color: var(--text);
-  }
-  input:focus { outline: none; border-color: var(--terracotta); }
-  .hint { font-size: 12px; color: var(--text-soft); margin-top: 5px; }
-  .btn { width: 100%; margin-top: 26px; padding: 13px; border-radius: 999px; border: none; background: var(--terracotta-deep); color: var(--white); font-weight: 600; font-size: 15px; cursor: pointer; font-family: 'Figtree', sans-serif; }
-  .btn:hover { background: var(--terracotta-darker); }
-  .btn:disabled { opacity: 0.6; cursor: default; }
-  .error { background: #F8E6E0; color: #A2502E; border-radius: 10px; padding: 11px 14px; font-size: 13.5px; margin-top: 18px; display: none; }
-  .footer-link { text-align: center; margin-top: 22px; font-size: 14px; color: var(--text-soft); }
-  .footer-link a { color: var(--terracotta); font-weight: 600; text-decoration: none; }
-  .consent-row { display: flex; align-items: flex-start; gap: 9px; margin-top: 16px; }
-  .consent-row input[type="checkbox"] { width: 17px; height: 17px; margin: 2px 0 0; flex-shrink: 0; accent-color: var(--terracotta-deep); }
-  .consent-row label { margin: 0; font-size: 13.5px; font-weight: 400; line-height: 1.5; color: var(--text-soft); }
-  .consent-row a { color: var(--terracotta-deep); font-weight: 600; text-decoration: none; }
+:root {
+--cream: #FAF6F0; --terracotta: #C1653D; --terracotta-deep: #A2502E; --terracotta-darker: #894427;
+--sauge: #7A9471; --sauge-light: #E7EDE3; --text: #35302A; --text-soft: #6E6459;
+--white: #FFFFFF; --border: rgba(53,48,42,0.12);
+--shadow: 0 16px 40px rgba(53,40,24,0.10);
+}
+* { box-sizing: border-box; }
+body {
+margin: 0; min-height: 100vh; background: var(--cream); color: var(--text);
+font-family: 'Figtree', sans-serif; display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+.card { background: var(--white); border-radius: 24px; box-shadow: var(--shadow); padding: 44px; width: 100%; max-width: 420px; }
+.logo { display: flex; align-items: center; gap: 8px; font-family: 'Fraunces', serif; font-weight: 700; font-size: 20px; margin-bottom: 28px; text-decoration: none; color: var(--text); }
+.logo-mark { width: 26px; height: 26px; object-fit: contain; }
+.logo-accent { color: var(--terracotta); }
+h1 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 24px; margin: 0 0 6px; }
+.sub { color: var(--text-soft); font-size: 14.5px; margin: 0 0 28px; }
+label { display: block; font-size: 13.5px; font-weight: 600; margin-bottom: 6px; margin-top: 16px; }
+label:first-of-type { margin-top: 0; }
+input {
+width: 100%; padding: 12px 14px; border-radius: 12px; border: 1.5px solid var(--border);
+font-family: 'Figtree', sans-serif; font-size: 15px; background: var(--cream); color: var(--text);
+}
+input:focus { outline: none; border-color: var(--terracotta); }
+.hint { font-size: 12px; color: var(--text-soft); margin-top: 5px; }
+.btn { width: 100%; margin-top: 26px; padding: 13px; border-radius: 999px; border: none; background: var(--terracotta-deep); color: var(--white); font-weight: 600; font-size: 15px; cursor: pointer; font-family: 'Figtree', sans-serif; }
+.btn:hover { background: var(--terracotta-darker); }
+.btn:disabled { opacity: 0.6; cursor: default; }
+.error { background: #F8E6E0; color: #A2502E; border-radius: 10px; padding: 11px 14px; font-size: 13.5px; margin-top: 18px; display: none; }
+.footer-link { text-align: center; margin-top: 22px; font-size: 14px; color: var(--text-soft); }
+.footer-link a { color: var(--terracotta); font-weight: 600; text-decoration: none; }
+.consent-row { display: flex; align-items: flex-start; gap: 9px; margin-top: 16px; }
+.consent-row input[type="checkbox"] { width: 17px; height: 17px; margin: 2px 0 0; flex-shrink: 0; accent-color: var(--terracotta-deep); }
+.consent-row label { margin: 0; font-size: 13.5px; font-weight: 400; line-height: 1.5; color: var(--text-soft); }
+.consent-row a { color: var(--terracotta-deep); font-weight: 600; text-decoration: none; }
+/* Champ piège anti-spam : invisible pour un visiteur, mais rempli par la
+plupart des robots qui remplissent tous les champs d'un formulaire. Même
+principe que app/contact.html. */
+.hp-field { position: absolute; left: -9999px; top: -9999px; }
 </style>
 </head>
 <body>
 <div class="card">
-  <a href="/" class="logo"><img src="/static/img/logo-icon-nav.png" alt="" class="logo-mark"><span class="logo-text">Click<span class="logo-accent">Prospect</span></span></a>
-  <h1>Créez votre espace de travail</h1>
-  <p class="sub">Gratuit pour commencer, aucune carte bancaire requise.</p>
+<a href="/" class="logo"><img src="/static/img/logo-icon-nav.png" alt="" class="logo-mark"><span class="logo-text">Click<span class="logo-accent">Prospect</span></span></a>
+<h1>Créez votre espace de travail</h1>
+<p class="sub">Gratuit pour commencer, aucune carte bancaire requise.</p>
 
-  <form id="signup-form">
-    <label for="workspace_name">Nom de votre entreprise</label>
-    <input id="workspace_name" name="workspace_name" required placeholder="Ex : Atelier Martin">
+<form id="signup-form">
+<label for="workspace_name">Nom de votre entreprise</label>
+<input id="workspace_name" name="workspace_name" required placeholder="Ex : Atelier Martin">
 
-    <label for="email">Votre e-mail</label>
-    <input id="email" name="email" type="email" required placeholder="vous@entreprise.fr">
+<label for="email">Votre e-mail</label>
+<input id="email" name="email" type="email" required placeholder="vous@entreprise.fr">
 
-    <label for="password">Mot de passe</label>
-    <input id="password" name="password" type="password" required minlength="8" placeholder="8 caractères minimum">
-    <div class="hint">Vous serez administrateur de cet espace de travail.</div>
+<label for="password">Mot de passe</label>
+<input id="password" name="password" type="password" required minlength="8" placeholder="8 caractères minimum">
+<div class="hint">Vous serez administrateur de cet espace de travail.</div>
 
-    <div class="consent-row">
-      <input type="checkbox" id="cgv_accepted" required>
-      <label for="cgv_accepted">J'accepte les <a href="/cgv" target="_blank" rel="noopener">Conditions Générales de Vente</a>.</label>
-    </div>
-    <div class="consent-row">
-      <input type="checkbox" id="rgpd_accepted" required>
-      <label for="rgpd_accepted">J'ai lu la <a href="/confidentialite" target="_blank" rel="noopener">politique de confidentialité</a> et j'accepte le traitement de mes données.</label>
-    </div>
+<div class="consent-row">
+<input type="checkbox" id="cgv_accepted" required>
+<label for="cgv_accepted">J'accepte les <a href="/cgv" target="_blank" rel="noopener">Conditions Générales de Vente</a>.</label>
+</div>
+<div class="consent-row">
+<input type="checkbox" id="rgpd_accepted" required>
+<label for="rgpd_accepted">J'ai lu la <a href="/confidentialite" target="_blank" rel="noopener">politique de confidentialité</a> et j'accepte le traitement de mes données.</label>
+</div>
 
-    <button class="btn" type="submit">Créer mon espace</button>
-    <div class="error" id="error-box"></div>
-  </form>
+<div class="hp-field" aria-hidden="true">
+<label for="website">Laissez ce champ vide</label>
+<input id="website" name="website" tabindex="-1" autocomplete="off">
+</div>
 
-  <div class="footer-link">Déjà un compte ? <a href="/login">Se connecter</a></div>
+<button class="btn" type="submit">Créer mon espace</button>
+<div class="error" id="error-box"></div>
+</form>
+
+<div class="footer-link">Déjà un compte ? <a href="/login">Se connecter</a></div>
 </div>
 
 <script nonce="{{ csp_nonce }}">
@@ -87,40 +96,41 @@ const form = document.getElementById('signup-form');
 const errorBox = document.getElementById('error-box');
 
 form.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  errorBox.style.display = 'none';
+e.preventDefault();
+errorBox.style.display = 'none';
 
-  if (!document.getElementById('cgv_accepted').checked || !document.getElementById('rgpd_accepted').checked) {
-    errorBox.textContent = "Merci d'accepter les CGV et le traitement des données pour continuer.";
-    errorBox.style.display = 'block';
-    return;
-  }
+if (!document.getElementById('cgv_accepted').checked || !document.getElementById('rgpd_accepted').checked) {
+errorBox.textContent = "Merci d'accepter les CGV et le traitement des données pour continuer.";
+errorBox.style.display = 'block';
+return;
+}
 
-  const btn = form.querySelector('button');
-  btn.disabled = true;
-  btn.textContent = 'Création en cours…';
+const btn = form.querySelector('button');
+btn.disabled = true;
+btn.textContent = 'Création en cours…';
 
-  try {
-    const res = await fetch('/api/auth/signup', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        workspace_name: document.getElementById('workspace_name').value.trim(),
-        email: document.getElementById('email').value.trim(),
-        password: document.getElementById('password').value,
-        cgv_accepted: document.getElementById('cgv_accepted').checked,
-        rgpd_accepted: document.getElementById('rgpd_accepted').checked,
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Une erreur est survenue.');
-    window.location.href = '/dashboard';
-  } catch (err) {
-    errorBox.textContent = err.message;
-    errorBox.style.display = 'block';
-    btn.disabled = false;
-    btn.textContent = 'Créer mon espace';
-  }
+try {
+const res = await fetch('/api/auth/signup', {
+method: 'POST',
+headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify({
+workspace_name: document.getElementById('workspace_name').value.trim(),
+email: document.getElementById('email').value.trim(),
+password: document.getElementById('password').value,
+cgv_accepted: document.getElementById('cgv_accepted').checked,
+rgpd_accepted: document.getElementById('rgpd_accepted').checked,
+website: document.getElementById('website').value,
+}),
+});
+const data = await res.json();
+if (!res.ok) throw new Error(data.error || 'Une erreur est survenue.');
+window.location.href = '/dashboard';
+} catch (err) {
+errorBox.textContent = err.message;
+errorBox.style.display = 'block';
+btn.disabled = false;
+btn.textContent = 'Créer mon espace';
+}
 });
 </script>
 </body>
