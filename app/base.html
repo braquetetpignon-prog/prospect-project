@@ -630,6 +630,11 @@ window.location.href = '/changer-mot-de-passe';
 return null;
 }
 
+if (!me.email_verified) {
+window.location.href = '/verifier-email';
+return null;
+}
+
 currentUser = me;
 document.getElementById('workspace-name-display').textContent = me.workspace_name;
 document.getElementById('user-role-display').textContent = `${me.email} · ${roleLabels[me.role] || me.role}`;

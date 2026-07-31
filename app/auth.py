@@ -18,6 +18,8 @@ dépendance nécessaire).
 """
 from functools import wraps
 import json
+import secrets
+from datetime import datetime, timedelta, timezone
 
 from flask import session, jsonify, request
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -28,6 +30,8 @@ from app import subscriptions
 
 ROLES = ("admin", "commercial", "lecture_seule")
 WRITE_ROLES = ("admin", "commercial")  # rôles autorisés à créer/modifier/envoyer
+
+EMAIL_VERIFICATION_TOKEN_VALIDITY_HOURS = 24
 
 
 class AuthError(Exception):
@@ -43,9 +47,16 @@ def create_workspace_with_admin(workspace_name, admin_email, admin_password, con
     utilisateur, administrateur de celui-ci. L'acceptation des CGV et du
     traitement RGPD est vérifiée en amont (voir app/main.py::auth_signup) —
     cette fonction se contente d'horodater les deux consentements, toujours
-    ensemble puisqu'ils sont cochés dans le même envoi de formulaire."""
+    ensemble puisqu'ils sont cochés dans le même envoi de formulaire.
+
+    Renvoie aussi un jeton de vérification d'e-mail EN CLAIR (uniquement à cet
+    instant — seul son hachage est conservé en base, voir generate_password_hash
+    ci-dessous) : c'est à l'appelant (app/main.py::auth_signup) de l'envoyer
+    par e-mail, cette fonction ne s'occupe jamais elle-même de l'envoi."""
     if len(admin_password) < 8:
         raise AuthError("Le mot de passe doit contenir au moins 8 caractères.")
+
+    verification_token = secrets.token_urlsafe(32)
 
     conn = get_db()
     try:
@@ -58,16 +69,20 @@ def create_workspace_with_admin(workspace_name, admin_email, admin_password, con
             cur.execute(
                 """
                 INSERT INTO users (workspace_id, email, password_hash, role,
-                                    cgv_accepted_at, rgpd_accepted_at, consent_ip)
-                VALUES (%s, %s, %s, 'admin', now(), now(), %s)
+                                    cgv_accepted_at, rgpd_accepted_at, consent_ip,
+                                    email_verification_token_hash, email_verification_sent_at)
+                VALUES (%s, %s, %s, 'admin', now(), now(), %s, %s, now())
                 RETURNING id
                 """,
-                (workspace_id, admin_email.lower().strip(), hash_password(admin_password), consent_ip),
+                (
+                    workspace_id, admin_email.lower().strip(), hash_password(admin_password), consent_ip,
+                    generate_password_hash(verification_token),
+                ),
             )
             user_id = cur.fetchone()[0]
         prospect_types.seed_default_types(workspace_id, conn=conn)
         conn.commit()
-        return workspace_id, user_id
+        return workspace_id, user_id, verification_token
     except Exception as exc:
         conn.rollback()
         if "users_email_key" in str(exc):
@@ -77,7 +92,81 @@ def create_workspace_with_admin(workspace_name, admin_email, admin_password, con
         conn.close()
 
 
+def generate_email_verification_token(email):
+    """(Ré)génère un jeton de vérification pour un compte pas encore confirmé
+    — utilisé au renvoi depuis /verifier-email (voir app/main.py). Renvoie le
+    jeton EN CLAIR (à envoyer par e-mail immédiatement, jamais stocké tel
+    quel) ou None si l'e-mail est inconnu, inactif, ou déjà vérifié (dans ce
+    dernier cas, rien à renvoyer — message générique côté appelant pour ne
+    jamais confirmer/infirmer l'existence d'un compte à un tiers)."""
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id FROM users WHERE email = %s AND is_active AND email_verified_at IS NULL",
+                (email.lower().strip(),),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            token = secrets.token_urlsafe(32)
+            cur.execute(
+                "UPDATE users SET email_verification_token_hash = %s, email_verification_sent_at = now() WHERE id = %s",
+                (generate_password_hash(token), row[0]),
+            )
+        conn.commit()
+        return token
+    finally:
+        conn.close()
+
+
+def verify_email_token(email, token):
+    """Confirme l'adresse e-mail si le jeton correspond et n'a pas expiré.
+    Renvoie l'id utilisateur en cas de succès. Idempotent : si le compte est
+    déjà vérifié, renvoie aussi son id sans erreur (un clic répété sur le
+    même lien, ou deux onglets ouverts, ne doit jamais afficher d'échec)."""
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, email_verified_at, email_verification_token_hash, email_verification_sent_at
+                FROM users WHERE email = %s AND is_active
+                """,
+                (email.lower().strip(),),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise AuthError("Lien de vérification invalide.")
+            user_id, verified_at, token_hash, sent_at = row
+            if verified_at is not None:
+                return user_id
+            if not token_hash or not sent_at:
+                raise AuthError("Lien de vérification invalide.")
+            expired = datetime.now(timezone.utc) > sent_at + timedelta(hours=EMAIL_VERIFICATION_TOKEN_VALIDITY_HOURS)
+            if expired:
+                raise AuthError("Ce lien a expiré — demande un nouvel e-mail de confirmation.")
+            if not check_password_hash(token_hash, token):
+                raise AuthError("Lien de vérification invalide.")
+            cur.execute(
+                "UPDATE users SET email_verified_at = now(), email_verification_token_hash = NULL WHERE id = %s",
+                (user_id,),
+            )
+        conn.commit()
+        if session.get("user_id") == user_id:
+            session["email_verified"] = True
+        return user_id
+    finally:
+        conn.close()
+
+
 def create_user(workspace_id, email, password, role):
+    """Ajout d'un collègue par un administrateur — contrairement à
+    create_workspace_with_admin (inscription publique), le compte est
+    vérifié d'office : c'est l'admin, déjà authentifié, qui certifie
+    l'adresse en l'ajoutant lui-même. Sans ça, ce compte resterait bloqué
+    indéfiniment par _email_verification_gate (voir app/main.py) sans
+    jamais recevoir de jeton, puisque ce parcours n'en envoie aucun."""
     if role not in ROLES:
         raise AuthError(f"Rôle invalide : {role}")
     if len(password) < 8:
@@ -88,8 +177,8 @@ def create_user(workspace_id, email, password, role):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO users (workspace_id, email, password_hash, role)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO users (workspace_id, email, password_hash, role, email_verified_at)
+                VALUES (%s, %s, %s, %s, now())
                 RETURNING id
                 """,
                 (workspace_id, email.lower().strip(), hash_password(password), role),
@@ -229,7 +318,8 @@ def login(email, password):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, workspace_id, password_hash, role, is_active, must_change_password
+                SELECT id, workspace_id, password_hash, role, is_active, must_change_password,
+                       email_verified_at
                 FROM users WHERE email = %s
                 """,
                 (email.lower().strip(),),
@@ -249,6 +339,7 @@ def login(email, password):
     session["workspace_id"] = row[1]
     session["role"] = row[3]
     session["must_change_password"] = row[5]
+    session["email_verified"] = row[6] is not None
     session.permanent = True
 
     conn = get_db()
@@ -459,6 +550,7 @@ def current_user():
         "workspace_id": session["workspace_id"],
         "role": session["role"],
         "must_change_password": session.get("must_change_password", False),
+        "email_verified": session.get("email_verified", True),
     }
 
 

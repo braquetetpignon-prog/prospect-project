@@ -2,6 +2,7 @@ import os
 import secrets
 from zoneinfo import ZoneInfo
 from datetime import datetime, timedelta
+from urllib.parse import quote
 
 from flask import Flask, jsonify, request, session, redirect, render_template as flask_render_template, g
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -89,6 +90,31 @@ app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
 # pouvoir confirmer un paiement, même pendant une maintenance), et /static.
 MAINTENANCE_BYPASS_PREFIXES = ("/supadmin", "/api/supadmin", "/health", "/version", "/webhook", "/static")
 
+# URL de base pour les liens insérés dans les e-mails système (voir
+# auth_signup ci-dessous). Les autres e-mails système (app/lifecycle.py)
+# codent en dur "clickprospect.fr" — sans conséquence pour des rappels
+# envoyés uniquement une fois l'espace bien réel et actif, mais un lien de
+# vérification envoyé depuis dev DOIT pointer vers dev, sinon le token ne
+# correspond à aucun compte de la base de prod et le lien ne fonctionne
+# jamais pendant les tests.
+def _base_url():
+    env = os.environ.get("ENV")
+    if env == "production":
+        return "https://clickprospect.fr"
+    if env == "preproduction":
+        return "https://preproduction.clickprospect.fr"
+    return "http://localhost:5000"
+
+# Chemins jamais bloqués tant que l'e-mail n'est pas vérifié : toutes les
+# routes /api/auth/* (login, logout, renvoi/vérification du lien, "me" pour
+# savoir où on en est...), le superadmin (échappe complètement à cette
+# logique côté client), et la page de vérification elle-même — sinon
+# impossible d'y accéder pour justement se vérifier.
+EMAIL_VERIFICATION_BYPASS_PREFIXES = (
+    "/api/auth/", "/supadmin", "/api/supadmin", "/health", "/version", "/webhook", "/static",
+    "/verifier-email",
+)
+
 # Hash du commit réellement construit dans ce conteneur, injecté au build
 # Docker (voir Dockerfile — ARG SOURCE_COMMIT alimenté automatiquement par
 # Coolify si "Include Source Commit in Build" est activé dans le menu
@@ -120,6 +146,29 @@ def _inject_csp_nonce():
     # appel de render_template — les ~200 routes existantes n'ont pas besoin
     # d'être modifiées pour ça.
     return {"csp_nonce": g.get("csp_nonce", "")}
+
+
+@app.before_request
+def _email_verification_gate():
+    """Bloque l'accès au reste de l'app (API et pages) tant que l'e-mail du
+    compte connecté n'est pas confirmé — voir app/auth.py::verify_email_token
+    et le point de conception validé avec Alexis (blocage complet, pas de
+    bandeau non-bloquant). Défaut à True (non bloqué) si la clé n'existe pas
+    en session — couvre les sessions superadmin/impersonation, qui n'ont
+    jamais cette clé et ne doivent jamais être concernées par cette règle.
+    Enregistré APRÈS _set_csp_nonce (voir ci-dessus) : le rendu éventuel de
+    verify_email.html a besoin d'un nonce déjà généré pour que son <script>
+    passe la Content-Security-Policy — sinon le JS de la page resterait
+    silencieusement bloqué par le navigateur."""
+    if request.path.startswith(EMAIL_VERIFICATION_BYPASS_PREFIXES):
+        return None
+    if "user_id" not in session:
+        return None
+    if session.get("email_verified", True):
+        return None
+    if request.path.startswith("/api/"):
+        return jsonify(error="Confirme d'abord ton adresse e-mail pour continuer."), 403
+    return flask_render_template("verify_email.html")
 
 
 # Endpoints d'écriture externes légitimes, appelés par un serveur tiers et
@@ -226,6 +275,35 @@ UPGRADE_MESSAGE = (
 
 def _restricted_response():
     return jsonify(error=UPGRADE_MESSAGE), 402
+
+
+EMAIL_VERIFICATION_SUBJECT = "Confirme ton adresse e-mail — ClickProspect"
+EMAIL_VERIFICATION_BODY_TEMPLATE = """Bonjour,
+
+Merci de ton inscription sur ClickProspect ! Pour activer ton compte,
+confirme ton adresse e-mail en cliquant sur ce lien (valable {hours} heures) :
+
+{link}
+
+Si tu n'es pas à l'origine de cette inscription, tu peux ignorer cet e-mail
+sans risque — rien n'est activé tant que ce lien n'a pas été cliqué.
+
+— L'équipe ClickProspect
+"""
+
+
+def _send_verification_email(email, token):
+    link = f"{_base_url()}/verifier-email?email={quote(email)}&token={quote(token)}"
+    body = EMAIL_VERIFICATION_BODY_TEMPLATE.format(
+        hours=auth.EMAIL_VERIFICATION_TOKEN_VALIDITY_HOURS, link=link,
+    )
+    try:
+        system_mail.send_system_email(email, EMAIL_VERIFICATION_SUBJECT, body)
+    except system_mail.SystemMailError:
+        # Ne bloque jamais l'inscription pour un souci d'envoi ponctuel — le
+        # compte reste simplement bloqué (voir _email_verification_gate)
+        # jusqu'à un renvoi manuel réussi depuis /verifier-email.
+        logger.exception("Échec d'envoi de l'e-mail de vérification pour %s", email)
 
 
 @app.route("/")
@@ -548,7 +626,7 @@ def auth_signup():
         return jsonify(error="Trop de tentatives. Réessaie dans quelques minutes."), 429
 
     try:
-        workspace_id, user_id = auth.create_workspace_with_admin(
+        workspace_id, user_id, verification_token = auth.create_workspace_with_admin(
             workspace_name, email, password, consent_ip=ip,
         )
     except auth.AuthError as exc:
@@ -556,6 +634,7 @@ def auth_signup():
         return jsonify(error=str(exc)), 400
 
     rate_limit.record_attempt(email, ip, success=True, context="signup")
+    _send_verification_email(email, verification_token)
     auth.login(email, password)
     return jsonify(status="ok", workspace_id=workspace_id), 201
 
@@ -591,6 +670,62 @@ def auth_logout():
     return jsonify(status="ok")
 
 
+@app.route("/api/auth/resend-verification", methods=["POST"])
+def auth_resend_verification():
+    """Renvoie le lien de vérification. Message générique dans tous les cas
+    (e-mail inconnu, déjà vérifié, ou envoi réussi) pour ne jamais confirmer
+    l'existence d'un compte à un tiers — même principe que
+    reset_password_with_pin. Fortement limité en débit : chaque appel
+    déclenche un envoi SMTP réel, coûteux à faire spammer."""
+    body = request.get_json(silent=True) or {}
+    email = (body.get("email") or "").strip()
+    if not email:
+        return jsonify(error="email requis"), 400
+
+    ip = _client_ip()
+    limited, retry_after = rate_limit.is_rate_limited(
+        email, ip, "resend_verification", max_per_identifier=3, max_per_ip=10,
+    )
+    if limited:
+        return jsonify(error="Trop de tentatives. Réessaie dans quelques minutes."), 429
+    rate_limit.record_attempt(email, ip, success=True, context="resend_verification")
+
+    token = auth.generate_email_verification_token(email)
+    if token:
+        _send_verification_email(email, token)
+    return jsonify(status="ok", message="Si ce compte existe et n'est pas encore vérifié, un e-mail vient d'être envoyé.")
+
+
+@app.route("/api/auth/verify-email", methods=["POST"])
+def auth_verify_email():
+    body = request.get_json(silent=True) or {}
+    email = (body.get("email") or "").strip()
+    token = (body.get("token") or "").strip()
+    if not email or not token:
+        return jsonify(error="email et token sont requis"), 400
+
+    ip = _client_ip()
+    limited, retry_after = rate_limit.is_rate_limited(
+        email, ip, "verify_email", max_per_identifier=10, max_per_ip=30,
+    )
+    if limited:
+        return jsonify(error="Trop de tentatives. Réessaie dans quelques minutes."), 429
+
+    try:
+        auth.verify_email_token(email, token)
+    except auth.AuthError as exc:
+        rate_limit.record_attempt(email, ip, success=False, context="verify_email")
+        return jsonify(error=str(exc)), 400
+
+    rate_limit.record_attempt(email, ip, success=True, context="verify_email")
+    return jsonify(status="ok")
+
+
+@app.route("/verifier-email")
+def verify_email_page():
+    return flask_render_template("verify_email.html")
+
+
 @app.route("/api/auth/me")
 def auth_me():
     user = auth.current_user()
@@ -615,6 +750,7 @@ def auth_me():
         workspace_id=user["workspace_id"],
         workspace_name=workspace_row[0] if workspace_row else None,
         must_change_password=user["must_change_password"],
+        email_verified=user["email_verified"],
         plan=sub.get("plan"),
         plan_effective=sub.get("plan_effective"),
         trial_days_left=sub.get("trial_days_left"),

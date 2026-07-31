@@ -211,6 +211,25 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS consent_ip TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS pin_hash TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS pin_set_at TIMESTAMPTZ;
 
+-- Vérification d'adresse e-mail à l'inscription (obligatoire — voir
+-- app/main.py::_email_verification_gate). NULL tant que non confirmé.
+-- verification_token_hash est haché comme un mot de passe (jamais stocké en
+-- clair), même principe que pin_hash. verification_sent_at sert à la fois
+-- à l'expiration du lien (24h, voir auth.py) et à limiter les renvois.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_token_hash TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_sent_at TIMESTAMPTZ;
+-- Comptes créés avant la mise en place de cette fonctionnalité : considérés
+-- vérifiés d'office (impossible de leur redemander une confirmation
+-- rétroactive). Date de bascule fixe et volontairement figée dans le passé
+-- proche — CRITIQUE : ce n'est PAS "tout compte sans email_verified_at",
+-- sinon cette ligne re-vérifierait aussi tout nouveau compte non confirmé
+-- à chaque redémarrage de l'app (schema.sql s'exécute à chaque déploiement,
+-- voir app/main.py::init_db). Seuls les comptes créés avant cette date
+-- précise sont concernés, une fois pour toutes.
+UPDATE users SET email_verified_at = created_at
+WHERE email_verified_at IS NULL AND created_at < '2026-08-15 00:00:00+00';
+
 -- Informations personnelles facultatives, renseignées volontairement par
 -- l'utilisateur depuis Mon compte (voir app/my_account.html,
 -- app/auth.py::update_profile). Servent notamment, pour l'administrateur
