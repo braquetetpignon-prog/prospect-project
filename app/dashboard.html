@@ -136,12 +136,12 @@ function renderEnrichedSection(stats) {
       <div class="stat-card">
         <div class="label">Taux de conversion global</div>
         <div class="value terracotta">${g.rate}%</div>
-        <div class="conversion-sub">${g.clients} client${g.clients > 1 ? 's' : ''} sur ${g.total} prospect${g.total > 1 ? 's' : ''} au total</div>
+        <div class="conversion-sub">${g.clients} validé${g.clients > 1 ? 's' : ''} sur ${g.total} prospect${g.total > 1 ? 's' : ''} au total</div>
       </div>
       <div class="stat-card">
-        <div class="label">Taux de conversion (qualifiés → clients)</div>
+        <div class="label">Taux de conversion (qualifiés → validés)</div>
         <div class="value sauge">${q.rate}%</div>
-        <div class="conversion-sub">${q.clients} client${q.clients > 1 ? 's' : ''} sur ${q.qualifies_ou_plus} prospect${q.qualifies_ou_plus > 1 ? 's' : ''} qualifié${q.qualifies_ou_plus > 1 ? 's' : ''} ou converti${q.qualifies_ou_plus > 1 ? 's' : ''}</div>
+        <div class="conversion-sub">${q.clients} validé${q.clients > 1 ? 's' : ''} sur ${q.qualifies_ou_plus} prospect${q.qualifies_ou_plus > 1 ? 's' : ''} qualifié${q.qualifies_ou_plus > 1 ? 's' : ''} ou converti${q.qualifies_ou_plus > 1 ? 's' : ''}</div>
       </div>
     </div>
     <div class="panel" style="margin-bottom:20px;">
@@ -188,7 +188,7 @@ function dailyActivityChartHtml(days) {
     <div class="chart-legend">
       <span><i style="background:var(--terracotta)"></i>Nouveaux prospects</span>
       <span><i style="background:#3454A8"></i>Passés qualifiés</span>
-      <span><i style="background:#4F6647"></i>Devenus clients</span>
+      <span><i style="background:#4F6647"></i>Devenus validés</span>
     </div>
   `;
 }

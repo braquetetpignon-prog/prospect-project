@@ -204,7 +204,7 @@ async function bulkDelete() {
       failed++;
     }
   }
-  showToast(`${deleted} client(s) supprimé(s).${failed ? ` ${failed} échec(s).` : ''}`);
+  showToast(`${deleted} validé(s) supprimé(s).${failed ? ` ${failed} échec(s).` : ''}`);
   loadProspects();
 }
 

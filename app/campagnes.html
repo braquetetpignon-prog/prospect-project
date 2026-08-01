@@ -54,7 +54,7 @@
 <div class="modal-overlay" id="type-send-modal-overlay">
 <div class="modal">
 <h3 id="type-send-title">Configurer & envoyer</h3>
-<p style="font-size:12.5px; color:var(--text-soft); margin-top:-8px;">Seuls les prospects qualifiés ou clients de ce type recevront la campagne.</p>
+<p style="font-size:12.5px; color:var(--text-soft); margin-top:-8px;">Seuls les prospects qualifiés, en attente ou validés de ce type recevront la campagne.</p>
 <div class="field">
 <label for="type-send-campaign">Campagne à utiliser</label>
 <select id="type-send-campaign"></select>
@@ -128,8 +128,8 @@ Variables disponibles : <code>{prenom}</code> (contact du destinataire),
 <div class="panel">
 <div class="panel-head"><h2>Envoyer</h2><p style="margin:0;">Sélectionne les destinataires puis lance l'envoi.</p></div>
 <p style="font-size:12.5px; color:var(--text-soft); margin:0; padding:0 24px 8px;">
-Seuls les prospects <strong>qualifiés</strong> ou <strong>clients</strong> sont proposés ici —
-les prospects en attente ne peuvent pas être sollicités par campagne, pour ne pas risquer de les perdre.
+Seuls les prospects <strong>qualifiés</strong>, <strong>en attente</strong> ou <strong>validés</strong> sont proposés ici —
+les prospects nouveaux ou recalés ne peuvent pas être sollicités par campagne, pour ne pas risquer de les solliciter trop tôt ou à tort.
 </p>
 <div class="checklist" id="recipient-checklist"></div>
 <div class="panel-body" style="padding-top:12px; border-top:1px solid var(--border);">
@@ -700,7 +700,7 @@ container.innerHTML = `<div class="type-cards-grid">` + data.types.map(t => `
 <div class="type-card">
 <div class="type-card-head"><strong>${escapeHtml(t.nom)}</strong><span class="type-card-count">${t.total}</span></div>
 ${t.total === 0 ? '<div class="type-card-empty">Aucun prospect avec ce statut.</div>' : ''}
-<div class="type-card-coverage">${t.eligibles} qualifié(s)/client(s) avec e-mail sur ${t.total}</div>
+<div class="type-card-coverage">${t.eligibles} qualifié(s), en attente ou validé(s) avec e-mail sur ${t.total}</div>
 ${canWrite ? `<button class="btn btn-ghost btn-sm open-type-send-btn" data-id="${t.id}" data-nom="${escapeHtml(t.nom)}" ${t.eligibles === 0 ? 'disabled' : ''}>Configurer & envoyer</button>` : ''}
 </div>
 `).join('') + `</div>`;

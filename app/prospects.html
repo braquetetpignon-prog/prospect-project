@@ -244,7 +244,7 @@ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stri
 });
 let msg = `${result.count} prospect(s) supprimé(s).`;
 if (result.protected_clients) {
-msg += ` ${result.protected_clients} client(s) actif(s) protégé(s) (non supprimé — gère-les depuis Gestion Client).`;
+msg += ` ${result.protected_clients} validé(s) protégé(s) (non supprimé — gère-les depuis Gestion Client).`;
 }
 showToast(msg);
 loadProspects();
