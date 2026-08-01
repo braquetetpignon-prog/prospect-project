@@ -381,6 +381,12 @@
   .footer-links { display: flex; gap: 24px; list-style: none; padding: 0; margin: 0; }
   .footer-links a { text-decoration: none; color: var(--text-soft); }
   .footer-links a:hover { color: var(--text); }
+  .footer-version {
+    font-size: 11px;
+    color: var(--text-soft);
+    opacity: 0.6;
+    letter-spacing: 0.02em;
+  }
 
   @media (max-width: 880px) {
     .hero-grid { grid-template-columns: 1fr; }
@@ -571,7 +577,14 @@
 
 <footer>
   <div class="wrap footer-inner">
-    <span>© 2026 ClickProspect</span>
+    <span>
+      © 2026 ClickProspect
+      {% if git_commit_short and git_commit_short != "unknown" %}
+      <span class="footer-version" title="Commit déployé sur cet environnement">
+        &middot; v{{ git_commit_short }}{% if app_env != "production" %} ({{ app_env }}){% endif %}
+      </span>
+      {% endif %}
+    </span>
     <ul class="footer-links">
       <li><a href="/guide">Guide</a></li>
       <li><a href="/confidentialite">Confidentialité</a></li>
