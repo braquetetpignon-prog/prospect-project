@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/static/img/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/img/apple-touch-icon.png">
+<link rel="manifest" href="/static/img/site.webmanifest">
+<title>Vérification de l'e-mail — ClickProspect</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600,0,700&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+--cream: #FAF6F0; --terracotta: #C1653D; --terracotta-deep: #A2502E; --terracotta-darker: #894427;
+--sauge: #7A9471; --sauge-light: #E7EDE3; --text: #35302A; --text-soft: #6E6459;
+--white: #FFFFFF; --border: rgba(53,48,42,0.12);
+--shadow: 0 16px 40px rgba(53,40,24,0.10);
+}
+* { box-sizing: border-box; }
+body {
+margin: 0; min-height: 100vh; background: var(--cream); color: var(--text);
+font-family: 'Figtree', sans-serif; display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+.card { background: var(--white); border-radius: 24px; box-shadow: var(--shadow); padding: 44px; width: 100%; max-width: 440px; text-align: center; }
+.logo { display: inline-flex; align-items: center; gap: 8px; font-family: 'Fraunces', serif; font-weight: 700; font-size: 20px; margin-bottom: 28px; text-decoration: none; color: var(--text); }
+.logo-mark { width: 26px; height: 26px; object-fit: contain; }
+.logo-accent { color: var(--terracotta); }
+.icon { font-size: 40px; margin-bottom: 14px; }
+h1 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 22px; margin: 0 0 10px; }
+p.sub { color: var(--text-soft); font-size: 14.5px; margin: 0 0 8px; line-height: 1.5; }
+.email-highlight { font-weight: 600; color: var(--text); }
+.btn { display: inline-block; margin-top: 22px; padding: 13px 26px; border-radius: 999px; border: none; background: var(--terracotta-deep); color: var(--white); font-weight: 600; font-size: 15px; cursor: pointer; font-family: 'Figtree', sans-serif; text-decoration: none; }
+.btn:hover { background: var(--terracotta-darker); }
+.btn:disabled { opacity: 0.6; cursor: default; }
+.btn-ghost { background: none; color: var(--text-soft); border: 1.5px solid var(--border); }
+.btn-ghost:hover { border-color: var(--text); color: var(--text); }
+.message { border-radius: 10px; padding: 11px 14px; font-size: 13.5px; margin-top: 18px; display: none; }
+.message.error { background: #F8E6E0; color: #A2502E; display: block; }
+.message.success { background: var(--sauge-light); color: #4F6647; display: block; }
+.actions { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="card">
+<a href="/" class="logo"><img src="/static/img/logo-icon-nav.png" alt="" class="logo-mark"><span class="logo-text">Click<span class="logo-accent">Prospect</span></span></a>
+
+<div id="state-checking">
+<div class="icon">⏳</div>
+<h1>Vérification en cours…</h1>
+<p class="sub">Un instant.</p>
+</div>
+
+<div id="state-pending" style="display:none;">
+<div class="icon">📬</div>
+<h1>Confirme ton adresse e-mail</h1>
+<p class="sub">Un lien de confirmation a été envoyé à <span class="email-highlight" id="pending-email"></span>. Clique dessus pour activer ton compte — pense à vérifier tes spams si tu ne le vois pas.</p>
+<div class="actions">
+<button class="btn" type="button" id="resend-btn">Renvoyer l'e-mail</button>
+<button class="btn btn-ghost" type="button" id="logout-btn">Se déconnecter</button>
+</div>
+<div class="message" id="pending-message"></div>
+</div>
+
+<div id="state-success" style="display:none;">
+<div class="icon">✅</div>
+<h1>E-mail confirmé !</h1>
+<p class="sub">Ton compte est activé — redirection vers ton tableau de bord…</p>
+</div>
+
+<div id="state-error" style="display:none;">
+<div class="icon">⚠️</div>
+<h1>Lien invalide ou expiré</h1>
+<p class="sub" id="error-detail">Ce lien de vérification n'est plus valable.</p>
+<div class="actions">
+<button class="btn" type="button" id="resend-btn-error">Recevoir un nouveau lien</button>
+</div>
+<div class="message" id="error-message"></div>
+</div>
+</div>
+
+<script nonce="{{ csp_nonce }}">
+async function fetchJSON(url, options) {
+const res = await fetch(url, options);
+let data = null;
+try { data = await res.json(); } catch (e) {}
+if (!res.ok) {
+const err = new Error((data && data.error) || `Erreur ${res.status}`);
+err.status = res.status;
+throw err;
+}
+return data;
+}
+
+function showState(id) {
+['state-checking', 'state-pending', 'state-success', 'state-error'].forEach(s => {
+document.getElementById(s).style.display = s === id ? 'block' : 'none';
+});
+}
+
+const params = new URLSearchParams(window.location.search);
+const linkEmail = params.get('email');
+const linkToken = params.get('token');
+
+async function resendTo(email, messageEl, btn) {
+if (!email) return;
+btn.disabled = true;
+const originalText = btn.textContent;
+btn.textContent = 'Envoi en cours…';
+try {
+await fetchJSON('/api/auth/resend-verification', {
+method: 'POST', headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify({ email }),
+});
+messageEl.textContent = "E-mail envoyé (si le compte existe et n'est pas déjà vérifié). Vérifie ta boîte, spams inclus.";
+messageEl.className = 'message success';
+} catch (err) {
+messageEl.textContent = err.message;
+messageEl.className = 'message error';
+} finally {
+btn.disabled = false;
+btn.textContent = originalText;
+}
+}
+
+async function init() {
+// Cas 1 : on arrive depuis le lien reçu par e-mail (email + token dans l'URL)
+if (linkEmail && linkToken) {
+try {
+await fetchJSON('/api/auth/verify-email', {
+method: 'POST', headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify({ email: linkEmail, token: linkToken }),
+});
+showState('state-success');
+setTimeout(() => { window.location.href = '/dashboard'; }, 1800);
+} catch (err) {
+document.getElementById('error-detail').textContent = err.message;
+showState('state-error');
+document.getElementById('resend-btn-error').addEventListener('click', (e) => {
+resendTo(linkEmail, document.getElementById('error-message'), e.target);
+});
+}
+return;
+}
+
+// Cas 2 : on arrive ici bloqué par le filtre serveur (déjà connecté, pas
+// encore vérifié) — on récupère son propre e-mail via /api/auth/me pour
+// permettre le renvoi, sans jamais le redemander à la saisie.
+try {
+const me = await fetchJSON('/api/auth/me');
+if (me.email_verified) {
+window.location.href = '/dashboard';
+return;
+}
+document.getElementById('pending-email').textContent = me.email;
+showState('state-pending');
+document.getElementById('resend-btn').addEventListener('click', (e) => {
+resendTo(me.email, document.getElementById('pending-message'), e.target);
+});
+document.getElementById('logout-btn').addEventListener('click', async () => {
+await fetch('/api/auth/logout', { method: 'POST' });
+window.location.href = '/login';
+});
+} catch (err) {
+// Pas connecté et pas de lien dans l'URL : rien à faire ici.
+window.location.href = '/login';
+}
+}
+
+init();
+</script>
+</body>
+</html>
