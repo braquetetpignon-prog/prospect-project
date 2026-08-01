@@ -3,8 +3,9 @@ Envoi des campagnes (Option 3, onglet Envoi).
 
 - Personnalisation du template (prénom, entreprise, lien d'avis, lien de désinscription).
 - Vérifie le consentement (module consent) avant chaque envoi.
-- Vérifie que le prospect est bien qualifié ou client au moment de la mise en
-  file ET au moment de l'envoi effectif (garde-fou double).
+- Vérifie que le prospect est bien qualifié, en attente ou client au moment
+  de la mise en file ET au moment de l'envoi effectif (garde-fou double,
+  voir ALLOWED_SEND_STATUTS).
 - Respecte le quota quotidien de la campagne (quota_par_jour).
 - Image optionnelle insérée dans le corps du message (Content-ID).
 - Copie systématique de chaque envoi à l'expéditeur (BCC) : archive.
@@ -25,7 +26,7 @@ from app import consent as consent_module
 from app import workspace_settings
 from app import activity
 
-ALLOWED_SEND_STATUTS = ("qualifie", "client")
+ALLOWED_SEND_STATUTS = ("qualifie", "en_attente", "client")
 
 # Délai minimum avant de pouvoir relancer une seconde fois le même prospect
 # qualifié — évite de le solliciter trop souvent. Valeur fixe pour l'instant,

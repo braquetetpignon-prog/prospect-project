@@ -15,7 +15,7 @@ from app.db import get_db
 from app import csv_import
 from app import activity
 
-STATUTS = ("nouveau", "qualifie", "client", "recale")
+STATUTS = ("nouveau", "qualifie", "en_attente", "client", "recale")
 
 EDITABLE_FIELDS = [
     "nom_entreprise", "contact_prenom", "contact_nom", "siren", "siret", "naf_code",
@@ -297,7 +297,7 @@ def count_overdue_actions(workspace_id):
             cur.execute(
                 """
                 SELECT count(*) FROM prospects
-                WHERE workspace_id = %s AND statut IN ('nouveau', 'qualifie')
+                WHERE workspace_id = %s AND statut IN ('nouveau', 'qualifie', 'en_attente')
                   AND prochaine_action_date IS NOT NULL AND prochaine_action_date < CURRENT_DATE
                 """,
                 (workspace_id,),

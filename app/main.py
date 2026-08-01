@@ -1665,16 +1665,17 @@ def campaign_send_by_type(campaign_id):
     if not prospect_type_id:
         return jsonify(error="prospect_type_id requis"), 400
 
-    # Garde-fou : une campagne ne cible jamais les prospects "en attente" ou
-    # "recalés", même quand l'envoi est déclenché par type de statut juridique
-    # plutôt que par sélection manuelle — cf. sending.ALLOWED_SEND_STATUTS.
+    # Garde-fou : une campagne ne cible jamais les prospects "nouveau" ou
+    # "recale", même quand l'envoi est déclenché par type de statut juridique
+    # plutôt que par sélection manuelle — cf. sending.ALLOWED_SEND_STATUTS
+    # (qualifie / en_attente / client).
     targets = prospects.search_prospects(session["workspace_id"], prospect_type_id=prospect_type_id, limit=10000)
     prospect_ids = [
         p["id"] for p in targets
         if p.get("email") and p.get("statut") in sending.ALLOWED_SEND_STATUTS
     ]
     if not prospect_ids:
-        return jsonify(error="Aucun prospect qualifié ou client avec e-mail pour ce type."), 400
+        return jsonify(error="Aucun prospect qualifié, en attente ou validé avec e-mail pour ce type."), 400
 
     try:
         result = sending.queue_send(campaign_id, prospect_ids, body.get("planifie_pour"))
@@ -1984,8 +1985,13 @@ def prospect_types_stats(workspace_id):
                 """
                 SELECT pt.id, pt.nom, count(p.id) AS total,
                        count(p.id) FILTER (WHERE p.email IS NOT NULL AND p.email != '') AS avec_email,
+                       -- Statuts éligibles à une campagne : garder strictement
+                       -- synchronisé avec sending.ALLOWED_SEND_STATUTS, sinon
+                       -- ce compteur affiché sur la carte du type dérive du
+                       -- nombre réellement envoyable (bug constaté avec l'ajout
+                       -- du statut "en_attente" — corrigé ici).
                        count(p.id) FILTER (
-                           WHERE p.email IS NOT NULL AND p.email != '' AND p.statut IN ('qualifie', 'client')
+                           WHERE p.email IS NOT NULL AND p.email != '' AND p.statut IN ('qualifie', 'en_attente', 'client')
                        ) AS eligibles
                 FROM prospect_types pt
                 LEFT JOIN prospects p ON p.prospect_type_id = pt.id AND p.workspace_id = pt.workspace_id
@@ -2153,7 +2159,11 @@ def dashboard_stats(workspace_id):
             daily_activity = None
             if not restricted:
                 clients_count = by_statut.get("client", 0)
-                qualifies_ou_plus = by_statut.get("qualifie", 0) + clients_count
+                # "en_attente" est une étape après "qualifie", juste avant de
+                # devenir client (voir statutLabels front) — compte donc dans
+                # le même panier que "qualifie" pour ce taux, décision produit
+                # validée avec Alexis.
+                qualifies_ou_plus = by_statut.get("qualifie", 0) + by_statut.get("en_attente", 0) + clients_count
                 conversion = {
                     "global": {
                         "clients": clients_count,

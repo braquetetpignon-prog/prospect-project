@@ -150,13 +150,13 @@
 {% endblock %}
 
 {% block extra_js %}
-const statusLabels = { nouveau: 'Nouveau', qualifie: 'Qualifié', client: 'Client', recale: 'Recalé' };
+const statusLabels = { nouveau: 'Nouveau', qualifie: 'Qualifié', en_attente: 'En attente', client: 'Validé', recale: 'Recalé' };
 const activityEventLabels = {
 cree: '✨', statut_change: '🔄', rdv_planifie: '📅', campagne_envoyee: '✉️', note: '📝',
 };
 
 function isActionOverdue(p) {
-if (!p.prochaine_action_date || !['nouveau', 'qualifie'].includes(p.statut)) return false;
+if (!p.prochaine_action_date || !['nouveau', 'qualifie', 'en_attente'].includes(p.statut)) return false;
 const today = new Date(); today.setHours(0, 0, 0, 0);
 return new Date(p.prochaine_action_date) < today;
 }
@@ -244,7 +244,7 @@ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stri
 });
 let msg = `${result.count} prospect(s) supprimé(s).`;
 if (result.protected_clients) {
-msg += ` ${result.protected_clients} client(s) actif(s) protégé(s) (non supprimé — gère-les depuis Gestion Client).`;
+msg += ` ${result.protected_clients} validé(s) protégé(s) (non supprimé — gère-les depuis Gestion Client).`;
 }
 showToast(msg);
 loadProspects();
@@ -308,7 +308,7 @@ params.set('statut', statut);
 // vivent désormais dans Gestion Client, pour pouvoir vider Prospects sans
 // jamais risquer de les perdre. Toujours consultables ici en filtrant
 // explicitement sur "Client" si besoin ponctuel.
-['nouveau', 'qualifie', 'recale'].forEach(s => params.append('statut', s));
+['nouveau', 'qualifie', 'en_attente', 'recale'].forEach(s => params.append('statut', s));
 }
 if (typeId) params.set('prospect_type_id', typeId);
 
