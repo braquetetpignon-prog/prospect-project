@@ -148,6 +148,18 @@ def _inject_csp_nonce():
     return {"csp_nonce": g.get("csp_nonce", "")}
 
 
+@app.context_processor
+def _inject_version_info():
+    # Rend {{ app_env }} et {{ git_commit_short }} disponibles dans tous les
+    # templates (même mécanisme que csp_nonce ci-dessus), pour affichage
+    # public en pied de page — objectif : identifier en un coup d'œil si
+    # dev et prod tournent bien sur le même commit, sans dépendre de l'état
+    # affiché sur GitHub (voir /version et son commentaire pour le contexte
+    # de l'incident qui a motivé GIT_COMMIT). "unknown"[:7] reste "unknown"
+    # si le build Coolify n'a pas injecté SOURCE_COMMIT (ex. build local).
+    return {"app_env": os.environ.get("ENV", "local"), "git_commit_short": GIT_COMMIT[:7]}
+
+
 @app.before_request
 def _email_verification_gate():
     """Bloque l'accès au reste de l'app (API et pages) tant que l'e-mail du
