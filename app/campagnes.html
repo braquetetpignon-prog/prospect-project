@@ -582,9 +582,9 @@ return;
 }
 
 try {
-const data = await fetchJSON(`/api/prospects?workspace_id=${workspaceId}&statut=qualifie&statut=client`);
+const data = await fetchJSON(`/api/prospects?workspace_id=${workspaceId}&statut=qualifie&statut=en_attente&statut=client`);
 if (!data.prospects.length) {
-container.innerHTML = `<div class="empty-state"><p>Aucun prospect qualifié ou client à qui envoyer pour le moment.</p></div>`;
+container.innerHTML = `<div class="empty-state"><p>Aucun prospect qualifié, en attente ou validé à qui envoyer pour le moment.</p></div>`;
 return;
 }
 container.innerHTML = data.prospects.filter(p => p.email).map(p => `

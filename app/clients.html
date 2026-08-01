@@ -125,13 +125,13 @@
 {% endblock %}
 
 {% block extra_js %}
-const statusLabels = { nouveau: 'Nouveau', qualifie: 'Qualifié', client: 'Client', recale: 'Recalé' };
+const statusLabels = { nouveau: 'Nouveau', qualifie: 'Qualifié', en_attente: 'En attente', client: 'Validé', recale: 'Recalé' };
 const activityEventLabels = {
   cree: '✨', statut_change: '🔄', rdv_planifie: '📅', campagne_envoyee: '✉️', note: '📝',
 };
 
 function isActionOverdue(p) {
-  if (!p.prochaine_action_date || !['nouveau', 'qualifie'].includes(p.statut)) return false;
+  if (!p.prochaine_action_date || !['nouveau', 'qualifie', 'en_attente'].includes(p.statut)) return false;
   const today = new Date(); today.setHours(0, 0, 0, 0);
   return new Date(p.prochaine_action_date) < today;
 }

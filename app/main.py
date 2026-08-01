@@ -2153,7 +2153,11 @@ def dashboard_stats(workspace_id):
             daily_activity = None
             if not restricted:
                 clients_count = by_statut.get("client", 0)
-                qualifies_ou_plus = by_statut.get("qualifie", 0) + clients_count
+                # "en_attente" est une étape après "qualifie", juste avant de
+                # devenir client (voir statutLabels front) — compte donc dans
+                # le même panier que "qualifie" pour ce taux, décision produit
+                # validée avec Alexis.
+                qualifies_ou_plus = by_statut.get("qualifie", 0) + by_statut.get("en_attente", 0) + clients_count
                 conversion = {
                     "global": {
                         "clients": clients_count,

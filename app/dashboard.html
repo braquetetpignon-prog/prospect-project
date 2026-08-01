@@ -60,7 +60,7 @@
 {% endblock %}
 
 {% block extra_js %}
-const statusLabels = { nouveau: 'Nouveau', qualifie: 'Qualifié', client: 'Client', recale: 'Recalé' };
+const statusLabels = { nouveau: 'Nouveau', qualifie: 'Qualifié', en_attente: 'En attente', client: 'Validé', recale: 'Recalé' };
 function badgeHtml(statut) {
   return `<span class="badge badge-${statut}">${statusLabels[statut] || statut}</span>`;
 }

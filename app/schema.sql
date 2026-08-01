@@ -319,7 +319,7 @@ CREATE TABLE IF NOT EXISTS prospects (
     telephone TEXT,
     email TEXT,
     site_web TEXT,
-    statut TEXT NOT NULL DEFAULT 'nouveau',   -- nouveau / qualifie / client / recale
+    statut TEXT NOT NULL DEFAULT 'nouveau',   -- nouveau / qualifie / en_attente / client / recale
     source TEXT,                              -- manuel / sirene / recherche_ia / import_csv
     motif_recalage TEXT,                      -- ex: "liquidation judiciaire (BODACC)"
     recale_at TIMESTAMPTZ,                    -- déclenche le compte à rebours d'1 semaine avant purge
