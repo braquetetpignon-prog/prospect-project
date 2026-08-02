@@ -731,6 +731,16 @@ def auth_verify_email():
         return jsonify(error=str(exc)), 400
 
     rate_limit.record_attempt(email, ip, success=True, context="verify_email")
+
+    # E-mail de bienvenue (livret d'accueil en pièce jointe) — pure bonus,
+    # ne doit jamais faire échouer la vérification elle-même si le SMTP
+    # système est indisponible ou mal configuré. Voir system_mail.py pour
+    # le contenu et la raison de ce choix "best-effort".
+    try:
+        system_mail.send_welcome_email(email)
+    except Exception:
+        pass
+
     return jsonify(status="ok")
 
 

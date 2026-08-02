@@ -18,6 +18,9 @@ tant qu'alexis n'a pas encore configuré ce compte.
 import os
 import smtplib
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
 
 
 class SystemMailError(Exception):
@@ -57,17 +60,29 @@ def is_configured():
     ])
 
 
-def send_system_email(to_email, subject, body, reply_to=None):
+def send_system_email(to_email, subject, body, reply_to=None, attachments=None):
     """Retourne True si envoyé, False si le SMTP système n'est pas configuré.
     Lève SystemMailError en cas d'échec d'envoi (erreur SMTP).
     reply_to (optionnel) : permet par exemple de répondre directement à un
     visiteur ayant utilisé le formulaire de contact, sans exposer son adresse
-    comme expéditeur réel (qui reste toujours SYSTEM_SMTP_FROM_EMAIL)."""
+    comme expéditeur réel (qui reste toujours SYSTEM_SMTP_FROM_EMAIL).
+    attachments (optionnel) : liste de tuples (nom_fichier, contenu_bytes,
+    mimetype) — ex. le livret d'accueil joint à l'e-mail de bienvenue."""
     config = _get_config()
     if not config:
         return False
 
-    msg = MIMEText(body, "plain", "utf-8")
+    if attachments:
+        msg = MIMEMultipart()
+        msg.attach(MIMEText(body, "plain", "utf-8"))
+        for filename, content, mimetype in attachments:
+            part = MIMEBase(*mimetype.split("/"))
+            part.set_payload(content)
+            encoders.encode_base64(part)
+            part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
+            msg.attach(part)
+    else:
+        msg = MIMEText(body, "plain", "utf-8")
     msg["Subject"] = subject
     msg["From"] = config["from_email"]
     msg["To"] = to_email
@@ -91,5 +106,43 @@ def send_system_email(to_email, subject, body, reply_to=None):
             server.quit()
     except Exception as exc:
         raise SystemMailError(f"Échec d'envoi de l'e-mail système : {exc}") from exc
+
+
+_WELCOME_PDF_PATH = os.path.join(
+    os.path.dirname(__file__), "static", "docs", "livret-accueil-clickprospect.pdf"
+)
+
+
+def send_welcome_email(to_email):
+    """E-mail de bienvenue envoyé une seule fois, juste après la toute
+    première vérification d'e-mail réussie (voir main.py::auth_verify_email).
+    Ne concerne pas les comptes ajoutés par un admin (déjà vérifiés d'office,
+    ne passent jamais par cette route). Best-effort volontaire : si le PDF
+    est absent du déploiement ou si l'envoi échoue, on ne bloque jamais
+    l'inscription pour autant — voir l'appel dans main.py qui capture toute
+    exception autour de celle-ci."""
+    try:
+        with open(_WELCOME_PDF_PATH, "rb") as f:
+            pdf_bytes = f.read()
+    except FileNotFoundError:
+        return False
+
+    subject = "Bienvenue sur ClickProspect 🎉"
+    body = (
+        "Bonjour,\n\n"
+        "Ton compte est confirmé — bienvenue sur ClickProspect !\n\n"
+        "Tu trouveras en pièce jointe un petit livret d'accueil qui présente "
+        "chaque partie de l'outil : le tableau de bord, la prospection, "
+        "l'envoi de campagnes, et quelques points pratiques à connaître. "
+        "Pas besoin de tout lire d'un coup, garde-le sous la main pour plus tard.\n\n"
+        "Si tu as la moindre question, la page Contact dans l'application reste "
+        "disponible à tout moment.\n\n"
+        "Bonne prospection,\n"
+        "L'équipe ClickProspect"
+    )
+    return send_system_email(
+        to_email, subject, body,
+        attachments=[("livret-accueil-clickprospect.pdf", pdf_bytes, "application/pdf")],
+    )
 
     return True
