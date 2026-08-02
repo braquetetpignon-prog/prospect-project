@@ -26,6 +26,7 @@ from app import prospects
 from app import text_parser
 from app import prospect_types
 from app import rendez_vous
+from app import document_send
 from app import official_search
 from app import superadmin
 from app import subscriptions
@@ -1927,6 +1928,35 @@ def prospect_cancel_automatic_recalage(prospect_id):
     except prospect_lifecycle.ProspectLifecycleError as exc:
         return jsonify(error=str(exc)), 400
     return jsonify(status="updated", statut=statut_restaure)
+
+
+@app.route("/api/prospects/<int:prospect_id>/send-document", methods=["POST"])
+@login_required
+@require_role(*WRITE_ROLES)
+def prospect_send_document(prospect_id):
+    """Envoi ponctuel d'un devis PDF (200 Ko max) à un prospect en_attente
+    ou client — voir document_send.py pour les contraintes complètes
+    (statut éligible, aucun stockage du fichier/e-mail, plafond quotidien
+    anti-abus). Le fichier reçu n'est jamais écrit sur disque : lu en
+    mémoire, transmis à document_send, puis jeté avec la requête."""
+    prospect = prospects.get_prospect(prospect_id, session.get("workspace_id"))
+    if not prospect:
+        return jsonify(error="Prospect introuvable"), 404
+
+    uploaded = request.files.get("file")
+    if not uploaded:
+        return jsonify(error="Fichier requis."), 400
+    file_bytes = uploaded.read()
+    message = (request.form.get("message") or "").strip()
+
+    try:
+        document_send.send_document(
+            session.get("workspace_id"), session.get("user_id"),
+            prospect, file_bytes, uploaded.filename, message,
+        )
+    except document_send.DocumentSendError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(status="envoye")
 
 
 @app.route("/api/prospects/<int:prospect_id>/activity")

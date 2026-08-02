@@ -299,7 +299,7 @@ def preview_campaign_email(campaign_id, prospect_id, workspace_id):
     return {"subject": subject, "body_html": body_html, "to_email": prospect.get("email")}
 
 
-def _send_via_smtp(smtp_creds, to_email, subject, body, attachments=None):
+def _send_via_smtp(smtp_creds, to_email, subject, body, attachments=None, bcc=None):
     if attachments:
         msg = MIMEMultipart()
         msg.attach(MIMEText(body, "plain", "utf-8"))
@@ -315,6 +315,13 @@ def _send_via_smtp(smtp_creds, to_email, subject, body, attachments=None):
     msg["From"] = smtp_creds["from_email"]
     msg["To"] = to_email
 
+    # bcc=from_email (envoi individuel type devis) dépose une copie dans la
+    # boîte pro de l'expéditeur — même principe que _send_campaign_email
+    # ci-dessous, mutualisé ici pour ne pas le redupliquer une 3e fois.
+    recipients = [to_email]
+    if bcc and bcc.lower() != to_email.lower():
+        recipients.append(bcc)
+
     port = smtp_creds["port"]
     if port == 465:
         server = smtplib.SMTP_SSL(smtp_creds["host"], port, timeout=20)
@@ -327,7 +334,7 @@ def _send_via_smtp(smtp_creds, to_email, subject, body, attachments=None):
 
     try:
         server.login(smtp_creds["username"], smtp_creds["password"])
-        server.sendmail(smtp_creds["from_email"], [to_email], msg.as_string())
+        server.sendmail(smtp_creds["from_email"], recipients, msg.as_string())
     finally:
         server.quit()
 
@@ -578,11 +585,16 @@ class EmailSendError(Exception):
     pass
 
 
-def send_email(workspace_id, to_email, subject, body, attachments=None):
-    smtp_creds = workspace_settings.get_smtp_credentials_for_sending(workspace_id)
+def send_email(workspace_id, to_email, subject, body, attachments=None, bcc_sender=False, require_verified=False):
+    smtp_creds = workspace_settings.get_smtp_credentials_for_sending(workspace_id, require_verified=require_verified)
     if not smtp_creds:
-        raise EmailSendError("Aucune configuration SMTP pour cet espace de travail.")
-    _send_via_smtp(smtp_creds, to_email, subject, body, attachments=attachments)
+        raise EmailSendError(
+            "Configuration SMTP absente ou non vérifiée pour cet espace de travail."
+            if require_verified else
+            "Aucune configuration SMTP pour cet espace de travail."
+        )
+    bcc = smtp_creds["from_email"] if bcc_sender else None
+    _send_via_smtp(smtp_creds, to_email, subject, body, attachments=attachments, bcc=bcc)
 
 
 class SmtpTestError(Exception):

@@ -110,6 +110,14 @@
         <button type="button" class="btn btn-ghost btn-sm" id="create-rdv-btn">Créer le rendez-vous</button>
       </div>
 
+      <button type="button" class="btn btn-ghost btn-sm" id="toggle-devis-btn" style="margin-top:6px;">📎 Envoyer un fichier</button>
+      <div class="rdv-inline" id="devis-inline">
+        <div class="field"><label for="devis-file">Fichier PDF (200 Ko maximum)</label><input id="devis-file" type="file" accept="application/pdf"></div>
+        <div class="field"><label for="devis-message">Message personnalisé</label><textarea id="devis-message" rows="3" placeholder="Bonjour, voici le devis demandé..."></textarea></div>
+        <button type="button" class="btn btn-ghost btn-sm" id="send-devis-btn">Envoyer</button>
+        <div id="devis-status" style="font-size:12px; margin-top:6px; color:var(--text-soft);"></div>
+      </div>
+
       <div class="panel" style="margin-top:16px;">
         <div class="panel-head"><h3 style="margin:0; font-size:14px;">Historique d'activité</h3></div>
         <div id="activity-timeline" style="padding:0 20px 16px;"></div>
@@ -127,7 +135,7 @@
 {% block extra_js %}
 const statusLabels = { nouveau: 'Nouveau', qualifie: 'Qualifié', en_attente: 'En attente', client: 'Validé', recale: 'Recalé' };
 const activityEventLabels = {
-  cree: '✨', statut_change: '🔄', rdv_planifie: '📅', campagne_envoyee: '✉️', note: '📝',
+  cree: '✨', statut_change: '🔄', rdv_planifie: '📅', campagne_envoyee: '✉️', fichier_envoye: '📎', note: '📝',
 };
 
 function isActionOverdue(p) {
@@ -159,6 +167,7 @@ async function loadActivityTimeline(prospectId) {
 let workspaceId = null;
 let canWrite = false;
 let currentProspectId = null;
+let smtpReady = false;
 let prospectTypesCache = [];
 let searchDebounce = null;
 
@@ -174,6 +183,11 @@ function onAuthReady(me) {
   loadProspects();
   updateExportLink();
 
+  // Statut SMTP chargé une fois : conditionne le bouton "Envoyer un fichier".
+  fetchJSON(`/api/workspaces/${workspaceId}/smtp-config`)
+    .then(cfg => { smtpReady = !!(cfg && cfg.configured && cfg.verified); })
+    .catch(() => { smtpReady = false; });
+
   document.getElementById('search-input').addEventListener('input', () => {
     clearTimeout(searchDebounce);
     searchDebounce = setTimeout(loadProspects, 300);
@@ -188,6 +202,15 @@ function onAuthReady(me) {
     document.getElementById('rdv-inline').classList.toggle('show');
   });
   document.getElementById('create-rdv-btn').addEventListener('click', createInlineRdv);
+  document.getElementById('toggle-devis-btn').addEventListener('click', () => {
+    if (!smtpReady) {
+      showToast("Configurez et vérifiez votre compte e-mail dans Paramètres avant d'envoyer un fichier.", true);
+      window.location.href = '/settings';
+      return;
+    }
+    document.getElementById('devis-inline').classList.toggle('show');
+  });
+  document.getElementById('send-devis-btn').addEventListener('click', sendDevis);
   document.getElementById('bulk-delete-btn').addEventListener('click', bulkDelete);
 }
 
@@ -345,6 +368,9 @@ async function openModal(prospectId) {
   document.getElementById('siret-status').textContent = '';
   document.getElementById('rdv-inline').classList.remove('show');
   document.getElementById('toggle-rdv-btn').style.display = prospectId ? 'inline-flex' : 'none';
+  document.getElementById('devis-inline').classList.remove('show');
+  document.getElementById('devis-status').textContent = '';
+  document.getElementById('toggle-devis-btn').style.display = 'none';
 
   if (prospectId) {
     document.getElementById('modal-title').textContent = 'Fiche client';
@@ -362,6 +388,8 @@ async function openModal(prospectId) {
     document.getElementById('p-action-date').value = p.prochaine_action_date || '';
     document.getElementById('p-notes').value = p.notes || '';
     loadActivityTimeline(prospectId);
+    document.getElementById('toggle-devis-btn').style.display =
+      (['en_attente', 'client'].includes(p.statut) && p.email) ? 'inline-flex' : 'none';
   } else {
     document.getElementById('modal-title').textContent = 'Ajouter un client';
     document.getElementById('p-statut').value = 'client';
@@ -467,6 +495,32 @@ async function createInlineRdv() {
     showToast('Rendez-vous créé — consulte-le dans le calendrier.');
     document.getElementById('rdv-inline').classList.remove('show');
   } catch (err) {
+    showToast(err.message, true);
+  }
+}
+
+async function sendDevis() {
+  const fileInput = document.getElementById('devis-file');
+  const file = fileInput.files[0];
+  const statusEl = document.getElementById('devis-status');
+  if (!file) { showToast('Choisis un fichier PDF.', true); return; }
+  if (file.type !== 'application/pdf') { showToast('Seuls les fichiers PDF sont acceptés.', true); return; }
+  if (file.size > 200 * 1024) { showToast('Fichier trop volumineux (200 Ko maximum).', true); return; }
+  const message = document.getElementById('devis-message').value.trim();
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('message', message);
+  statusEl.textContent = 'Envoi en cours...';
+  try {
+    await fetchJSON(`/api/prospects/${currentProspectId}/send-document`, { method: 'POST', body: formData });
+    showToast('Fichier envoyé — copie dans votre boîte mail.');
+    document.getElementById('devis-inline').classList.remove('show');
+    fileInput.value = '';
+    document.getElementById('devis-message').value = '';
+    statusEl.textContent = '';
+    loadActivityTimeline(currentProspectId);
+  } catch (err) {
+    statusEl.textContent = '';
     showToast(err.message, true);
   }
 }
