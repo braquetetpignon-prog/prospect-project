@@ -1676,7 +1676,7 @@ def campaign_send_by_type(campaign_id):
         if p.get("email") and p.get("statut") in sending.ALLOWED_SEND_STATUTS
     ]
     if not prospect_ids:
-        return jsonify(error="Aucun prospect qualifié, en attente ou validé avec e-mail pour ce type."), 400
+        return jsonify(error="Aucun prospect qualifié, en attente ou client avec e-mail pour ce type."), 400
 
     try:
         result = sending.queue_send(campaign_id, prospect_ids, body.get("planifie_pour"))

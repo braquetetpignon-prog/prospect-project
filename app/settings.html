@@ -259,7 +259,7 @@ function renderSettingsShell(workspaceId) {
               <option value="nouveau">Nouveau</option>
               <option value="qualifie">Qualifié</option>
               <option value="en_attente">En attente</option>
-              <option value="client">Validé</option>
+              <option value="client">Client</option>
               <option value="recale">Recalé</option>
             </select>
           </div>
@@ -346,7 +346,7 @@ async function deleteMember(userId, email, workspaceId) {
 }
 
 const TRIGGER_LABELS = { statut_stagnant: 'Statut stagnant', rappel_depasse: 'Rappel dépassé' };
-const AUTOMATION_STATUT_LABELS = { nouveau: 'Nouveau', qualifie: 'Qualifié', en_attente: 'En attente', client: 'Validé', recale: 'Recalé' };
+const AUTOMATION_STATUT_LABELS = { nouveau: 'Nouveau', qualifie: 'Qualifié', en_attente: 'En attente', client: 'Client', recale: 'Recalé' };
 
 function ruleDescription(rule) {
   if (rule.trigger_type === 'statut_stagnant') {

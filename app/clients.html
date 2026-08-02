@@ -112,7 +112,7 @@
 
       <button type="button" class="btn btn-ghost btn-sm" id="toggle-devis-btn" style="margin-top:6px;">📎 Envoyer un fichier</button>
       <div class="rdv-inline" id="devis-inline">
-        <div class="field"><label for="devis-file">Fichier PDF (200 Ko maximum)</label><input id="devis-file" type="file" accept="application/pdf"></div>
+        <div class="field"><label for="devis-file">Fichier PDF (700 Ko maximum)</label><input id="devis-file" type="file" accept="application/pdf"></div>
         <div class="field"><label for="devis-message">Message personnalisé</label><textarea id="devis-message" rows="3" placeholder="Bonjour, voici le devis demandé..."></textarea></div>
         <button type="button" class="btn btn-ghost btn-sm" id="send-devis-btn">Envoyer</button>
         <div id="devis-status" style="font-size:12px; margin-top:6px; color:var(--text-soft);"></div>
@@ -133,7 +133,7 @@
 {% endblock %}
 
 {% block extra_js %}
-const statusLabels = { nouveau: 'Nouveau', qualifie: 'Qualifié', en_attente: 'En attente', client: 'Validé', recale: 'Recalé' };
+const statusLabels = { nouveau: 'Nouveau', qualifie: 'Qualifié', en_attente: 'En attente', client: 'Client', recale: 'Recalé' };
 const activityEventLabels = {
   cree: '✨', statut_change: '🔄', rdv_planifie: '📅', campagne_envoyee: '✉️', fichier_envoye: '📎', note: '📝',
 };
@@ -227,7 +227,7 @@ async function bulkDelete() {
       failed++;
     }
   }
-  showToast(`${deleted} validé(s) supprimé(s).${failed ? ` ${failed} échec(s).` : ''}`);
+  showToast(`${deleted} client(s) supprimé(s).${failed ? ` ${failed} échec(s).` : ''}`);
   loadProspects();
 }
 
@@ -505,7 +505,7 @@ async function sendDevis() {
   const statusEl = document.getElementById('devis-status');
   if (!file) { showToast('Choisis un fichier PDF.', true); return; }
   if (file.type !== 'application/pdf') { showToast('Seuls les fichiers PDF sont acceptés.', true); return; }
-  if (file.size > 200 * 1024) { showToast('Fichier trop volumineux (200 Ko maximum).', true); return; }
+  if (file.size > 700 * 1024) { showToast('Fichier trop volumineux (700 Ko maximum).', true); return; }
   const message = document.getElementById('devis-message').value.trim();
   const formData = new FormData();
   formData.append('file', file);

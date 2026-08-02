@@ -1,5 +1,5 @@
 """
-Envoi ponctuel d'un fichier (devis) à un prospect "en attente" ou "validé"
+Envoi ponctuel d'un fichier (devis) à un prospect "en attente" ou "client"
 (client), depuis sa fiche. Contrainte forte, voulue par Alexis : ni le
 fichier ni le contenu de l'e-mail ne sont jamais stockés côté serveur —
 ni sur disque, ni en base, pas même temporairement. Le fichier est traité
@@ -16,13 +16,13 @@ from app import sending, workspace_settings, activity
 
 # Volontairement distinct de sending.ALLOWED_SEND_STATUTS (qui inclut aussi
 # "qualifie") : un devis n'a de sens qu'à partir du moment où le prospect
-# est en attente d'une proposition concrète ou déjà validé. Ne PAS
+# est en attente d'une proposition concrète ou déjà client. Ne PAS
 # réutiliser/dupliquer cette liste ailleurs sans passer par cette constante
 # (voir erreurs-connues-clickprospect.md — bug de désynchronisation déjà
 # rencontré une fois sur un principe similaire).
 DEVIS_SEND_STATUTS = ("en_attente", "client")
 
-MAX_FILE_SIZE_BYTES = 200 * 1024  # 200 Ko
+MAX_FILE_SIZE_BYTES = 700 * 1024  # 700 Ko — relèvé de 200 à 700 Ko : les devis embarquent les CGV obligatoires, plus volumineux qu'un simple devis nu
 DAILY_SEND_LIMIT = 20  # par utilisateur et par jour, anti-abus — ajustable
 PDF_MAGIC = b"%PDF-"
 
@@ -36,7 +36,7 @@ def _validate_pdf(file_bytes, filename):
     if not file_bytes:
         raise DocumentSendError("Fichier vide.")
     if len(file_bytes) > MAX_FILE_SIZE_BYTES:
-        raise DocumentSendError(f"Fichier trop volumineux ({len(file_bytes) // 1024} Ko, maximum 200 Ko).")
+        raise DocumentSendError(f"Fichier trop volumineux ({len(file_bytes) // 1024} Ko, maximum 700 Ko).")
     # Validation par signature binaire, jamais par extension ni Content-Type
     # (trivialement falsifiables côté client) — même principe déjà appliqué
     # aux images de campagne dans campaign_image.py.
@@ -72,7 +72,7 @@ def send_document(workspace_id, user_id, prospect, file_bytes, filename, message
     if prospect.get("statut") not in DEVIS_SEND_STATUTS:
         raise DocumentSendError(
             "Ce prospect n'est pas éligible à l'envoi de fichier "
-            "(statut « en attente » ou « validé » requis)."
+            "(statut « en attente » ou « client » requis)."
         )
     if not prospect.get("email"):
         raise DocumentSendError("Ce prospect n'a pas d'adresse e-mail renseignée.")
