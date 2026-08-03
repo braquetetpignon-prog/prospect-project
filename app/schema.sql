@@ -428,6 +428,16 @@ CREATE INDEX IF NOT EXISTS idx_prospect_activity_workspace_user ON prospect_acti
 ALTER TABLE prospects ADD COLUMN IF NOT EXISTS notes TEXT;
 CREATE INDEX IF NOT EXISTS idx_prospects_type ON prospects(prospect_type_id);
 
+-- Attribution d'un prospect à un collaborateur (visibilité "qui gère quoi"
+-- dans l'équipe). Toujours nullable : un prospect peut rester non assigné
+-- (décision produit assumée, pas une valeur par défaut à corriger plus tard).
+-- ON DELETE SET NULL est un filet de sécurité pur : le chemin normal de
+-- suppression d'un compte (voir app/auth.py::delete_user) réattribue déjà
+-- explicitement les prospects concernés AVANT de supprimer la ligne users,
+-- donc ce SET NULL ne devrait en pratique jamais être le mécanisme qui joue.
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS assigned_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_prospects_assigned_user ON prospects(workspace_id, assigned_user_id);
+
 -- Rendez-vous : calendrier partagé au niveau de l'espace de travail. Chaque
 -- utilisateur ne modifie que les siens ; un administrateur peut modifier ceux
 -- des autres (avec notification par e-mail au propriétaire d'origine).

@@ -41,6 +41,14 @@
 </div>
 {% else %}
 <div class="panel">
+  <div class="panel-head"><h2>Qui gère quoi (prospects actifs)</h2></div>
+  <p style="font-size:12.5px; color:var(--text-soft); margin:-6px 0 0; padding:0 24px;">
+    Prospects actuellement attribués à chaque membre, hors « client » et « recalé » (plus de travail commercial actif dessus).
+  </p>
+  <div id="team-pipeline-body"></div>
+</div>
+
+<div class="panel">
   <div class="panel-head"><h2>Activité par membre</h2></div>
   <div id="team-report-body"></div>
 </div>
@@ -50,7 +58,64 @@
 {% block extra_js %}
 {% if not restricted and is_admin %}
 function onAuthReady(me) {
+  loadTeamPipeline(me.workspace_id);
   loadTeamReport(me.workspace_id);
+}
+
+async function loadTeamPipeline(workspaceId) {
+  const container = document.getElementById('team-pipeline-body');
+  try {
+    const data = await fetchJSON(`/api/workspaces/${workspaceId}/team-pipeline`);
+    renderTeamPipeline(data);
+  } catch (e) {
+    container.innerHTML = `<div class="empty-state"><p>Impossible de charger la vue par collaborateur.</p></div>`;
+  }
+}
+
+function renderTeamPipeline(data) {
+  const container = document.getElementById('team-pipeline-body');
+  const members = data.members || [];
+
+  if (!members.length) {
+    container.innerHTML = `<div class="empty-state"><h3>Aucun membre actif</h3></div>`;
+    return;
+  }
+
+  const roleLabels = { admin: 'Administrateur', commercial: 'Commercial', lecture_seule: 'Lecture seule' };
+
+  container.innerHTML = `
+    <table class="team-table">
+      <thead>
+        <tr>
+          <th>Membre</th>
+          <th class="num">Nouveau</th>
+          <th class="num">Qualifié</th>
+          <th class="num">En attente</th>
+          <th class="num">Total actifs</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${members.map(m => `
+          <tr>
+            <td>
+              <div class="member-email">${escapeHtml(m.email)}</div>
+              <div class="member-role">${escapeHtml(roleLabels[m.role] || m.role)}</div>
+            </td>
+            ${cell(m.nouveau)}
+            ${cell(m.qualifie)}
+            ${cell(m.en_attente)}
+            ${cell(m.total_actifs)}
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+    ${data.unassigned_count > 0 ? `
+      <div class="unattributed-note">
+        ⚠ ${data.unassigned_count} prospect${data.unassigned_count > 1 ? 's' : ''} actif${data.unassigned_count > 1 ? 's' : ''} sans responsable désigné —
+        <a href="/prospects?assigned_user_id=none">voir la liste</a>.
+      </div>
+    ` : ''}
+  `;
 }
 
 async function loadTeamReport(workspaceId) {

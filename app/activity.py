@@ -9,7 +9,7 @@ pour éviter d'avoir à recouper plusieurs écrans quand on reprend un dossier.
 """
 from app.db import get_db
 
-EVENT_TYPES = ("cree", "statut_change", "rdv_planifie", "campagne_envoyee", "fichier_envoye", "note")
+EVENT_TYPES = ("cree", "statut_change", "rdv_planifie", "campagne_envoyee", "fichier_envoye", "note", "attribution")
 
 
 def log_event(prospect_id, workspace_id, event_type, description, user_id=None):

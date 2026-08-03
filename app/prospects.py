@@ -75,11 +75,14 @@ def get_prospect(prospect_id, workspace_id):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, nom_entreprise, contact_prenom, contact_nom, siren, siret,
-                       naf_code, adresse, batiment, etage, code_postal, ville, telephone, email, site_web,
-                       statut, source, motif_recalage, prospect_type_id, prochaine_action,
-                       prochaine_action_date, notes, potentiel, valeur_estimee, created_at
-                FROM prospects WHERE id = %s AND workspace_id = %s
+                SELECT p.id, p.nom_entreprise, p.contact_prenom, p.contact_nom, p.siren, p.siret,
+                       p.naf_code, p.adresse, p.batiment, p.etage, p.code_postal, p.ville, p.telephone, p.email, p.site_web,
+                       p.statut, p.source, p.motif_recalage, p.prospect_type_id, p.prochaine_action,
+                       p.prochaine_action_date, p.notes, p.potentiel, p.valeur_estimee, p.created_at,
+                       p.assigned_user_id, u.email AS assigned_email
+                FROM prospects p
+                LEFT JOIN users u ON u.id = p.assigned_user_id
+                WHERE p.id = %s AND p.workspace_id = %s
                 """,
                 (prospect_id, workspace_id),
             )
@@ -89,7 +92,8 @@ def get_prospect(prospect_id, workspace_id):
         cols = ["id", "nom_entreprise", "contact_prenom", "contact_nom", "siren", "siret",
                 "naf_code", "adresse", "batiment", "etage", "code_postal", "ville", "telephone", "email", "site_web",
                 "statut", "source", "motif_recalage", "prospect_type_id", "prochaine_action",
-                "prochaine_action_date", "notes", "potentiel", "valeur_estimee", "created_at"]
+                "prochaine_action_date", "notes", "potentiel", "valeur_estimee", "created_at",
+                "assigned_user_id", "assigned_email"]
         return dict(zip(cols, row))
     finally:
         conn.close()
@@ -180,7 +184,73 @@ def update_statut(prospect_id, workspace_id, statut, motif=None, user_id=None):
     activity.log_event(prospect_id, workspace_id, "statut_change", description + ".", user_id=user_id)
 
 
-def search_prospects(workspace_id, query=None, statut=None, prospect_type_id=None, limit=500):
+def assign_prospect(prospect_id, workspace_id, assigned_user_id, actor_user_id=None, assignee_label=None):
+    """Attribue un prospect à un collaborateur (assigned_user_id) ou retire
+    l'attribution (assigned_user_id=None). La validation que assigned_user_id
+    appartient bien à cet espace de travail est faite par l'appelant
+    (app/main.py, via auth.list_users) — pas ici, pour ne pas dupliquer une
+    requête déjà nécessaire côté route pour obtenir l'e-mail à journaliser."""
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE prospects SET assigned_user_id = %s, updated_at = now() WHERE id = %s AND workspace_id = %s RETURNING id",
+                (assigned_user_id, prospect_id, workspace_id),
+            )
+            updated = cur.fetchone()
+        conn.commit()
+        if not updated:
+            raise ProspectError("Prospect introuvable dans cet espace de travail.")
+    finally:
+        conn.close()
+
+    description = f"Attribué à {assignee_label}." if assignee_label else "Attribution retirée (non assigné)."
+    activity.log_event(prospect_id, workspace_id, "attribution", description, user_id=actor_user_id)
+
+
+def count_assigned_prospects(workspace_id, user_id):
+    """Utilisé par app/auth.py::delete_user pour bloquer la suppression d'un
+    compte tant que ses prospects n'ont pas été réattribués explicitement."""
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT count(*) FROM prospects WHERE workspace_id = %s AND assigned_user_id = %s",
+                (workspace_id, user_id),
+            )
+            return cur.fetchone()[0]
+    finally:
+        conn.close()
+
+
+def reassign_prospects(workspace_id, from_user_id, to_user_id):
+    """Réattribue en bloc tous les prospects d'un collaborateur vers un autre
+    (to_user_id=None pour les laisser explicitement non assignés). Geste
+    volontaire déclenché soit par app/auth.py::delete_user avant suppression
+    d'un compte, soit par l'administrateur depuis le rapport d'équipe.
+    Ne journalise pas un événement par prospect déplacé (un espace avec 200+
+    prospects chez le même collaborateur produirait autant de lignes
+    d'activité individuelles pour un seul geste administratif) : seul l'état
+    courant (assigned_user_id) reflète le changement, pas l'historique fin."""
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE prospects SET assigned_user_id = %s, updated_at = now() WHERE workspace_id = %s AND assigned_user_id = %s RETURNING id",
+                (to_user_id, workspace_id, from_user_id),
+            )
+            moved_ids = [r[0] for r in cur.fetchall()]
+        conn.commit()
+        return moved_ids
+    finally:
+        conn.close()
+
+
+def search_prospects(workspace_id, query=None, statut=None, prospect_type_id=None, assigned_user_id=None, limit=500):
+    """assigned_user_id : filtre optionnel. Passer un id de collaborateur pour
+    ne voir que ses prospects, ou la chaîne 'none' (et non le Python None, qui
+    signifie ici 'pas de filtre du tout') pour ne voir que les prospects non
+    assignés — même convention que app/auth.py::delete_user(reassign_to)."""
     conditions = ["p.workspace_id = %s"]
     params = [workspace_id]
 
@@ -198,6 +268,11 @@ def search_prospects(workspace_id, query=None, statut=None, prospect_type_id=Non
     if prospect_type_id:
         conditions.append("p.prospect_type_id = %s")
         params.append(prospect_type_id)
+    if assigned_user_id == "none":
+        conditions.append("p.assigned_user_id IS NULL")
+    elif assigned_user_id:
+        conditions.append("p.assigned_user_id = %s")
+        params.append(assigned_user_id)
 
     params.append(limit)
 
@@ -211,12 +286,14 @@ def search_prospects(workspace_id, query=None, statut=None, prospect_type_id=Non
                        p.prochaine_action, p.prochaine_action_date, p.potentiel, p.valeur_estimee,
                        p.adresse, p.code_postal, p.batiment, p.etage, p.notes,
                        p.synced_subscription_status, p.synced_subscription_end_date,
+                       p.assigned_user_id, u.email AS assigned_email,
                        EXISTS (
                            SELECT 1 FROM rendez_vous rv
                            WHERE rv.prospect_id = p.id AND rv.date_heure > now()
                        ) AS has_upcoming_rdv
                 FROM prospects p
                 LEFT JOIN prospect_types pt ON pt.id = p.prospect_type_id
+                LEFT JOIN users u ON u.id = p.assigned_user_id
                 WHERE {' AND '.join(conditions)}
                 ORDER BY p.created_at DESC LIMIT %s
                 """,
@@ -227,7 +304,8 @@ def search_prospects(workspace_id, query=None, statut=None, prospect_type_id=Non
                 "telephone", "statut", "source", "type_nom", "created_at",
                 "prochaine_action", "prochaine_action_date", "potentiel", "valeur_estimee",
                 "adresse", "code_postal", "batiment", "etage", "notes",
-                "synced_subscription_status", "synced_subscription_end_date", "has_upcoming_rdv"]
+                "synced_subscription_status", "synced_subscription_end_date",
+                "assigned_user_id", "assigned_email", "has_upcoming_rdv"]
         return [dict(zip(cols, r)) for r in rows]
     finally:
         conn.close()

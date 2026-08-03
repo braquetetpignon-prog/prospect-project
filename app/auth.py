@@ -274,13 +274,28 @@ def update_user(workspace_id, user_id, fields):
         conn.close()
 
 
-def delete_user(workspace_id, user_id):
+def delete_user(workspace_id, user_id, reassign_to=None):
     """Suppression définitive d'un membre. Protections :
     - impossible de supprimer le dernier administrateur actif ;
     - impossible si le membre a des rendez-vous à venir (la suppression les
       effacerait en cascade — l'admin doit d'abord les réassigner ou les
       annuler depuis le calendrier, pour ne jamais perdre un rendez-vous
-      sans s'en rendre compte)."""
+      sans s'en rendre compte) ;
+    - si le membre a des prospects qui lui sont attribués, la suppression est
+      bloquée tant qu'ils n'ont pas été réattribués explicitement.
+
+    reassign_to : None (défaut) = bloque s'il y a des prospects attribués et
+    renvoie leur nombre dans le message d'erreur, pour que l'appelant (route
+    API) puisse demander une destination à l'admin. Un id de membre actif =
+    réattribue tous les prospects vers ce membre avant suppression. La
+    chaîne 'none' = choix explicite de laisser les prospects non assignés
+    (distincte du défaut None, pour ne jamais désassigner par accident faute
+    de destination précisée)."""
+    # Import local (pas en tête de fichier) : prospects.py n'importe pas
+    # auth.py, donc aucun risque de cycle, mais le garder local documente que
+    # cette dépendance est ponctuelle et propre à cette fonction.
+    from app import prospects
+
     conn = get_db()
     try:
         with conn.cursor() as cur:
@@ -305,6 +320,32 @@ def delete_user(workspace_id, user_id):
                     f"Ce membre a {upcoming} rendez-vous à venir dans le calendrier — "
                     f"réassigne-les ou annule-les avant de le supprimer."
                 )
+
+            assigned_count = prospects.count_assigned_prospects(workspace_id, user_id)
+            if assigned_count:
+                if reassign_to is None:
+                    raise AuthError(
+                        f"Ce membre a {assigned_count} prospect(s) attribué(s) — "
+                        f"réattribue-les à un autre membre (ou explicitement à « aucun ») avant de le supprimer."
+                    )
+                if reassign_to != "none":
+                    try:
+                        reassign_to = int(reassign_to)
+                    except (TypeError, ValueError):
+                        raise AuthError("Identifiant de destination invalide.")
+                    cur.execute(
+                        "SELECT count(*) FROM users WHERE id = %s AND workspace_id = %s AND is_active AND id != %s",
+                        (reassign_to, workspace_id, user_id),
+                    )
+                    if cur.fetchone()[0] == 0:
+                        raise AuthError("Le membre de destination est introuvable ou inactif.")
+                target_user_id = None if reassign_to == "none" else reassign_to
+                # Réattribution effectuée et commitée AVANT la suppression du
+                # compte (transaction séparée, comme le reste du fichier) :
+                # en cas d'interruption entre les deux étapes, les prospects
+                # sont déjà en sécurité chez le nouveau responsable et la
+                # suppression peut simplement être relancée sans perte.
+                prospects.reassign_prospects(workspace_id, user_id, target_user_id)
 
             cur.execute("DELETE FROM users WHERE id = %s AND workspace_id = %s", (user_id, workspace_id))
         conn.commit()
