@@ -389,7 +389,7 @@ async function openModal(prospectId) {
     document.getElementById('p-notes').value = p.notes || '';
     loadActivityTimeline(prospectId);
     document.getElementById('toggle-devis-btn').style.display =
-      (['en_attente', 'client'].includes(p.statut) && p.email) ? 'inline-flex' : 'none';
+      (['qualifie', 'en_attente', 'client'].includes(p.statut) && p.email) ? 'inline-flex' : 'none';
   } else {
     document.getElementById('modal-title').textContent = 'Ajouter un client';
     document.getElementById('p-statut').value = 'client';

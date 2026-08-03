@@ -499,7 +499,7 @@ document.getElementById('p-assigned').value = p.assigned_user_id || '';
 setStarPicker(p.potentiel);
 loadActivityTimeline(prospectId);
 document.getElementById('toggle-devis-btn').style.display =
-(['en_attente', 'client'].includes(p.statut) && p.email) ? 'inline-flex' : 'none';
+(['qualifie', 'en_attente', 'client'].includes(p.statut) && p.email) ? 'inline-flex' : 'none';
 } else {
 document.getElementById('modal-title').textContent = 'Ajouter un prospect';
 document.getElementById('p-statut').value = 'nouveau';
