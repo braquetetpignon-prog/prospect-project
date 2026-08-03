@@ -44,6 +44,7 @@
 <input type="text" id="search-input" placeholder="Rechercher (entreprise, contact...)">
 <select id="statut-filter"><option value="">Tous les statuts</option></select>
 <select id="type-filter"><option value="">Tous les types</option></select>
+<select id="assigned-filter"><option value="">Tous les responsables</option><option value="none">Non assignés</option></select>
 <span class="spacer"></span>
 <a id="export-csv-link" class="btn btn-ghost btn-sm" href="#">⬇ Exporter tout (CSV)</a>
 <button class="btn btn-primary" id="add-prospect-btn">+ Ajouter un prospect</button>
@@ -95,6 +96,13 @@
 <select id="p-type"><option value="">— Non classé —</option></select>
 </div>
 <div class="field"><label for="p-ville">Ville</label><input id="p-ville"></div>
+</div>
+<div class="field-row">
+<div class="field">
+<label for="p-assigned">Responsable</label>
+<select id="p-assigned"><option value="">— Non assigné —</option></select>
+</div>
+<div class="field"></div>
 </div>
 <div class="field-row">
 <div class="field"><label for="p-adresse">Adresse</label><input id="p-adresse" placeholder="N° et nom de rue"></div>
@@ -160,7 +168,7 @@
 {% block extra_js %}
 const statusLabels = { nouveau: 'Nouveau', qualifie: 'Qualifié', en_attente: 'En attente', client: 'Client', recale: 'Recalé' };
 const activityEventLabels = {
-cree: '✨', statut_change: '🔄', rdv_planifie: '📅', campagne_envoyee: '✉️', fichier_envoye: '📎', note: '📝',
+cree: '✨', statut_change: '🔄', rdv_planifie: '📅', campagne_envoyee: '✉️', fichier_envoye: '📎', note: '📝', attribution: '👤',
 };
 
 function isActionOverdue(p) {
@@ -194,6 +202,7 @@ let canWrite = false;
 let currentProspectId = null;
 let smtpReady = false;
 let prospectTypesCache = [];
+let membersCache = [];
 let searchDebounce = null;
 
 function onAuthReady(me) {
@@ -207,6 +216,7 @@ document.getElementById('p-statut').innerHTML =
 Object.entries(statusLabels).map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
 
 loadProspectTypes();
+loadMembersLite();
 
 // Statut SMTP chargé une fois : conditionne si le bouton "Envoyer un
 // fichier" peut réellement fonctionner (voir toggle-devis-btn plus bas).
@@ -220,6 +230,8 @@ fetchJSON(`/api/workspaces/${workspaceId}/smtp-config`)
 const urlParams = new URLSearchParams(window.location.search);
 const presetStatut = urlParams.get('statut');
 if (presetStatut) document.getElementById('statut-filter').value = presetStatut;
+const presetAssigned = urlParams.get('assigned_user_id');
+if (presetAssigned) document.getElementById('assigned-filter').value = presetAssigned;
 
 loadProspects();
 updateExportLink();
@@ -228,7 +240,7 @@ const openId = urlParams.get('id');
 if (openId) {
 openModal(parseInt(openId, 10));
 }
-if (presetStatut || openId) {
+if (presetStatut || presetAssigned || openId) {
 window.history.replaceState({}, '', '/prospects');
 }
 
@@ -238,6 +250,7 @@ searchDebounce = setTimeout(loadProspects, 300);
 });
 document.getElementById('statut-filter').addEventListener('change', loadProspects);
 document.getElementById('type-filter').addEventListener('change', loadProspects);
+document.getElementById('assigned-filter').addEventListener('change', loadProspects);
 
 document.getElementById('add-prospect-btn').addEventListener('click', () => openModal(null));
 document.getElementById('prospect-cancel-btn').addEventListener('click', closeModal);
@@ -319,6 +332,17 @@ document.getElementById('p-type').innerHTML = '<option value="">— Non classé 
 } catch (e) { /* silencieux */ }
 }
 
+async function loadMembersLite() {
+try {
+const data = await fetchJSON(`/api/workspaces/${workspaceId}/members-lite`);
+membersCache = data.members;
+const options = membersCache.map(m => `<option value="${m.id}">${escapeHtml(m.email)}</option>`).join('');
+document.getElementById('assigned-filter').innerHTML =
+'<option value="">Tous les responsables</option><option value="none">Non assignés</option>' + options;
+document.getElementById('p-assigned').innerHTML = '<option value="">— Non assigné —</option>' + options;
+} catch (e) { /* silencieux — les sélecteurs restent avec juste l'option par défaut */ }
+}
+
 async function loadProspects() {
 const container = document.getElementById('prospects-container');
 const q = document.getElementById('search-input').value.trim();
@@ -336,6 +360,8 @@ params.set('statut', statut);
 ['nouveau', 'qualifie', 'en_attente', 'recale'].forEach(s => params.append('statut', s));
 }
 if (typeId) params.set('prospect_type_id', typeId);
+const assignedFilter = document.getElementById('assigned-filter').value;
+if (assignedFilter) params.set('assigned_user_id', assignedFilter);
 
 try {
 const data = await fetchJSON(`/api/prospects?${params}`);
@@ -361,7 +387,7 @@ const checkboxHead = canWrite ? `<th class="checkbox-cell"><input type="checkbox
 container.innerHTML = `
 <div class="table-scroll">
 <table>
-<thead><tr>${checkboxHead}<th>Entreprise</th><th>Ville</th><th>Téléphone</th><th>Contact</th><th>Type</th><th>Statut</th></tr></thead>
+<thead><tr>${checkboxHead}<th>Entreprise</th><th>Ville</th><th>Téléphone</th><th>Contact</th><th>Type</th><th>Responsable</th><th>Statut</th></tr></thead>
 <tbody>
 ${list.map(p => `
 <tr class="prospect-row" data-id="${p.id}">
@@ -374,6 +400,7 @@ ${canWrite ? `<td class="checkbox-cell"><input type="checkbox" class="row-checkb
 <td>${escapeHtml(p.telephone || '—')}</td>
 <td>${escapeHtml([p.contact_prenom, p.contact_nom].filter(Boolean).join(' ') || '—')}</td>
 <td>${escapeHtml(p.type_nom || '—')}</td>
+<td>${p.assigned_email ? escapeHtml(p.assigned_email) : '<span class="prospect-meta">Non assigné</span>'}</td>
 <td>
 <span class="badge badge-${p.statut}">${statusLabels[p.statut] || p.statut}</span>
 ${p.has_upcoming_rdv ? `<span class="badge" style="background:#EAF0FF; color:#3454A8; margin-left:4px;" title="Rendez-vous à venir">RDV</span>` : ''}
@@ -468,6 +495,7 @@ document.getElementById('p-action').value = p.prochaine_action || '';
 document.getElementById('p-action-date').value = p.prochaine_action_date || '';
 document.getElementById('p-notes').value = p.notes || '';
 document.getElementById('p-valeur').value = p.valeur_estimee || '';
+document.getElementById('p-assigned').value = p.assigned_user_id || '';
 setStarPicker(p.potentiel);
 loadActivityTimeline(prospectId);
 document.getElementById('toggle-devis-btn').style.display =
@@ -551,6 +579,10 @@ method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.strin
 const statut = document.getElementById('p-statut').value;
 await fetchJSON(`/api/prospects/${currentProspectId}/statut`, {
 method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ statut }),
+});
+const assignedUserId = document.getElementById('p-assigned').value || null;
+await fetchJSON(`/api/prospects/${currentProspectId}/assign`, {
+method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ assigned_user_id: assignedUserId }),
 });
 showToast('Fiche mise à jour.');
 } else {

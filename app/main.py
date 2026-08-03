@@ -969,8 +969,10 @@ def workspace_user_update(workspace_id, user_id):
     if request.method == "DELETE":
         if user_id == session.get("user_id"):
             return jsonify(error="Tu ne peux pas supprimer ton propre compte — demande à un autre administrateur."), 400
+        body = request.get_json(silent=True) or {}
+        reassign_to = body.get("reassign_to")  # None = pas précisé, 'none' = explicitement non assigné, sinon un id
         try:
-            auth.delete_user(workspace_id, user_id)
+            auth.delete_user(workspace_id, user_id, reassign_to=reassign_to)
         except auth.AuthError as exc:
             return jsonify(error=str(exc)), 400
         return jsonify(status="deleted")
@@ -992,6 +994,19 @@ def workspace_user_update(workspace_id, user_id):
             return jsonify(error=str(exc)), 400
 
     return jsonify(status="updated")
+
+
+@app.route("/api/workspaces/<int:workspace_id>/members-lite")
+@login_required
+@require_own_workspace
+def workspace_members_lite(workspace_id):
+    """Version allégée de la liste des membres (id, e-mail, rôle), ouverte à
+    tous les rôles — contrairement à /users (réservé aux admins) — pour
+    peupler les sélecteurs 'Attribuer à...' sur les fiches prospect. Ne
+    renvoie que les comptes actifs : on n'attribue pas de nouveau prospect à
+    un compte désactivé."""
+    members = [u for u in auth.list_users(workspace_id) if u["is_active"]]
+    return jsonify(members=[{"id": m["id"], "email": m["email"], "role": m["role"]} for m in members])
 
 
 # --- Import CSV -------------------------------------------------------
@@ -1824,14 +1839,48 @@ def prospects_collection():
     if not workspace_id:
         return jsonify(error="workspace_id requis"), 400
     statut_values = request.args.getlist("statut")  # supporte ?statut=qualifie&statut=client
+    assigned_param = request.args.get("assigned_user_id")  # 'none' = non assignés, sinon un id
     results = prospects.search_prospects(
         workspace_id,
         query=request.args.get("q"),
         statut=statut_values if len(statut_values) > 1 else (statut_values[0] if statut_values else None),
         prospect_type_id=request.args.get("prospect_type_id", type=int),
+        assigned_user_id=assigned_param if assigned_param == "none" else (int(assigned_param) if assigned_param else None),
         limit=request.args.get("limit", type=int) or 500,
     )
     return jsonify(prospects=results)
+
+
+@app.route("/api/prospects/<int:prospect_id>/assign", methods=["PUT"])
+@login_required
+@require_role(*WRITE_ROLES)
+def prospect_assign(prospect_id):
+    """Attribue (ou retire l'attribution de) un prospect à un collaborateur
+    de l'espace de travail — voir app/prospects.py::assign_prospect."""
+    body = request.get_json(silent=True) or {}
+    raw_id = body.get("assigned_user_id")
+    workspace_id = session.get("workspace_id")
+
+    label = None
+    assigned_user_id = None
+    if raw_id not in (None, "", "none"):
+        try:
+            assigned_user_id = int(raw_id)
+        except (TypeError, ValueError):
+            return jsonify(error="assigned_user_id invalide."), 400
+        target = next((u for u in auth.list_users(workspace_id) if u["id"] == assigned_user_id), None)
+        if not target:
+            return jsonify(error="Ce collaborateur n'existe pas dans cet espace de travail."), 400
+        label = target["email"]
+
+    try:
+        prospects.assign_prospect(
+            prospect_id, workspace_id, assigned_user_id,
+            actor_user_id=session.get("user_id"), assignee_label=label,
+        )
+    except prospects.ProspectError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(status="updated")
 
 
 @app.route("/api/prospects/bulk-delete", methods=["POST"])
@@ -2310,6 +2359,61 @@ def team_report(workspace_id):
             unattributed_count = cur.fetchone()[0]
 
         return jsonify(members=members, unattributed_count=unattributed_count, period_days=30)
+    finally:
+        conn.close()
+
+
+@app.route("/api/workspaces/<int:workspace_id>/team-pipeline")
+@login_required
+@require_own_workspace
+@require_role("admin")
+def team_pipeline(workspace_id):
+    """Vue 'qui gère quoi' : nombre de prospects ACTIFS (statuts nouveau,
+    qualifie, en_attente — hors client et recale, qui ne demandent plus de
+    travail commercial actif) actuellement attribués à chaque membre, avec
+    répartition par statut — pensée pour un espace de 200+ prospects où la
+    mémoire ne suffit plus à savoir qui suit quoi. Réservé aux administrateurs,
+    même logique que team_report ci-dessus."""
+    if subscriptions.is_restricted(workspace_id):
+        return _restricted_response()
+
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT u.id, u.email, u.role,
+                       count(*) FILTER (WHERE p.statut = 'nouveau') AS nouveau,
+                       count(*) FILTER (WHERE p.statut = 'qualifie') AS qualifie,
+                       count(*) FILTER (WHERE p.statut = 'en_attente') AS en_attente,
+                       count(p.id) AS total_actifs
+                FROM users u
+                LEFT JOIN prospects p
+                       ON p.assigned_user_id = u.id
+                      AND p.workspace_id = u.workspace_id
+                      AND p.statut IN ('nouveau', 'qualifie', 'en_attente')
+                WHERE u.workspace_id = %s AND u.is_active = TRUE
+                GROUP BY u.id, u.email, u.role
+                ORDER BY total_actifs DESC, u.email ASC
+                """,
+                (workspace_id,),
+            )
+            cols = ["user_id", "email", "role", "nouveau", "qualifie", "en_attente", "total_actifs"]
+            members = [dict(zip(cols, r)) for r in cur.fetchall()]
+
+            # Prospects actifs sans responsable désigné — le vrai angle mort
+            # que cette vue est censée combler en priorité.
+            cur.execute(
+                """
+                SELECT count(*) FROM prospects
+                WHERE workspace_id = %s AND statut IN ('nouveau', 'qualifie', 'en_attente')
+                  AND assigned_user_id IS NULL
+                """,
+                (workspace_id,),
+            )
+            unassigned_count = cur.fetchone()[0]
+
+        return jsonify(members=members, unassigned_count=unassigned_count)
     finally:
         conn.close()
 

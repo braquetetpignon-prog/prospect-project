@@ -341,6 +341,37 @@ async function deleteMember(userId, email, workspaceId) {
     showToast('Membre supprimé.');
     loadMembers(workspaceId);
   } catch (err) {
+    // Suppression bloquée par des prospects encore attribués à ce membre
+    // (voir app/auth.py::delete_user) — proposer une réattribution avant de
+    // réessayer, plutôt que de laisser l'admin sans solution.
+    if (!/prospect/i.test(err.message)) {
+      showToast(err.message, true);
+      return;
+    }
+    await promptReassignAndDelete(userId, email, workspaceId, err.message);
+  }
+}
+
+async function promptReassignAndDelete(userId, email, workspaceId, blockedMessage) {
+  let members = [];
+  try {
+    const data = await fetchJSON(`/api/workspaces/${workspaceId}/users`);
+    members = (data.users || []).filter(u => u.id !== userId && u.is_active);
+  } catch (e) { /* liste vide si l'appel échoue — le choix "aucun" reste possible */ }
+
+  const choices = members.map(m => `${m.id} = ${m.email}`).join('\n');
+  const prompt_msg = `${blockedMessage}\n\nSaisis l'identifiant du membre destinataire ci-dessous, ou laisse vide pour ne pas assigner les prospects :\n${choices}`;
+  const answer = window.prompt(prompt_msg, '');
+  if (answer === null) return; // annulé
+
+  const reassign_to = answer.trim() === '' ? 'none' : answer.trim();
+  try {
+    await fetchJSON(`/api/workspaces/${workspaceId}/users/${userId}`, {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reassign_to }),
+    });
+    showToast('Prospects réattribués et membre supprimé.');
+    loadMembers(workspaceId);
+  } catch (err) {
     showToast(err.message, true);
   }
 }
