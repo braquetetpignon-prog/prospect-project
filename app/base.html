@@ -594,14 +594,36 @@ if (e.key === 'ArrowLeft') show(index - 1);
 // bouton "Annuler" propre à chaque fiche : un clic en dehors de la fenêtre,
 // ou la touche Échap, la ferme. Utile notamment pour les fiches plus hautes
 // que l'écran, où faire défiler jusqu'au bouton n'est pas toujours pratique.
+//
+// Garde-fou "brouillon non enregistré" (ajouté le 3 août 2026) : une saisie
+// dans un champ du modal le marque comme modifié ; la fermeture accidentelle
+// (clic hors du cadre en scrollant, Échap) demande alors confirmation avant
+// de perdre la saisie. Repose sur un MutationObserver qui réinitialise le
+// marqueur à chaque ouverture (ajout de la classe 'show') plutôt que sur un
+// hook ajouté dans chaque page qui ouvre un modal — fonctionne pour tous les
+// modals actuels ET futurs sans qu'il y ait quoi que ce soit à répéter
+// ailleurs. Le bouton "Annuler" de chaque fiche continue de fermer sans
+// confirmation (fermeture volontaire, pas accidentelle) : il appelle
+// directement classList.remove('show'), en dehors de ce gestionnaire de
+// clic — tout comme un enregistrement réussi.
 document.querySelectorAll('.modal-overlay').forEach(function (overlay) {
+overlay.addEventListener('input', function () { overlay.dataset.dirty = '1'; });
+overlay.addEventListener('change', function () { overlay.dataset.dirty = '1'; });
+
+new MutationObserver(function () {
+if (overlay.classList.contains('show')) overlay.dataset.dirty = '';
+}).observe(overlay, { attributes: true, attributeFilter: ['class'] });
+
 overlay.addEventListener('click', function (e) {
-if (e.target === overlay) overlay.classList.remove('show');
+if (e.target !== overlay) return;
+if (overlay.dataset.dirty && !confirm('Des modifications non enregistrées vont être perdues. Fermer quand même ?')) return;
+overlay.classList.remove('show');
 });
 });
 document.addEventListener('keydown', function (e) {
 if (e.key !== 'Escape') return;
 document.querySelectorAll('.modal-overlay.show').forEach(function (overlay) {
+if (overlay.dataset.dirty && !confirm('Des modifications non enregistrées vont être perdues. Fermer quand même ?')) return;
 overlay.classList.remove('show');
 });
 });

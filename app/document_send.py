@@ -14,13 +14,15 @@ reproduire le contenu exact envoyé après coup.
 from app.db import get_db
 from app import sending, workspace_settings, activity
 
-# Volontairement distinct de sending.ALLOWED_SEND_STATUTS (qui inclut aussi
-# "qualifie") : un devis n'a de sens qu'à partir du moment où le prospect
-# est en attente d'une proposition concrète ou déjà client. Ne PAS
-# réutiliser/dupliquer cette liste ailleurs sans passer par cette constante
-# (voir erreurs-connues-clickprospect.md — bug de désynchronisation déjà
-# rencontré une fois sur un principe similaire).
-DEVIS_SEND_STATUTS = ("en_attente", "client")
+# Étendu aux "qualifie" le 3 août 2026 à la demande d'Alexis — la
+# restriction d'origine (en_attente/client uniquement) était un choix
+# volontaire, documentée comme telle dans decisions-clickprospect.md ; ce
+# n'est pas Claude qui rouvre la décision, c'est Alexis. Reste
+# volontairement distinct de sending.ALLOWED_SEND_STATUTS malgré la liste
+# désormais identique : les deux constantes répondent à des besoins
+# différents (envoi de campagne vs envoi ponctuel d'un fichier) et pourront
+# diverger de nouveau à l'avenir sans lien entre elles — ne PAS fusionner.
+DEVIS_SEND_STATUTS = ("qualifie", "en_attente", "client")
 
 MAX_FILE_SIZE_BYTES = 700 * 1024  # 700 Ko — relèvé de 200 à 700 Ko : les devis embarquent les CGV obligatoires, plus volumineux qu'un simple devis nu
 DAILY_SEND_LIMIT = 20  # par utilisateur et par jour, anti-abus — ajustable
@@ -72,7 +74,7 @@ def send_document(workspace_id, user_id, prospect, file_bytes, filename, message
     if prospect.get("statut") not in DEVIS_SEND_STATUTS:
         raise DocumentSendError(
             "Ce prospect n'est pas éligible à l'envoi de fichier "
-            "(statut « en attente » ou « client » requis)."
+            "(statut « qualifié », « en attente » ou « client » requis)."
         )
     if not prospect.get("email"):
         raise DocumentSendError("Ce prospect n'a pas d'adresse e-mail renseignée.")
