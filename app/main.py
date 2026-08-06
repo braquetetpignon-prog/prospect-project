@@ -2033,12 +2033,6 @@ def call_prep_consent():
     return jsonify(consented=call_prep.has_consented(user_id), version=call_prep.DISCLAIMER_VERSION)
 
 
-@app.route("/api/call-prep/quota")
-@login_required
-def call_prep_quota():
-    return jsonify(call_prep.get_quota_status(session.get("user_id")))
-
-
 @app.route("/api/prospects/<int:prospect_id>/call-prep", methods=["POST"])
 @login_required
 @require_role(*WRITE_ROLES)
@@ -2059,10 +2053,6 @@ def prospect_call_prep(prospect_id):
         )
     except call_prep.ConsentRequired as exc:
         return jsonify(error=str(exc), code="consent_required"), 403
-    except call_prep.QuotaExceeded as exc:
-        return jsonify(error=str(exc), code="quota_exceeded"), 429
-    except call_prep.GeminiError as exc:
-        return jsonify(error=str(exc)), 502
     except call_prep.CallPrepError as exc:
         return jsonify(error=str(exc)), 400
 
@@ -2073,7 +2063,7 @@ def prospect_call_prep(prospect_id):
             user_id=session.get("user_id"),
         )
 
-    return jsonify(texte=result["texte"], source=result["source"], quota=call_prep.get_quota_status(session.get("user_id")))
+    return jsonify(texte=result["texte"], source=result["source"])
 
 
 @app.route("/api/prospects/<int:prospect_id>/activity")

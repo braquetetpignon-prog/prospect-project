@@ -171,7 +171,6 @@
 </select>
 </div>
 <button type="button" class="btn btn-ghost btn-sm" id="generate-callprep-btn">Générer le support d'appel</button>
-<div id="callprep-quota" style="font-size:12px; margin-top:4px; color:var(--text-soft);"></div>
 
 <div id="callprep-result" style="display:none; margin-top:10px;">
 <div style="font-size:12px; padding:8px 10px; margin-bottom:8px; border-radius:6px; background:#fff4e5; color:#7a4a00; border:1px solid #f0c674;">
@@ -669,7 +668,6 @@ const status = await fetchJSON('/api/call-prep/consent');
 if (status.consented) {
 consentBlock.style.display = 'none';
 formBlock.style.display = 'block';
-refreshCallPrepQuota();
 } else {
 consentBlock.style.display = 'block';
 formBlock.style.display = 'none';
@@ -688,18 +686,9 @@ try {
 await fetchJSON('/api/call-prep/consent', { method: 'POST' });
 document.getElementById('callprep-consent-block').style.display = 'none';
 document.getElementById('callprep-form-block').style.display = 'block';
-refreshCallPrepQuota();
 } catch (err) {
 showToast(err.message || 'Erreur.', true);
 }
-}
-
-async function refreshCallPrepQuota() {
-try {
-const q = await fetchJSON('/api/call-prep/quota');
-document.getElementById('callprep-quota').textContent =
-`Générations restantes aujourd'hui : ${q.remaining}/${q.limit} (un texte déjà généré pour ce secteur/type reste disponible sans limite).`;
-} catch (err) { /* non bloquant */ }
 }
 
 async function generateCallPrep() {
@@ -721,7 +710,6 @@ document.getElementById('callprep-source').textContent =
 resp.source === 'cache' ? 'Texte déjà existant pour ce secteur (réutilisé, aucune génération consommée).' : 'Texte généré à l\'instant.';
 document.getElementById('callprep-result').style.display = 'block';
 statusEl.textContent = '';
-refreshCallPrepQuota();
 } catch (err) {
 statusEl.textContent = '';
 showToast(err.message || 'Erreur lors de la génération.', true);
