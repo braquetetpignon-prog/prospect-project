@@ -151,6 +151,40 @@
 <div id="devis-status" style="font-size:12px; margin-top:6px; color:var(--text-soft);"></div>
 </div>
 
+<button type="button" class="btn btn-ghost btn-sm" id="toggle-callprep-btn" style="margin-top:6px;">📞 Préparer mon appel</button>
+<div class="rdv-inline" id="callprep-inline">
+
+<div id="callprep-consent-block" style="display:none; margin-bottom:10px;">
+<label style="display:flex; align-items:flex-start; gap:8px; font-size:13px; font-weight:normal;">
+<input type="checkbox" id="callprep-consent-checkbox" style="margin-top:3px;">
+<span>J'ai compris que le texte généré est une aide-mémoire, que j'en suis seul responsable, et qu'il n'est pas utilisable tel quel pour un envoi par e-mail.</span>
+</label>
+<button type="button" class="btn btn-ghost btn-sm" id="callprep-consent-btn" style="margin-top:8px;">Valider et continuer</button>
+</div>
+
+<div id="callprep-form-block" style="display:none;">
+<div class="field"><label for="callprep-type">Type de contact</label>
+<select id="callprep-type">
+<option value="premier_contact">Premier contact</option>
+<option value="rappel">Rappel</option>
+<option value="proposition_particuliere">Proposition particulière</option>
+</select>
+</div>
+<button type="button" class="btn btn-ghost btn-sm" id="generate-callprep-btn">Générer le support d'appel</button>
+<div id="callprep-quota" style="font-size:12px; margin-top:4px; color:var(--text-soft);"></div>
+
+<div id="callprep-result" style="display:none; margin-top:10px;">
+<div style="font-size:12px; padding:8px 10px; margin-bottom:8px; border-radius:6px; background:#fff4e5; color:#7a4a00; border:1px solid #f0c674;">
+⚠️ Aide-mémoire uniquement — à adapter avant l'appel. Vous restez seul responsable de ce que vous direz. Ce texte n'est <strong>pas</strong> utilisable tel quel pour un e-mail.
+</div>
+<textarea id="callprep-text" rows="12" style="width:100%; font-family:inherit; font-size:13px;"></textarea>
+<div id="callprep-source" style="font-size:12px; margin-top:4px; color:var(--text-soft);"></div>
+</div>
+</div>
+
+<div id="callprep-status" style="font-size:12px; margin-top:6px; color:var(--text-soft);"></div>
+</div>
+
 <div class="panel" style="margin-top:16px;">
 <div class="panel-head"><h3 style="margin:0; font-size:14px;">Historique d'activité</h3></div>
 <div id="activity-timeline" style="padding:0 20px 16px;"></div>
@@ -269,6 +303,12 @@ return;
 document.getElementById('devis-inline').classList.toggle('show');
 });
 document.getElementById('send-devis-btn').addEventListener('click', sendDevis);
+document.getElementById('toggle-callprep-btn').addEventListener('click', () => {
+document.getElementById('callprep-inline').classList.toggle('show');
+if (document.getElementById('callprep-inline').classList.contains('show')) initCallPrep();
+});
+document.getElementById('callprep-consent-btn').addEventListener('click', validateCallPrepConsent);
+document.getElementById('generate-callprep-btn').addEventListener('click', generateCallPrep);
 document.getElementById('bulk-delete-btn').addEventListener('click', bulkDelete);
 }
 
@@ -472,6 +512,11 @@ document.getElementById('toggle-rdv-btn').style.display = prospectId ? 'inline-f
 document.getElementById('devis-inline').classList.remove('show');
 document.getElementById('devis-status').textContent = '';
 document.getElementById('toggle-devis-btn').style.display = 'none';
+document.getElementById('callprep-inline').classList.remove('show');
+document.getElementById('callprep-status').textContent = '';
+document.getElementById('callprep-result').style.display = 'none';
+document.getElementById('callprep-text').value = '';
+document.getElementById('toggle-callprep-btn').style.display = 'none';
 
 if (prospectId) {
 document.getElementById('modal-title').textContent = 'Fiche prospect';
@@ -500,6 +545,7 @@ setStarPicker(p.potentiel);
 loadActivityTimeline(prospectId);
 document.getElementById('toggle-devis-btn').style.display =
 (['qualifie', 'en_attente', 'client'].includes(p.statut) && p.email) ? 'inline-flex' : 'none';
+document.getElementById('toggle-callprep-btn').style.display = 'inline-flex';
 } else {
 document.getElementById('modal-title').textContent = 'Ajouter un prospect';
 document.getElementById('p-statut').value = 'nouveau';
@@ -612,6 +658,73 @@ showToast('Rendez-vous créé — consulte-le dans le calendrier.');
 document.getElementById('rdv-inline').classList.remove('show');
 } catch (err) {
 showToast(err.message, true);
+}
+}
+
+async function initCallPrep() {
+const consentBlock = document.getElementById('callprep-consent-block');
+const formBlock = document.getElementById('callprep-form-block');
+try {
+const status = await fetchJSON('/api/call-prep/consent');
+if (status.consented) {
+consentBlock.style.display = 'none';
+formBlock.style.display = 'block';
+refreshCallPrepQuota();
+} else {
+consentBlock.style.display = 'block';
+formBlock.style.display = 'none';
+}
+} catch (err) {
+showToast(err.message || "Impossible de vérifier l'avertissement d'usage.", true);
+}
+}
+
+async function validateCallPrepConsent() {
+if (!document.getElementById('callprep-consent-checkbox').checked) {
+showToast('Coche la case pour continuer.', true);
+return;
+}
+try {
+await fetchJSON('/api/call-prep/consent', { method: 'POST' });
+document.getElementById('callprep-consent-block').style.display = 'none';
+document.getElementById('callprep-form-block').style.display = 'block';
+refreshCallPrepQuota();
+} catch (err) {
+showToast(err.message || 'Erreur.', true);
+}
+}
+
+async function refreshCallPrepQuota() {
+try {
+const q = await fetchJSON('/api/call-prep/quota');
+document.getElementById('callprep-quota').textContent =
+`Générations restantes aujourd'hui : ${q.remaining}/${q.limit} (un texte déjà généré pour ce secteur/type reste disponible sans limite).`;
+} catch (err) { /* non bloquant */ }
+}
+
+async function generateCallPrep() {
+const typeContact = document.getElementById('callprep-type').value;
+const statusEl = document.getElementById('callprep-status');
+statusEl.textContent = 'Génération en cours...';
+try {
+const resp = await fetchJSON(`/api/prospects/${currentProspectId}/call-prep`, {
+method: 'POST',
+headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify({ type_contact: typeContact }),
+});
+const t = resp.texte;
+const questions = (t.questions || []).map(q => `- ${q}`).join('\n');
+const objections = (t.objections || []).map(o => `- "${o.objection}" -> ${o.reponse}`).join('\n');
+document.getElementById('callprep-text').value =
+`Accroche :\n${t.accroche}\n\nPitch :\n${t.pitch}\n\nQuestions à poser :\n${questions}\n\nObjections possibles :\n${objections}`;
+document.getElementById('callprep-source').textContent =
+resp.source === 'cache' ? 'Texte déjà existant pour ce secteur (réutilisé, aucune génération consommée).' : 'Texte généré à l\'instant.';
+document.getElementById('callprep-result').style.display = 'block';
+statusEl.textContent = '';
+refreshCallPrepQuota();
+} catch (err) {
+statusEl.textContent = '';
+showToast(err.message || 'Erreur lors de la génération.', true);
 }
 }
 

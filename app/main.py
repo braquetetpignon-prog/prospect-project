@@ -27,6 +27,7 @@ from app import text_parser
 from app import prospect_types
 from app import rendez_vous
 from app import document_send
+from app import call_prep
 from app import official_search
 from app import superadmin
 from app import subscriptions
@@ -2016,6 +2017,63 @@ def prospect_send_document(prospect_id):
     except document_send.DocumentSendError as exc:
         return jsonify(error=str(exc)), 400
     return jsonify(status="envoye")
+
+
+@app.route("/api/call-prep/consent", methods=["GET", "POST"])
+@login_required
+def call_prep_consent():
+    """GET : indique si l'utilisateur courant a déjà validé l'avertissement
+    d'usage pour la version actuelle du texte légal (call_prep.DISCLAIMER_VERSION).
+    POST : enregistre la validation (case à cocher, une fois par utilisateur —
+    voir call_prep.py pour la justification du choix)."""
+    user_id = session.get("user_id")
+    if request.method == "POST":
+        call_prep.record_consent(user_id)
+        return jsonify(status="ok", consented=True)
+    return jsonify(consented=call_prep.has_consented(user_id), version=call_prep.DISCLAIMER_VERSION)
+
+
+@app.route("/api/call-prep/quota")
+@login_required
+def call_prep_quota():
+    return jsonify(call_prep.get_quota_status(session.get("user_id")))
+
+
+@app.route("/api/prospects/<int:prospect_id>/call-prep", methods=["POST"])
+@login_required
+@require_role(*WRITE_ROLES)
+def prospect_call_prep(prospect_id):
+    """Génère (ou récupère depuis le cache du workspace) un support d'appel
+    adapté au secteur du prospect et au type de contact choisi — voir
+    call_prep.py pour le détail (quota, cache, consentement obligatoire)."""
+    prospect = prospects.get_prospect(prospect_id, session.get("workspace_id"))
+    if not prospect:
+        return jsonify(error="Prospect introuvable"), 404
+
+    body = request.get_json(silent=True) or {}
+    type_contact = (body.get("type_contact") or "").strip()
+
+    try:
+        result = call_prep.prepare_call(
+            session.get("workspace_id"), session.get("user_id"), prospect, type_contact,
+        )
+    except call_prep.ConsentRequired as exc:
+        return jsonify(error=str(exc), code="consent_required"), 403
+    except call_prep.QuotaExceeded as exc:
+        return jsonify(error=str(exc), code="quota_exceeded"), 429
+    except call_prep.GeminiError as exc:
+        return jsonify(error=str(exc)), 502
+    except call_prep.CallPrepError as exc:
+        return jsonify(error=str(exc)), 400
+
+    if result["source"] == "generation":
+        activity.log_event(
+            prospect_id, session.get("workspace_id"), "call_prep_genere",
+            f"Support d'appel généré ({type_contact}).",
+            user_id=session.get("user_id"),
+        )
+
+    return jsonify(texte=result["texte"], source=result["source"], quota=call_prep.get_quota_status(session.get("user_id")))
 
 
 @app.route("/api/prospects/<int:prospect_id>/activity")

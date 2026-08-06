@@ -1557,3 +1557,52 @@ CREATE TABLE IF NOT EXISTS regulatory_feed_items (
     seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_regulatory_feed_items_dedup ON regulatory_feed_items(source_id, item_key);
+-- ============================================================================
+-- Fonctionnalité "Préparer mon appel" (call_prep.py) — 6 août 2026
+-- À COLLER À LA FIN de app/schema.sql (avant la ligne finale s'il y en a une,
+-- sinon tout en bas). Idempotent (IF NOT EXISTS partout), sans danger à
+-- rejouer au démarrage comme le reste du fichier.
+-- ============================================================================
+
+-- Cache partagé par workspace : un texte généré pour un couple
+-- (secteur, type de contact) est réutilisé par tous les utilisateurs du même
+-- espace de travail, sans re-consommer le quota Gemini. secteur_key = code
+-- NAF du prospect, ou 'non_renseigne' si absent (jamais NULL : deux valeurs
+-- NULL ne s'égalent jamais en SQL, ce qui casserait la contrainte UNIQUE
+-- ci-dessous et empêcherait toute réutilisation entre prospects sans NAF).
+CREATE TABLE IF NOT EXISTS call_prep_cache (
+    id SERIAL PRIMARY KEY,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    secteur_key TEXT NOT NULL,
+    type_contact TEXT NOT NULL,   -- premier_contact / rappel / proposition_particuliere
+    texte_genere JSONB NOT NULL,  -- {accroche, pitch, questions[], objections[]}
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    usage_count INTEGER NOT NULL DEFAULT 1,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (workspace_id, secteur_key, type_contact)
+);
+CREATE INDEX IF NOT EXISTS idx_call_prep_cache_lookup ON call_prep_cache(workspace_id, secteur_key, type_contact);
+
+-- Quota quotidien PAR UTILISATEUR (indépendant du quota ia_search.py, qui
+-- est par workspace) — même logique de comptage que ia_search_log, table
+-- distincte pour ne jamais mélanger les deux quotas.
+CREATE TABLE IF NOT EXISTS call_prep_generation_log (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_call_prep_generation_log_user_date ON call_prep_generation_log(user_id, created_at);
+
+-- Consentement formalisé (case à cocher), une fois par utilisateur et par
+-- version du texte légal — PAS par workspace : c'est une responsabilité
+-- individuelle. Si le texte du bandeau/disclaimer change, incrémenter
+-- call_prep.DISCLAIMER_VERSION force une nouvelle validation pour tout le
+-- monde sans purge ni migration de données.
+CREATE TABLE IF NOT EXISTS call_prep_consent (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    disclaimer_version INTEGER NOT NULL,
+    accepted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id, disclaimer_version)
+);
