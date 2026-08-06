@@ -6,44 +6,31 @@ traitement d'objections) adapté à 2 axes croisés : le secteur d'activité du
 prospect (naf_code -> libellé lisible via naf_codes, cf. naf_search.py) et le
 type de contact (premier_contact / rappel / proposition_particuliere).
 
+HISTORIQUE — 6 août 2026 : première version basée sur un appel Gemini
+(même pattern que ia_search.py). Abandonnée le jour même après plusieurs
+timeouts réseau vers generativelanguage.googleapis.com constatés sur
+l'ensemble du site (pas spécifique à cette fonctionnalité). Remplacée par
+des phrases types locales, sans aucun appel réseau : plus rapide, jamais
+en panne, zéro coût, et le contenu reste maîtrisé (basé sur la structure
+"5 piliers d'un appel réussi" fournie par Alexis : objectif, profil flash,
+accroche, questions, traitement des objections).
+
 Choix volontaire : pas de nouveau champ sur la fiche prospect. Le seul champ
 "métier" disponible aujourd'hui est naf_code (code officiel INSEE, déjà
 présent sur prospects) — on le résout en libellé humain via la table
 naf_codes existante plutôt que d'ajouter un champ dédié.
 
-Cache par workspace : un texte déjà généré pour (secteur, type_contact) est
-réutilisé par tous les utilisateurs du même espace de travail — seule une
-génération réelle (cache miss) consomme le quota Gemini de l'utilisateur.
-Quota et modèle Gemini réutilisent exactement le pattern de ia_search.py
-(même API Interactions, même gestion d'erreurs) mais avec leur propre
-comptage : DAILY_QUOTA ici est INDÉPENDANT de celui de ia_search.py, compté
-PAR UTILISATEUR (et non par workspace comme ia_search) — cohérent avec
-document_send.py (plafond d'envoi de fichier, lui aussi par utilisateur).
-
-Sécurité :
-- Les seules données envoyées au prompt sont des champs déjà structurés en
-  base (nom_entreprise, libellé secteur) — jamais un champ libre non
-  sanitizé du prospect (notes, etc.), pour limiter le risque d'injection de
-  prompt via une fiche prospect malveillante.
-- Double disclaimer non masquable côté UI (responsabilité utilisateur +
-  non-usable tel quel pour un e-mail) — ce module ne fait que produire le
-  texte, l'affichage du bandeau est de la responsabilité du template.
+Cache par workspace, conservé même sans coût de génération : la génération
+étant déterministe (même secteur + même type de contact = même texte), le
+cache ne sert plus à économiser un appel, mais à garantir que tous les
+utilisateurs d'un même workspace voient exactement le même texte pour un
+même secteur — cohérence de discours dans l'équipe plutôt qu'optimisation
+de coût. Le quota quotidien (Gemini) a disparu avec l'appel réseau : plus de
+raison de limiter une génération locale instantanée.
 """
 import json
-import os
-
-import requests
 
 from app.db import get_db
-
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-DEFAULT_GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
-INTERACTIONS_API_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
-API_REVISION = "2026-05-20"
-REQUEST_TIMEOUT = 30  # pas de grounding web ici (contrairement à ia_search), donc plus rapide
-
-DAILY_QUOTA = 3  # par utilisateur — compteur indépendant de ia_search.DAILY_QUOTA
-DISCLAIMER_VERSION = 1  # incrémenter si le texte du bandeau/consentement change
 
 TYPES_CONTACT = ("premier_contact", "rappel", "proposition_particuliere")
 TYPE_CONTACT_LABELS = {
@@ -52,61 +39,15 @@ TYPE_CONTACT_LABELS = {
     "proposition_particuliere": "proposition particulière",
 }
 
+DISCLAIMER_VERSION = 1  # incrémenter si le texte du bandeau/consentement change
+
 
 class CallPrepError(Exception):
     """Erreur métier — message destiné à être renvoyé tel quel à l'utilisateur."""
 
 
-class QuotaExceeded(CallPrepError):
-    pass
-
-
-class GeminiError(CallPrepError):
-    pass
-
-
 class ConsentRequired(CallPrepError):
     pass
-
-
-RESPONSE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "accroche": {"type": "string"},
-        "pitch": {"type": "string"},
-        "questions": {"type": "array", "items": {"type": "string"}},
-        "objections": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "objection": {"type": "string"},
-                    "reponse": {"type": "string"},
-                },
-                "required": ["objection", "reponse"],
-            },
-        },
-    },
-    "required": ["accroche", "pitch", "questions", "objections"],
-}
-
-PROMPT_TEMPLATE = """Tu aides un commercial français à préparer un appel de prospection téléphonique.
-
-Contexte :
-- Entreprise appelée : {nom_entreprise}
-- Secteur d'activité : {secteur_label}
-- Type d'appel : {type_contact_label}
-
-Produis un support d'appel court et concret, structuré en 4 parties :
-1. Une accroche (1 à 2 phrases) pour les 10 premières secondes de l'appel.
-2. Un pitch express (2 à 3 phrases) présentant la valeur ajoutée, adapté au secteur ci-dessus.
-3. 2 à 3 questions ouvertes pour faire parler le prospect de ses besoins.
-4. 2 objections courantes pour ce type d'appel, chacune avec une réponse courte et non agressive.
-
-Ce texte est un support générique par secteur et type d'appel — il sera relu et adapté par le \\
-commercial pour chaque prospect précis avant l'appel, jamais utilisé tel quel. Reste général \\
-(pas de nom de personne, pas de détail inventé sur cette entreprise précise), professionnel, \\
-et concis."""
 
 
 def get_naf_label(naf_code):
@@ -122,10 +63,10 @@ def get_naf_label(naf_code):
         conn.close()
 
 
-def _normalize_secteur_key(naf_code, secteur_label):
-    """Clé de cache stable : le code NAF si connu, sinon un fallback textuel
-    normalisé — jamais None (sinon deux prospects "sans secteur" partageraient
-    par erreur toutes les clés NULL en SQL, qui ne s'égalent jamais entre elles)."""
+def _normalize_secteur_key(naf_code):
+    """Clé de cache stable : le code NAF si connu, sinon un fallback textuel —
+    jamais None (deux NULL ne s'égalent jamais en SQL, ce qui casserait la
+    contrainte UNIQUE et empêcherait toute réutilisation entre prospects sans NAF)."""
     return (naf_code or "").strip() or "non_renseigne"
 
 
@@ -161,39 +102,9 @@ def record_consent(user_id):
         conn.close()
 
 
-# --- Quota (par utilisateur, indépendant de ia_search) ---------------------
-
-def get_quota_status(user_id):
-    conn = get_db()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT count(*) FROM call_prep_generation_log
-                WHERE user_id = %s AND created_at::date = CURRENT_DATE
-                """,
-                (user_id,),
-            )
-            used = cur.fetchone()[0]
-        return {"used": used, "limit": DAILY_QUOTA, "remaining": max(0, DAILY_QUOTA - used)}
-    finally:
-        conn.close()
-
-
-def _log_generation(user_id, workspace_id):
-    conn = get_db()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO call_prep_generation_log (user_id, workspace_id) VALUES (%s, %s)",
-                (user_id, workspace_id),
-            )
-        conn.commit()
-    finally:
-        conn.close()
-
-
 # --- Cache partagé par workspace (secteur, type_contact) -------------------
+# Conservé pour la cohérence de discours dans l'équipe (voir docstring),
+# plus pour une raison de coût.
 
 def _get_cached(workspace_id, secteur_key, type_contact):
     conn = get_db()
@@ -229,8 +140,7 @@ def _store_cache(workspace_id, secteur_key, type_contact, texte_genere, user_id)
                 """
                 INSERT INTO call_prep_cache (workspace_id, secteur_key, type_contact, texte_genere, created_by)
                 VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (workspace_id, secteur_key, type_contact)
-                DO UPDATE SET texte_genere = EXCLUDED.texte_genere, usage_count = call_prep_cache.usage_count + 1
+                ON CONFLICT (workspace_id, secteur_key, type_contact) DO NOTHING
                 """,
                 (workspace_id, secteur_key, type_contact, json.dumps(texte_genere), user_id),
             )
@@ -239,66 +149,112 @@ def _store_cache(workspace_id, secteur_key, type_contact, texte_genere, user_id)
         conn.close()
 
 
-# --- Appel Gemini (même pattern que ia_search.call_gemini, sans grounding) -
+# --- Phrases types (5 piliers) — aucun appel réseau, résultat déterministe -
 
-def call_gemini(prompt):
-    if not GEMINI_API_KEY:
-        raise GeminiError("GEMINI_API_KEY n'est pas configurée sur le serveur.")
+def _build_template(secteur_label, type_contact):
+    secteur = secteur_label or "votre secteur d'activité"
 
-    body = {
-        "model": DEFAULT_GEMINI_MODEL,
-        "input": prompt,
-        "response_format": {
-            "type": "text",
-            "mime_type": "application/json",
-            "schema": RESPONSE_SCHEMA,
-        },
-    }
-    try:
-        resp = requests.post(
-            INTERACTIONS_API_URL,
-            headers={
-                "Content-Type": "application/json",
-                "x-goog-api-key": GEMINI_API_KEY,
-                "Api-Revision": API_REVISION,
+    if type_contact == "premier_contact":
+        return {
+            "accroche": (
+                f"Bonjour [Prénom], c'est [Votre nom] de [Votre société]. "
+                f"Je vous contacte car nous accompagnons des entreprises du secteur "
+                f"« {secteur} » comme la vôtre, et je me permets un rapide appel à ce sujet."
+            ),
+            "pitch": (
+                f"En quelques mots, nous aidons les entreprises du secteur « {secteur} » "
+                f"à gagner du temps sur leur gestion commerciale au quotidien. "
+                f"Je ne vous prends que quelques minutes pour comprendre votre situation."
+            ),
+            "questions": [
+                "Comment gérez-vous ce sujet au quotidien actuellement ?",
+                "Quel est votre plus grand défi sur ce point pour ce trimestre ?",
+                "Qu'est-ce qui vous ferait dire que ça vaut le coup d'en reparler ?",
+            ],
+            "objections": [
+                {
+                    "objection": "Je n'ai pas le temps là",
+                    "reponse": (
+                        "Je comprends tout à fait, vous êtes en plein travail. "
+                        "C'est justement pour ça que je vous propose un échange de 10 min "
+                        "plutôt que de vous retenir maintenant — mardi ou jeudi, quel jour vous convient le mieux ?"
+                    ),
+                },
+                {
+                    "objection": "Ça ne m'intéresse pas",
+                    "reponse": (
+                        "Pas de souci, je respecte ça. Est-ce que je peux juste vous demander "
+                        "ce qui manquerait pour que ce soit pertinent pour vous, pour ne pas vous solliciter à tort une prochaine fois ?"
+                    ),
+                },
+            ],
+        }
+
+    if type_contact == "rappel":
+        return {
+            "accroche": (
+                f"Bonjour [Prénom], c'est [Votre nom], on s'était parlé il y a quelque temps "
+                f"au sujet de votre activité dans le secteur « {secteur} ». "
+                f"Je me permets de reprendre contact pour faire le point."
+            ),
+            "pitch": (
+                f"Je voulais savoir où vous en étiez de votre réflexion, et si votre "
+                f"situation avait évolué depuis notre dernier échange."
+            ),
+            "questions": [
+                "Où en êtes-vous depuis notre dernier échange ?",
+                "Qu'est-ce qui a changé de votre côté depuis ?",
+                "Qu'est-ce qui vous aiderait à avancer sur ce sujet maintenant ?",
+            ],
+            "objections": [
+                {
+                    "objection": "On n'a pas encore décidé",
+                    "reponse": (
+                        "C'est normal, ce genre de décision prend du temps. "
+                        "Qu'est-ce qui vous aiderait à trancher — un point précis que je peux clarifier ?"
+                    ),
+                },
+                {
+                    "objection": "On est parti sur autre chose",
+                    "reponse": (
+                        "D'accord, merci de me le dire clairement. "
+                        "Est-ce que je peux vous recontacter dans quelques mois si votre situation évolue ?"
+                    ),
+                },
+            ],
+        }
+
+    # proposition_particuliere
+    return {
+        "accroche": (
+            f"Bonjour [Prénom], c'est [Votre nom]. Je vous appelle avec une proposition "
+            f"précise, pensée pour une entreprise du secteur « {secteur} » comme la vôtre."
+        ),
+        "pitch": (
+            f"Voici ce que je vous propose concrètement : [détail de l'offre à adapter]. "
+            f"C'est pensé pour répondre aux besoins courants du secteur « {secteur} »."
+        ),
+        "questions": [
+            "Qu'est-ce qui compte le plus pour vous dans une proposition comme celle-ci ?",
+            "Y a-t-il un point qui vous ferait hésiter sur cette offre telle que je viens de la présenter ?",
+        ],
+        "objections": [
+            {
+                "objection": "C'est trop cher",
+                "reponse": (
+                    "Je comprends que ce soit un point important. "
+                    "Qu'est-ce qui vous semble juste par rapport à ce que ça vous apporterait concrètement ?"
+                ),
             },
-            json=body,
-            timeout=REQUEST_TIMEOUT,
-        )
-    except requests.RequestException as exc:
-        raise GeminiError(f"Erreur réseau vers Gemini : {exc}") from exc
-
-    if resp.status_code == 429:
-        raise GeminiError("Quota Gemini atteint au niveau du compte Google. Réessayez plus tard.")
-    if resp.status_code >= 400:
-        raise GeminiError(f"Erreur Gemini ({resp.status_code}) : {resp.text[:300]}")
-
-    data = resp.json()
-    text = _extract_model_output_text(data)
-    if not text:
-        raise GeminiError("Réponse Gemini vide ou dans un format inattendu.")
-
-    try:
-        parsed = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise GeminiError(f"Réponse Gemini non exploitable (JSON invalide) : {exc}") from exc
-
-    for key in ("accroche", "pitch", "questions", "objections"):
-        if key not in parsed:
-            raise GeminiError(f"Réponse Gemini incomplète (champ '{key}' manquant).")
-    return parsed
-
-
-def _extract_model_output_text(data):
-    steps = data.get("steps") or []
-    chunks = []
-    for step in steps:
-        if step.get("type") != "model_output":
-            continue
-        for block in step.get("content") or []:
-            if block.get("type") == "text" and block.get("text"):
-                chunks.append(block["text"])
-    return "\n".join(chunks).strip()
+            {
+                "objection": "Je dois comparer avec d'autres",
+                "reponse": (
+                    "C'est tout à fait légitime. Qu'est-ce qui compterait le plus dans votre comparaison, "
+                    "pour que je vous donne les bons éléments ?"
+                ),
+            },
+        ],
+    }
 
 
 # --- Orchestration -----------------------------------------------------
@@ -317,27 +273,13 @@ def prepare_call(workspace_id, user_id, prospect, type_contact):
 
     naf_code = prospect.get("naf_code")
     secteur_label = get_naf_label(naf_code) or "secteur non renseigné"
-    secteur_key = _normalize_secteur_key(naf_code, secteur_label)
+    secteur_key = _normalize_secteur_key(naf_code)
 
     cached = _get_cached(workspace_id, secteur_key, type_contact)
     if cached is not None:
         return {"texte": json.loads(cached) if isinstance(cached, str) else cached, "source": "cache"}
 
-    quota = get_quota_status(user_id)
-    if quota["remaining"] <= 0:
-        raise QuotaExceeded(
-            f"Quota quotidien atteint ({quota['used']}/{quota['limit']} générations aujourd'hui). "
-            f"Un texte existe peut-être déjà pour un autre secteur/type de contact."
-        )
-
-    prompt = PROMPT_TEMPLATE.format(
-        nom_entreprise=prospect.get("nom_entreprise") or "cette entreprise",
-        secteur_label=secteur_label,
-        type_contact_label=TYPE_CONTACT_LABELS[type_contact],
-    )
-    texte = call_gemini(prompt)
-
-    _log_generation(user_id, workspace_id)
+    texte = _build_template(secteur_label, type_contact)
     _store_cache(workspace_id, secteur_key, type_contact, texte, user_id)
 
     return {"texte": texte, "source": "generation"}
