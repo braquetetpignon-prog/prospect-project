@@ -118,6 +118,16 @@
         <div id="devis-status" style="font-size:12px; margin-top:6px; color:var(--text-soft);"></div>
       </div>
 
+      <button type="button" class="btn btn-ghost btn-sm" id="toggle-consent-btn" style="margin-top:6px; display:none;">✅ Consentement campagnes</button>
+      <div class="rdv-inline" id="consent-inline">
+        <p style="font-size:12px; color:var(--text-soft); margin:0 0 10px;">
+          À utiliser quand le client exprime son accord ou son refus directement à vous
+          (téléphone, e-mail, rendez-vous) — sinon, le lien de désinscription présent
+          sur chaque campagne suffit déjà à enregistrer un refus.
+        </p>
+        <div id="consent-rows"></div>
+      </div>
+
       <div class="panel" style="margin-top:16px;">
         <div class="panel-head"><h3 style="margin:0; font-size:14px;">Historique d'activité</h3></div>
         <div id="activity-timeline" style="padding:0 20px 16px;"></div>
@@ -202,6 +212,9 @@ function onAuthReady(me) {
     document.getElementById('rdv-inline').classList.toggle('show');
   });
   document.getElementById('create-rdv-btn').addEventListener('click', createInlineRdv);
+  document.getElementById('toggle-consent-btn').addEventListener('click', () => {
+    document.getElementById('consent-inline').classList.toggle('show');
+  });
   document.getElementById('toggle-devis-btn').addEventListener('click', () => {
     if (!smtpReady) {
       showToast("Configurez et vérifiez votre compte e-mail dans Paramètres avant d'envoyer un fichier.", true);
@@ -362,6 +375,59 @@ function updateBulkBar() {
   }
 }
 
+const CONSENT_TYPES_LIST = ['avis', 'publicitaire', 'newsletter', 'relance'];
+const CONSENT_TYPE_LABELS = { avis: "Demande d'avis", publicitaire: 'Publicitaire', newsletter: 'Newsletter', relance: 'Relance' };
+
+async function loadConsent(prospectId) {
+  const container = document.getElementById('consent-rows');
+  container.innerHTML = '<p style="font-size:12px; color:var(--text-soft);">Chargement…</p>';
+  try {
+    const data = await fetchJSON(`/api/prospects/${prospectId}/consent`);
+    renderConsent(prospectId, data);
+  } catch (e) {
+    container.innerHTML = '<p style="font-size:12px; color:var(--text-soft);">Impossible de charger le consentement.</p>';
+  }
+}
+
+function renderConsent(prospectId, data) {
+  const container = document.getElementById('consent-rows');
+  container.innerHTML = CONSENT_TYPES_LIST.map(type => {
+    const entry = data[type];
+    const statut = entry ? entry.statut : null;
+    let badge = '<span style="color:var(--text-soft);">Non renseigné — intérêt légitime par défaut</span>';
+    if (statut === 'opt_in') badge = '<span style="color:#2E7D32; font-weight:600;">✓ Accord enregistré</span>';
+    if (statut === 'opt_out') badge = '<span style="color:#B3261E; font-weight:600;">✗ Refus enregistré</span>';
+    const sourceNote = entry && entry.source ? ` <span style="color:var(--text-soft);">(${escapeHtml(entry.source)})</span>` : '';
+    return `
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 0; border-bottom:1px solid var(--border-soft, #eee);">
+        <div>
+          <div style="font-size:13px; font-weight:600;">${CONSENT_TYPE_LABELS[type]}</div>
+          <div style="font-size:12px;">${badge}${sourceNote}</div>
+        </div>
+        <div style="display:flex; gap:6px; flex-shrink:0;">
+          <button type="button" class="btn btn-ghost btn-sm consent-btn" data-type="${type}" data-statut="opt_in" ${canWrite ? '' : 'disabled'}>Accord</button>
+          <button type="button" class="btn btn-ghost btn-sm consent-btn" data-type="${type}" data-statut="opt_out" ${canWrite ? '' : 'disabled'}>Refus</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  container.querySelectorAll('.consent-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try {
+        await fetchJSON(`/api/prospects/${prospectId}/consent`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: btn.dataset.type, statut: btn.dataset.statut, source: 'Saisi manuellement par un admin' }),
+        });
+        showToast('Consentement mis à jour.');
+        loadConsent(prospectId);
+      } catch (e) {
+        showToast(e.message, true);
+      }
+    });
+  });
+}
+
 async function openModal(prospectId) {
   currentProspectId = prospectId;
   document.getElementById('prospect-form').reset();
@@ -371,6 +437,9 @@ async function openModal(prospectId) {
   document.getElementById('devis-inline').classList.remove('show');
   document.getElementById('devis-status').textContent = '';
   document.getElementById('toggle-devis-btn').style.display = 'none';
+  document.getElementById('consent-inline').classList.remove('show');
+  document.getElementById('consent-rows').innerHTML = '';
+  document.getElementById('toggle-consent-btn').style.display = 'none';
 
   if (prospectId) {
     document.getElementById('modal-title').textContent = 'Fiche client';
@@ -388,6 +457,8 @@ async function openModal(prospectId) {
     document.getElementById('p-action-date').value = p.prochaine_action_date || '';
     document.getElementById('p-notes').value = p.notes || '';
     loadActivityTimeline(prospectId);
+    document.getElementById('toggle-consent-btn').style.display = 'inline-flex';
+    loadConsent(prospectId);
     document.getElementById('toggle-devis-btn').style.display =
       (['qualifie', 'en_attente', 'client'].includes(p.statut) && p.email) ? 'inline-flex' : 'none';
   } else {
