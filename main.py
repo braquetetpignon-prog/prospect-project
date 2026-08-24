@@ -2977,19 +2977,6 @@ def supadmin_feedback():
     return jsonify(entries=superadmin.list_feedback())
 
 
-@app.route("/api/supadmin/feedback/unread-count")
-@superadmin.login_required
-def supadmin_feedback_unread_count():
-    return jsonify(unread_count=superadmin.unread_feedback_count(superadmin.current_superadmin_id()))
-
-
-@app.route("/api/supadmin/feedback/mark-seen", methods=["POST"])
-@superadmin.login_required
-def supadmin_feedback_mark_seen():
-    superadmin.mark_feedback_seen(superadmin.current_superadmin_id())
-    return jsonify(status="ok")
-
-
 @app.route("/api/supadmin/db-stats")
 @superadmin.login_required
 def supadmin_db_stats():

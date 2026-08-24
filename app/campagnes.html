@@ -612,7 +612,15 @@ method: 'POST', headers: { 'Content-Type': 'application/json' },
 body: JSON.stringify(body),
 });
 const skipped = result.skipped || [];
-showToast(`${result.queued.length} mis en file${skipped.length ? `, ${skipped.length} ignoré(s)` : ''}.`, skipped.length > 0 && result.queued.length === 0);
+let message = `${result.queued.length} mis en file`;
+if (skipped.length) {
+// Regroupe les motifs uniques (souvent le même pour tous, ex. "opt-in
+// requis") pour éviter un toast à rallonge si plusieurs prospects sont
+// ignorés pour la même raison.
+const reasons = [...new Set(skipped.map(s => s.reason))];
+message += `, ${skipped.length} ignoré(s) — ${reasons.join(' / ')}`;
+}
+showToast(message, skipped.length > 0 && result.queued.length === 0);
 loadSends(currentCampaign.id);
 } catch (err) {
 showToast(err.message, true);
@@ -736,7 +744,13 @@ method: 'POST', headers: { 'Content-Type': 'application/json' },
 body: JSON.stringify({ prospect_type_id: currentTypeSendId }),
 });
 document.getElementById('type-send-modal-overlay').classList.remove('show');
-showToast(`${result.queued.length} envoi(s) mis en file.`);
+const skipped = result.skipped || [];
+let message = `${result.queued.length} mis en file`;
+if (skipped.length) {
+const reasons = [...new Set(skipped.map(s => s.reason))];
+message += `, ${skipped.length} ignoré(s) — ${reasons.join(' / ')}`;
+}
+showToast(message, skipped.length > 0 && result.queued.length === 0);
 } catch (err) {
 showToast(err.message, true);
 }

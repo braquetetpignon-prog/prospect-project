@@ -16,6 +16,8 @@ import time
 import requests
 
 from app.db import get_db
+from app import system_mail
+from app.app_logging import logger
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 DEFAULT_MODEL = "gemini-3.5-flash"
@@ -218,3 +220,38 @@ def submit_feedback(workspace_id, workspace_name, user_email, message):
         conn.commit()
     finally:
         conn.close()
+
+    _notify_superadmins_of_feedback(workspace_name, user_email, message)
+
+
+def _notify_superadmins_of_feedback(workspace_name, user_email, message):
+    """Prévient tous les comptes superadmin par e-mail qu'une nouvelle
+    suggestion vient d'arriver (voir /supadmin, onglet Suggestions — le
+    badge "non lu" y est géré séparément, voir superadmin.py). Ne doit
+    JAMAIS faire échouer submit_feedback : la suggestion de l'utilisateur
+    doit être enregistrée même si l'e-mail système n'est pas configuré ou
+    si son envoi échoue — on journalise et on continue."""
+    if not system_mail.is_configured():
+        return
+
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT email FROM superadmins")
+            emails = [row[0] for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+    subject = f"Nouvelle suggestion — {workspace_name or 'espace de travail inconnu'}"
+    body = (
+        f"Nouvelle suggestion reçue depuis l'assistant d'aide.\n\n"
+        f"Espace de travail : {workspace_name or '(non renseigné)'}\n"
+        f"E-mail du contact : {user_email or '(non renseigné)'}\n\n"
+        f"Message :\n{message}\n\n"
+        f"— À consulter et répondre depuis /supadmin (onglet Suggestions)."
+    )
+    for email in emails:
+        try:
+            system_mail.send_system_email(email, subject, body)
+        except system_mail.SystemMailError:
+            logger.exception("Échec d'envoi de la notification de suggestion à %s", email)

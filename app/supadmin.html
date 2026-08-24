@@ -46,6 +46,11 @@
   }
   .sidebar-nav button:hover { background: var(--cream); color: var(--text); }
   .sidebar-nav button.is-active { background: var(--sauge-light); color: #3B4F35; }
+  .sidebar-nav .nav-badge {
+    margin-left: auto; font-size: 11px; font-weight: 700; color: var(--white);
+    background: var(--terracotta-deep); min-width: 18px; height: 18px; padding: 0 5px;
+    border-radius: 999px; display: flex; align-items: center; justify-content: center;
+  }
   .sidebar-foot { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--border); padding-top: 14px; }
   .sidebar-foot button {
     background: none; border: none; text-align: left; font-family: 'Figtree', sans-serif;
@@ -170,7 +175,7 @@
     <button type="button" data-target="base-donnees">Base de données</button>
     <button type="button" data-target="comptes-superadmin" data-admin-only="1">Comptes superadmin</button>
     <button type="button" data-target="email-systeme">E-mail système</button>
-    <button type="button" data-target="suggestions">Suggestions</button>
+    <button type="button" data-target="suggestions">Suggestions<span id="suggestions-nav-badge" class="nav-badge" style="display:none;">0</span></button>
     <button type="button" data-target="journal-audit">Journal d'audit</button>
     <button type="button" data-target="evenements-securite">Événements de sécurité</button>
     <button type="button" data-target="base-connaissances">Base de connaissances</button>
@@ -1400,7 +1405,10 @@ function showPanel(targetId) {
 }
 
 navButtons.forEach((btn) => {
-  btn.addEventListener('click', () => showPanel(btn.dataset.target));
+  btn.addEventListener('click', () => {
+    showPanel(btn.dataset.target);
+    if (btn.dataset.target === 'suggestions') markFeedbackSeen();
+  });
 });
 
 // --- Rôle courant : affiche l'identité, masque ce qui est réservé à l'administrateur ---
@@ -1771,7 +1779,41 @@ document.getElementById('pin-modal-save-btn').addEventListener('click', async ()
   loadCrmSyncSettings();
   loadRegulatorySources();
   loadRegulatoryAlerts();
+  refreshFeedbackBadge();
 })();
+
+// Poll léger — même logique que le badge de notifications de l'app
+// principale (base.html) : cette page reste souvent ouverte en fond toute
+// la journée, pas de raison de la recharger pour voir une nouvelle
+// suggestion arriver.
+setInterval(refreshFeedbackBadge, 5 * 60 * 1000);
+
+async function refreshFeedbackBadge() {
+  try {
+    const data = await fetchJSON('/api/supadmin/feedback/unread-count');
+    const badge = document.getElementById('suggestions-nav-badge');
+    if (data.unread_count > 0) {
+      badge.textContent = data.unread_count > 99 ? '99+' : data.unread_count;
+      badge.style.display = 'flex';
+    } else {
+      badge.style.display = 'none';
+    }
+  } catch (e) {
+    // Silencieux — un badge qui ne se met pas à jour une fois n'a pas
+    // besoin d'interrompre la console avec une erreur visible.
+  }
+}
+
+async function markFeedbackSeen() {
+  document.getElementById('suggestions-nav-badge').style.display = 'none';
+  try {
+    await fetchJSON('/api/supadmin/feedback/mark-seen', { method: 'POST' });
+  } catch (e) {
+    // Si l'appel échoue, le prochain refreshFeedbackBadge (5 min max)
+    // réaffichera le badge — pas grave, pas besoin de bloquer l'ouverture
+    // de l'onglet pour ça.
+  }
+}
 
 // --- Suggestions ---
 
