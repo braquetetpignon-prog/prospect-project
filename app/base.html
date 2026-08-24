@@ -264,17 +264,121 @@ transition: background 0.2s ease, transform 0.2s ease;
 }
 
 @media (max-width: 980px) {
-.shell { grid-template-columns: 1fr; }
-.sidebar { position: sticky; top: 0; height: auto; flex-direction: row; align-items: center; overflow-x: auto; z-index: 20; }
-.side-nav { flex-direction: row; }
+.shell { grid-template-columns: 1fr; align-content: start; }
+
+/* Barre du haut mobile : logo + bouton menu, toujours visible, hauteur
+   fixe et réduite — remplace l'ancienne rangée horizontale scrollable
+   (logo + espace de travail + recherche + nav en une seule ligne), dont
+   les liens de droite étaient inatteignables sans savoir qu'il fallait
+   scroller latéralement (retour d'Alexis après test réel sur téléphone). */
+.mobile-topbar {
+display: flex; align-items: center; justify-content: space-between;
+padding: 12px 16px; background: var(--white); border-bottom: 1px solid var(--border);
+position: sticky; top: 0; z-index: 25;
 }
+.mobile-nav-toggle {
+display: flex; align-items: center; justify-content: center;
+width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--border);
+background: var(--cream); cursor: pointer; flex-shrink: 0; color: var(--text);
+}
+.mobile-nav-toggle svg { width: 20px; height: 20px; }
+
+/* Le menu (ex-sidebar desktop) devient un tiroir plein écran qui glisse
+   depuis la droite, cf. JS (mobile-nav-toggle) — masqué hors-écran par
+   défaut, jamais retiré du DOM (juste translaté), pour ne pas perturber
+   les scripts existants qui référencent son contenu (recherche, nav). */
+.sidebar {
+position: fixed; top: 0; right: 0; height: 100vh; width: min(300px, 84vw);
+flex-direction: column; align-items: stretch; overflow-y: auto; overflow-x: hidden;
+z-index: 40; padding: 20px 18px; gap: 20px;
+transform: translateX(100%); transition: transform 0.25s ease;
+box-shadow: -6px 0 24px rgba(53,40,24,0.14);
+}
+body.mobile-nav-open .sidebar { transform: translateX(0); }
+.side-nav { flex-direction: column; }
+
+/* Logo déjà affiché dans la barre du haut (toujours visible) — évité en
+   double à l'intérieur du tiroir, qui lui n'est visible qu'à la demande. */
+.sidebar > .logo { display: none; }
+
+/* Carte "Espace de travail" masquée sur mobile, y compris dans le tiroir
+   — demande explicite d'Alexis. L'info reste consultable depuis la page
+   Mon compte ; rien n'est perdu, juste retiré de la navigation mobile. */
+.workspace-picker { display: none; }
+
+#mobile-nav-scrim {
+position: fixed; inset: 0; background: rgba(53,40,24,0.35); z-index: 35;
+display: none;
+}
+body.mobile-nav-open #mobile-nav-scrim { display: block; }
+body.mobile-nav-open { overflow: hidden; }
+}
+
+@media (min-width: 981px) {
+.mobile-topbar, #mobile-nav-scrim { display: none; }
+}
+
+/* --- Verrouillage mobile (visibilitychange + PIN local à l'appareil) ---
+   Voir le script en bas de page pour la logique. Deux couches distinctes :
+   1. #app-lock-instant-blur : masquage immédiat dès la mise en arrière-plan
+      (protège contre l'aperçu multitâche iOS/Android qui capture une
+      miniature de l'écran) — inconditionnel, pas de délai.
+   2. #app-lock-overlay : écran de PIN, affiché seulement si le délai de
+      grâce (1 min) est dépassé au retour au premier plan. */
+#app-lock-instant-blur {
+position: fixed; inset: 0; z-index: 998; display: none;
+background: var(--cream);
+}
+#app-lock-instant-blur.show { display: block; }
+
+#app-lock-overlay {
+position: fixed; inset: 0; z-index: 999; display: none;
+align-items: center; justify-content: center;
+background: rgba(250, 246, 240, 0.94);
+backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+padding: 24px; box-sizing: border-box;
+}
+#app-lock-overlay.show { display: flex; }
+.app-lock-card {
+background: var(--white); border-radius: 20px; padding: 32px 28px;
+width: 100%; max-width: 320px; text-align: center; box-shadow: var(--shadow-soft);
+}
+.app-lock-card h2 { font-size: 18px; margin-bottom: 6px; }
+.app-lock-card p { font-size: 13px; color: var(--text-soft); margin: 0 0 20px; }
+#app-lock-pin-input {
+width: 100%; font-size: 24px; letter-spacing: 10px; text-align: center;
+padding: 12px; border: 1px solid var(--border); border-radius: 12px;
+font-family: inherit; margin-bottom: 12px; box-sizing: border-box;
+}
+#app-lock-error { color: var(--terracotta-deep); font-size: 12.5px; min-height: 18px; margin-bottom: 4px; }
+#app-lock-logout-link { font-size: 12.5px; color: var(--text-soft); margin-top: 14px; display: inline-block; }
 
 {% block extra_css %}{% endblock %}
 </style>
 </head>
 <body>
 
+<div id="app-lock-instant-blur"></div>
+<div id="app-lock-overlay">
+<div class="app-lock-card">
+<h2 id="app-lock-title">Application verrouillée</h2>
+<p id="app-lock-subtitle">Entre ton code pour continuer.</p>
+<input type="password" id="app-lock-pin-input" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off">
+<div id="app-lock-error"></div>
+<button type="button" class="btn btn-primary btn-sm" id="app-lock-submit-btn" style="width:100%;">Déverrouiller</button>
+<br>
+<a href="#" id="app-lock-logout-link">Ce n'est pas toi ? Se déconnecter</a>
+</div>
+</div>
+
 <div class="shell">
+<div class="mobile-topbar">
+<a href="/" class="logo"><img src="/static/img/logo-icon-nav.png" alt="" class="logo-mark"><span class="logo-text">Click<span class="logo-accent">Prospect</span></span></a>
+<button type="button" class="mobile-nav-toggle" id="mobile-nav-toggle" aria-label="Ouvrir le menu" aria-expanded="false">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+</button>
+</div>
+<div id="mobile-nav-scrim"></div>
 <aside class="sidebar">
 <a href="/" class="logo"><img src="/static/img/logo-icon-nav.png" alt="" class="logo-mark"><span class="logo-text">Click<span class="logo-accent">Prospect</span></span></a>
 
@@ -842,6 +946,191 @@ document.addEventListener('click', (e) => {
 if (!e.target.closest('.global-search')) results.style.display = 'none';
 });
 }
+
+// --- Verrouillage mobile (visibilitychange + PIN local à l'appareil) ---
+// Indépendant de la session serveur (voir main.py::_mobile_idle_timeout_gate,
+// filet de sécurité si l'appli n'est jamais rouverte). Ici : protège une
+// appli qui EST rouverte peu après avoir été mise en veille/arrière-plan.
+// Le PIN est stocké en local (localStorage, jamais envoyé au serveur) :
+// c'est un confort de déverrouillage rapide propre à CET appareil, pas un
+// second facteur de sécurité au niveau du compte — distinct du code PIN de
+// récupération de mot de passe (voir my_account.html), qui lui reste
+// stocké côté serveur et sert à un usage totalement différent. Ne jamais
+// fusionner les deux : un PIN tapé plusieurs fois par jour sur un
+// téléphone est plus exposé (regard par-dessus l'épaule) qu'un PIN de
+// récupération utilisé une fois tous les 36 du mois — les mélanger
+// affaiblirait la récupération de compte.
+
+const APP_LOCK_GRACE_MS = 60 * 1000; // 1 minute, cf. décision avec Alexis
+const APP_LOCK_MAX_ATTEMPTS = 5;
+let appLockAttempts = 0;
+
+function isMobileLockContext() {
+// Réévalué à chaque bascule (pas figé au chargement) : couvre le cas d'un
+// téléphone tourné en paysage sur une tablette-frontière, sans complexité
+// supplémentaire.
+return window.matchMedia('(max-width: 780px)').matches;
+}
+
+function appLockPinKey() {
+// Espace de nommage par compte (email) — localStorage n'est de toute façon
+// jamais partagé entre appareils, donc pas besoin d'y ajouter un
+// identifiant d'appareil : un même compte utilisé sur deux téléphones aura
+// naturellement un PIN local différent sur chacun (voulu : ce PIN protège
+// l'accès physique à CET appareil, pas le compte en général).
+return currentUser ? `cp_lock_pin_${currentUser.email.toLowerCase()}` : null;
+}
+
+async function appLockSha256(text) {
+const enc = new TextEncoder().encode(text);
+const digest = await crypto.subtle.digest('SHA-256', enc);
+return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function appLockSetHidden() {
+if (!isMobileLockContext()) return;
+sessionStorage.setItem('cp_hidden_at', String(Date.now()));
+document.getElementById('app-lock-instant-blur').classList.add('show');
+}
+
+function appLockHandleVisible() {
+const blurEl = document.getElementById('app-lock-instant-blur');
+if (!isMobileLockContext()) { blurEl.classList.remove('show'); return; }
+
+const hiddenAtRaw = sessionStorage.getItem('cp_hidden_at');
+sessionStorage.removeItem('cp_hidden_at');
+if (!hiddenAtRaw) { blurEl.classList.remove('show'); return; }
+
+const elapsed = Date.now() - Number(hiddenAtRaw);
+if (elapsed < APP_LOCK_GRACE_MS) {
+blurEl.classList.remove('show');
+return;
+}
+// Délai de grâce dépassé : le flou instantané reste affiché, l'écran de
+// PIN vient se poser par-dessus. Les deux ne se lèvent qu'à la
+// validation réussie du PIN (voir appLockUnlock ci-dessous).
+appLockShow();
+}
+
+function appLockShow() {
+const key = appLockPinKey();
+if (!key) {
+// Pas encore authentifié (initAuth pas terminé) : rien de sensible à
+// protéger, on retire simplement le flou.
+document.getElementById('app-lock-instant-blur').classList.remove('show');
+return;
+}
+
+const overlay = document.getElementById('app-lock-overlay');
+const isSetup = !localStorage.getItem(key);
+overlay.dataset.mode = isSetup ? 'setup' : 'unlock';
+document.getElementById('app-lock-title').textContent =
+isSetup ? 'Crée un code de verrouillage' : 'Application verrouillée';
+document.getElementById('app-lock-subtitle').textContent = isSetup
+? "Choisis un code à 4-6 chiffres pour verrouiller l'appli sur ce téléphone quand elle passe en arrière-plan."
+: 'Entre ton code pour continuer.';
+document.getElementById('app-lock-error').textContent = '';
+const input = document.getElementById('app-lock-pin-input');
+input.value = '';
+overlay.classList.add('show');
+setTimeout(() => input.focus(), 50);
+}
+
+function appLockUnlock() {
+document.getElementById('app-lock-overlay').classList.remove('show');
+document.getElementById('app-lock-instant-blur').classList.remove('show');
+appLockAttempts = 0;
+}
+
+async function appLockFullLogout() {
+try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (e) {}
+document.getElementById('app-lock-overlay').classList.remove('show');
+document.getElementById('app-lock-instant-blur').classList.remove('show');
+window.location.href = '/login';
+}
+
+async function appLockSubmit() {
+const key = appLockPinKey();
+if (!key) { appLockUnlock(); return; }
+
+const overlay = document.getElementById('app-lock-overlay');
+const input = document.getElementById('app-lock-pin-input');
+const errorEl = document.getElementById('app-lock-error');
+const pin = input.value.trim();
+
+if (!/^\d{4,6}$/.test(pin)) {
+errorEl.textContent = 'Le code doit contenir 4 à 6 chiffres.';
+return;
+}
+
+const hash = await appLockSha256(pin);
+const isSetup = overlay.dataset.mode === 'setup';
+
+if (isSetup) {
+localStorage.setItem(key, hash);
+appLockUnlock();
+return;
+}
+
+if (hash === localStorage.getItem(key)) {
+appLockUnlock();
+return;
+}
+
+appLockAttempts += 1;
+input.value = '';
+input.focus();
+if (appLockAttempts >= APP_LOCK_MAX_ATTEMPTS) {
+// Un PIN à 4-6 chiffres a un espace de recherche bien trop faible pour
+// résister à des tentatives illimitées — au-delà de 5 essais, on ne
+// bloque pas indéfiniment dessus : on force une reconnexion complète
+// par mot de passe, seule vraie barrière de sécurité de ce mécanisme.
+errorEl.textContent = 'Trop de tentatives — reconnexion requise.';
+setTimeout(appLockFullLogout, 1200);
+return;
+}
+const remaining = APP_LOCK_MAX_ATTEMPTS - appLockAttempts;
+errorEl.textContent = `Code incorrect (${remaining} essai${remaining > 1 ? 's' : ''} restant${remaining > 1 ? 's' : ''}).`;
+}
+
+document.addEventListener('visibilitychange', () => {
+if (document.visibilityState === 'hidden') appLockSetHidden();
+else if (document.visibilityState === 'visible') appLockHandleVisible();
+});
+// Filet de sécurité : certains navigateurs mobiles ne déclenchent pas
+// toujours visibilitychange de façon fiable lors d'une fermeture brutale
+// (balayage pour fermer l'appli) — pagehide est mieux couvert dans ce cas.
+window.addEventListener('pagehide', appLockSetHidden);
+
+document.getElementById('app-lock-submit-btn').addEventListener('click', appLockSubmit);
+document.getElementById('app-lock-pin-input').addEventListener('keydown', (e) => {
+if (e.key === 'Enter') appLockSubmit();
+});
+document.getElementById('app-lock-logout-link').addEventListener('click', (e) => {
+e.preventDefault();
+appLockFullLogout();
+});
+
+// --- Menu mobile (tiroir) --------------------------------------------
+function closeMobileNav() {
+document.body.classList.remove('mobile-nav-open');
+document.getElementById('mobile-nav-toggle').setAttribute('aria-expanded', 'false');
+}
+function openMobileNav() {
+document.body.classList.add('mobile-nav-open');
+document.getElementById('mobile-nav-toggle').setAttribute('aria-expanded', 'true');
+}
+document.getElementById('mobile-nav-toggle').addEventListener('click', () => {
+document.body.classList.contains('mobile-nav-open') ? closeMobileNav() : openMobileNav();
+});
+document.getElementById('mobile-nav-scrim').addEventListener('click', closeMobileNav);
+// Ferme automatiquement le tiroir quand on choisit un lien de nav — sans
+// ça, la navigation multi-page (pas de SPA ici) rechargerait la page
+// suivante avec le tiroir resté "ouvert" en classe body le temps du
+// premier rendu, effet de clignotement visible.
+document.querySelectorAll('.side-nav a').forEach(link => {
+link.addEventListener('click', closeMobileNav);
+});
 
 initAuth();
 
