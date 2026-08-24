@@ -346,8 +346,8 @@ width: 100%; max-width: 320px; text-align: center; box-shadow: var(--shadow-soft
 .app-lock-card h2 { font-size: 18px; margin-bottom: 6px; }
 .app-lock-card p { font-size: 13px; color: var(--text-soft); margin: 0 0 20px; }
 #app-lock-pin-input {
-width: 100%; font-size: 24px; letter-spacing: 10px; text-align: center;
-padding: 12px; border: 1px solid var(--border); border-radius: 12px;
+width: 100%; font-size: 16px; text-align: left;
+padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px;
 font-family: inherit; margin-bottom: 12px; box-sizing: border-box;
 }
 #app-lock-error { color: var(--terracotta-deep); font-size: 12.5px; min-height: 18px; margin-bottom: 4px; }
@@ -361,9 +361,9 @@ font-family: inherit; margin-bottom: 12px; box-sizing: border-box;
 <div id="app-lock-instant-blur"></div>
 <div id="app-lock-overlay">
 <div class="app-lock-card">
-<h2 id="app-lock-title">Application verrouillée</h2>
-<p id="app-lock-subtitle">Entre ton code pour continuer.</p>
-<input type="password" id="app-lock-pin-input" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off">
+<h2>Application verrouillée</h2>
+<p>Entre ton mot de passe pour continuer.</p>
+<input type="password" id="app-lock-pin-input" placeholder="Mot de passe" autocomplete="current-password">
 <div id="app-lock-error"></div>
 <button type="button" class="btn btn-primary btn-sm" id="app-lock-submit-btn" style="width:100%;">Déverrouiller</button>
 <br>
@@ -947,19 +947,22 @@ if (!e.target.closest('.global-search')) results.style.display = 'none';
 });
 }
 
-// --- Verrouillage mobile (visibilitychange + PIN local à l'appareil) ---
-// Indépendant de la session serveur (voir main.py::_mobile_idle_timeout_gate,
-// filet de sécurité si l'appli n'est jamais rouverte). Ici : protège une
-// appli qui EST rouverte peu après avoir été mise en veille/arrière-plan.
-// Le PIN est stocké en local (localStorage, jamais envoyé au serveur) :
-// c'est un confort de déverrouillage rapide propre à CET appareil, pas un
-// second facteur de sécurité au niveau du compte — distinct du code PIN de
-// récupération de mot de passe (voir my_account.html), qui lui reste
-// stocké côté serveur et sert à un usage totalement différent. Ne jamais
-// fusionner les deux : un PIN tapé plusieurs fois par jour sur un
-// téléphone est plus exposé (regard par-dessus l'épaule) qu'un PIN de
-// récupération utilisé une fois tous les 36 du mois — les mélanger
-// affaiblirait la récupération de compte.
+// --- Verrouillage mobile (visibilitychange + revérification par mot de
+// passe) --- Indépendant de la session serveur (voir
+// main.py::_mobile_idle_timeout_gate, filet de sécurité si l'appli n'est
+// jamais rouverte). Ici : protège une appli qui EST rouverte peu après
+// avoir été mise en veille/arrière-plan.
+//
+// Choix : mot de passe du compte, PAS un PIN local séparé (version
+// précédente, abandonnée à la demande d'Alexis). Deux raisons :
+// 1. UX — un utilisateur peu à l'aise avec l'informatique n'a qu'un seul
+//    mot de passe à retenir, pas un PIN supplémentaire propre à chaque
+//    appareil à créer/retenir en plus.
+// 2. Sécurité — un PIN vérifié uniquement côté navigateur (localStorage)
+//    est contournable par quiconque sait ouvrir les outils développeur ;
+//    un mot de passe revérifié côté serveur (voir /api/auth/reverify) ne
+//    l'est pas, et bénéficie en plus de la limitation anti brute-force
+//    déjà en place pour le login normal (voir rate_limit.py).
 
 const APP_LOCK_GRACE_MS = 60 * 1000; // 1 minute, cf. décision avec Alexis
 const APP_LOCK_MAX_ATTEMPTS = 5;
@@ -970,21 +973,6 @@ function isMobileLockContext() {
 // téléphone tourné en paysage sur une tablette-frontière, sans complexité
 // supplémentaire.
 return window.matchMedia('(max-width: 780px)').matches;
-}
-
-function appLockPinKey() {
-// Espace de nommage par compte (email) — localStorage n'est de toute façon
-// jamais partagé entre appareils, donc pas besoin d'y ajouter un
-// identifiant d'appareil : un même compte utilisé sur deux téléphones aura
-// naturellement un PIN local différent sur chacun (voulu : ce PIN protège
-// l'accès physique à CET appareil, pas le compte en général).
-return currentUser ? `cp_lock_pin_${currentUser.email.toLowerCase()}` : null;
-}
-
-async function appLockSha256(text) {
-const enc = new TextEncoder().encode(text);
-const digest = await crypto.subtle.digest('SHA-256', enc);
-return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 function appLockSetHidden() {
@@ -1007,14 +995,13 @@ blurEl.classList.remove('show');
 return;
 }
 // Délai de grâce dépassé : le flou instantané reste affiché, l'écran de
-// PIN vient se poser par-dessus. Les deux ne se lèvent qu'à la
-// validation réussie du PIN (voir appLockUnlock ci-dessous).
+// mot de passe vient se poser par-dessus. Les deux ne se lèvent qu'à la
+// validation réussie (voir appLockUnlock ci-dessous).
 appLockShow();
 }
 
 function appLockShow() {
-const key = appLockPinKey();
-if (!key) {
+if (!currentUser) {
 // Pas encore authentifié (initAuth pas terminé) : rien de sensible à
 // protéger, on retire simplement le flou.
 document.getElementById('app-lock-instant-blur').classList.remove('show');
@@ -1022,13 +1009,6 @@ return;
 }
 
 const overlay = document.getElementById('app-lock-overlay');
-const isSetup = !localStorage.getItem(key);
-overlay.dataset.mode = isSetup ? 'setup' : 'unlock';
-document.getElementById('app-lock-title').textContent =
-isSetup ? 'Crée un code de verrouillage' : 'Application verrouillée';
-document.getElementById('app-lock-subtitle').textContent = isSetup
-? "Choisis un code à 4-6 chiffres pour verrouiller l'appli sur ce téléphone quand elle passe en arrière-plan."
-: 'Entre ton code pour continuer.';
 document.getElementById('app-lock-error').textContent = '';
 const input = document.getElementById('app-lock-pin-input');
 input.value = '';
@@ -1050,47 +1030,66 @@ window.location.href = '/login';
 }
 
 async function appLockSubmit() {
-const key = appLockPinKey();
-if (!key) { appLockUnlock(); return; }
-
-const overlay = document.getElementById('app-lock-overlay');
 const input = document.getElementById('app-lock-pin-input');
 const errorEl = document.getElementById('app-lock-error');
-const pin = input.value.trim();
+const submitBtn = document.getElementById('app-lock-submit-btn');
+const password = input.value;
 
-if (!/^\d{4,6}$/.test(pin)) {
-errorEl.textContent = 'Le code doit contenir 4 à 6 chiffres.';
+if (!password) {
+errorEl.textContent = 'Entre ton mot de passe.';
 return;
 }
 
-const hash = await appLockSha256(pin);
-const isSetup = overlay.dataset.mode === 'setup';
+submitBtn.disabled = true;
+let res;
+try {
+// fetch brut, pas fetchJSON : un 401 de fetchJSON déclenche une
+// redirection automatique vers /login (comportement voulu pour une
+// vraie session expirée), mais ici un mot de passe mal tapé renvoie
+// 403, pas 401 — géré explicitement ci-dessous pour laisser une
+// nouvelle chance à la personne au lieu de la déconnecter direct.
+res = await fetch('/api/auth/reverify', {
+method: 'POST',
+headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify({ password }),
+});
+} catch (e) {
+errorEl.textContent = 'Connexion impossible — réessaie.';
+submitBtn.disabled = false;
+return;
+}
+submitBtn.disabled = false;
 
-if (isSetup) {
-localStorage.setItem(key, hash);
+if (res.status === 401) {
+// Session serveur réellement expirée entre-temps (voir
+// _mobile_idle_timeout_gate) — revérifier le mot de passe ne sert plus
+// à rien, direction la vraie page de connexion.
+window.location.href = '/login';
+return;
+}
+
+if (res.ok) {
 appLockUnlock();
 return;
 }
 
-if (hash === localStorage.getItem(key)) {
-appLockUnlock();
+input.value = '';
+input.focus();
+
+if (res.status === 429) {
+errorEl.textContent = 'Trop de tentatives — reconnexion requise.';
+setTimeout(appLockFullLogout, 1200);
 return;
 }
 
 appLockAttempts += 1;
-input.value = '';
-input.focus();
 if (appLockAttempts >= APP_LOCK_MAX_ATTEMPTS) {
-// Un PIN à 4-6 chiffres a un espace de recherche bien trop faible pour
-// résister à des tentatives illimitées — au-delà de 5 essais, on ne
-// bloque pas indéfiniment dessus : on force une reconnexion complète
-// par mot de passe, seule vraie barrière de sécurité de ce mécanisme.
 errorEl.textContent = 'Trop de tentatives — reconnexion requise.';
 setTimeout(appLockFullLogout, 1200);
 return;
 }
 const remaining = APP_LOCK_MAX_ATTEMPTS - appLockAttempts;
-errorEl.textContent = `Code incorrect (${remaining} essai${remaining > 1 ? 's' : ''} restant${remaining > 1 ? 's' : ''}).`;
+errorEl.textContent = `Mot de passe incorrect (${remaining} essai${remaining > 1 ? 's' : ''} restant${remaining > 1 ? 's' : ''}).`;
 }
 
 document.addEventListener('visibilitychange', () => {

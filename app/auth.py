@@ -442,6 +442,26 @@ def logout():
     session.clear()
 
 
+def verify_current_password(user_id, password):
+    """Vérifie le mot de passe SANS créer de session ni rien modifier —
+    utilisé uniquement pour le réécran de verrouillage mobile (voir
+    main.py::auth_reverify et le tiroir de verrouillage dans base.html).
+    Ne renvoie qu'un booléen, jamais le détail d'un échec (compte
+    désactivé vs mot de passe faux) : à ce stade la personne est déjà
+    authentifiée dans sa session, ce n'est pas une surface d'énumération
+    de comptes — juste une reconfirmation ponctuelle."""
+    if not password:
+        return False
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT password_hash FROM users WHERE id = %s", (user_id,))
+            row = cur.fetchone()
+        return bool(row and check_password_hash(row[0], password))
+    finally:
+        conn.close()
+
+
 PIN_MIN_LENGTH = 6
 
 

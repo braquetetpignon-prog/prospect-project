@@ -729,6 +729,40 @@ def auth_logout():
     return jsonify(status="ok")
 
 
+@app.route("/api/auth/reverify", methods=["POST"])
+@login_required
+def auth_reverify():
+    """Revérification du mot de passe pour l'écran de verrouillage mobile
+    (voir base.html) — ne crée PAS de nouvelle session, confirme juste que
+    la personne devant l'appareil connaît toujours le mot de passe du
+    compte. Limité en tentatives comme un login normal (voir rate_limit) :
+    un téléphone déverrouillé avec une session encore active ne doit pas
+    permettre de bourrer le mot de passe indéfiniment via cet écran.
+    Identifiant de limitation par user_id (pas par e-mail comme le login
+    normal) : ce endpoint n'est joignable qu'en étant déjà authentifié,
+    inutile de redemander l'e-mail au client pour le construire."""
+    body = request.get_json(silent=True) or {}
+    password = body.get("password") or ""
+    user_id = session.get("user_id")
+    ip = _client_ip()
+    identifier = f"applock:{user_id}"
+
+    limited, retry_after = rate_limit.is_rate_limited(identifier, ip, "applock")
+    if limited:
+        logger.warning("Réécran mobile bloqué (trop de tentatives) pour user_id=%s depuis %s", user_id, ip)
+        return jsonify(error="Trop de tentatives. Réessaie dans quelques minutes."), 429
+
+    ok = auth.verify_current_password(user_id, password)
+    rate_limit.record_attempt(identifier, ip, success=ok, context="applock")
+    if not ok:
+        # 403, pas 401 : un 401 déclencherait la redirection automatique
+        # vers /login côté client (voir fetchJSON dans base.html), ce qui
+        # reviendrait à déconnecter la personne sur un simple mot de passe
+        # mal tapé au lieu de lui laisser une seconde chance à l'écran.
+        return jsonify(error="Mot de passe incorrect."), 403
+    return jsonify(status="ok")
+
+
 @app.route("/api/auth/resend-verification", methods=["POST"])
 def auth_resend_verification():
     """Renvoie le lien de vérification. Message générique dans tous les cas
