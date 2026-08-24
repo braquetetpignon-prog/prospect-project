@@ -1,7 +1,7 @@
 import os
 import secrets
 from zoneinfo import ZoneInfo
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
 from flask import Flask, jsonify, request, session, redirect, render_template as flask_render_template, g
@@ -183,6 +183,51 @@ def _email_verification_gate():
     if request.path.startswith("/api/"):
         return jsonify(error="Confirme d'abord ton adresse e-mail pour continuer."), 403
     return flask_render_template("verify_email.html")
+
+
+# Session mobile : expiration par inactivité à 30 min (contre 14 jours
+# glissants pour desktop, cf. PERMANENT_SESSION_LIFETIME plus haut) — décidé
+# avec Alexis pour la V1 "consultation mobile des fiches prospects" : les
+# fiches contiennent des données personnelles, un téléphone égaré/volé ne
+# doit pas rester connecté 14 jours. Desktop reste inchangé (poste de
+# travail, contexte différent, pas de raison de gêner l'usage quotidien).
+# Détection mobile par User-Agent au login (voir auth._looks_like_mobile),
+# figée pour la durée de la session — non ré-évaluée en cours de route.
+MOBILE_SESSION_IDLE_TIMEOUT = timedelta(minutes=30)
+
+
+@app.before_request
+def _mobile_idle_timeout_gate():
+    """Complète le verrouillage d'écran côté client (voir base.html) par une
+    vraie expiration serveur : si l'appli mobile n'est JAMAIS rouverte après
+    avoir été mise en arrière-plan (téléphone perdu/volé, oublié), la
+    session s'éteint quand même au bout de 30 min, sans dépendre du
+    JavaScript côté client (qui pourrait ne jamais s'exécuter si l'appli
+    n'est pas rouverte)."""
+    if "user_id" not in session:
+        return None
+    if not session.get("is_mobile_session"):
+        return None  # desktop : comportement inchangé (cookie 14 jours)
+
+    now = datetime.now(timezone.utc)
+    last_activity_iso = session.get("last_activity")
+    if last_activity_iso:
+        try:
+            last_activity = datetime.fromisoformat(last_activity_iso)
+        except ValueError:
+            last_activity = now
+        if now - last_activity > MOBILE_SESSION_IDLE_TIMEOUT:
+            session.clear()
+            if request.path.startswith("/api/"):
+                return jsonify(error="Session expirée par inactivité — reconnecte-toi."), 401
+            # Page HTML (pas /api/) : on laisse le gabarit se charger. Son
+            # appel initial à /api/auth/me recevra 401 et redirigera vers
+            # /login (voir fetchJSON dans base.html) — même mécanisme que
+            # pour toute session expirée, rien de spécifique à ajouter ici.
+            return None
+
+    session["last_activity"] = now.isoformat()
+    return None
 
 
 # Endpoints d'écriture externes légitimes, appelés par un serveur tiers et

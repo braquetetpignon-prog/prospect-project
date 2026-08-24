@@ -18,6 +18,7 @@ dépendance nécessaire).
 """
 from functools import wraps
 import json
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 
@@ -32,6 +33,21 @@ ROLES = ("admin", "commercial", "lecture_seule")
 WRITE_ROLES = ("admin", "commercial")  # rôles autorisés à créer/modifier/envoyer
 
 EMAIL_VERIFICATION_TOKEN_VALIDITY_HOURS = 24
+
+# Détection best-effort du type d'appareil à la connexion, utilisée
+# uniquement pour choisir la politique d'expiration de session (30 min
+# d'inactivité sur mobile vs 14 jours glissants sur desktop, voir
+# main.py::_mobile_idle_timeout_gate) — PAS un contrôle de sécurité en soi :
+# un User-Agent se falsifie trivialement. Le pire cas d'une falsification
+# (se faire passer pour desktop sur un vrai mobile) revient simplement au
+# comportement historique (14 jours), qui était déjà celui de tout le monde
+# avant cette fonctionnalité — aucune régression de sécurité possible,
+# seulement un confort de protection en moins dans ce cas précis.
+_MOBILE_USER_AGENT_RE = re.compile(r"Mobi|Android|iPhone|iPad|iPod", re.IGNORECASE)
+
+
+def _looks_like_mobile(user_agent):
+    return bool(user_agent and _MOBILE_USER_AGENT_RE.search(user_agent))
 
 
 class AuthError(Exception):
@@ -381,6 +397,10 @@ def login(email, password):
     session["role"] = row[3]
     session["must_change_password"] = row[5]
     session["email_verified"] = row[6] is not None
+    # Voir _looks_like_mobile ci-dessus et main.py::_mobile_idle_timeout_gate
+    # pour la politique d'expiration qui en découle.
+    session["is_mobile_session"] = _looks_like_mobile(request.headers.get("User-Agent"))
+    session["last_activity"] = datetime.now(timezone.utc).isoformat()
     session.permanent = True
 
     conn = get_db()
