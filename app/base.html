@@ -265,8 +265,13 @@ transition: background 0.2s ease, transform 0.2s ease;
 
 @media (max-width: 980px) {
 .shell { grid-template-columns: 1fr; align-content: start; }
-.sidebar { position: sticky; top: 0; height: auto; flex-direction: row; align-items: center; overflow-x: auto; z-index: 20; }
+.sidebar { position: sticky; top: 0; height: auto; flex-direction: row; align-items: center; overflow-x: auto; z-index: 20; padding: 10px 14px; }
 .side-nav { flex-direction: row; }
+/* Carte "Espace de travail" masquée sur mobile — V1 consultation, priorité
+   à l'espace vertical pour la liste des fiches (demande explicite
+   d'Alexis). L'info reste accessible via la page Mon compte si besoin ;
+   rien n'est perdu, juste replié pour ne pas manger l'écran. */
+.workspace-picker { display: none; }
 }
 
 /* --- Verrouillage mobile (visibilitychange + PIN local à l'appareil) ---
