@@ -787,6 +787,49 @@ def list_feedback(limit=200):
     ]
 
 
+def unread_feedback_count(superadmin_id):
+    """Nombre de suggestions arrivées depuis la dernière visite de CE compte
+    superadmin sur l'onglet Suggestions — voir last_feedback_seen_id
+    (colonne par compte, pas globale, cf. commentaire dans schema.sql)."""
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT count(*) FROM admin_feedback
+                WHERE id > (SELECT last_feedback_seen_id FROM superadmins WHERE id = %s)
+                """,
+                (superadmin_id,),
+            )
+            row = cur.fetchone()
+    finally:
+        conn.close()
+    return row[0] if row else 0
+
+
+def mark_feedback_seen(superadmin_id):
+    """Appelé quand ce compte superadmin ouvre l'onglet Suggestions —
+    remonte son curseur au plus récent id existant (jamais en arrière, au
+    cas où deux onglets ouverts en parallèle appelleraient ceci dans un
+    ordre différent)."""
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE superadmins SET last_feedback_seen_id = GREATEST(
+                    last_feedback_seen_id,
+                    COALESCE((SELECT max(id) FROM admin_feedback), 0)
+                )
+                WHERE id = %s
+                """,
+                (superadmin_id,),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def get_feedback(feedback_id):
     conn = get_db()
     try:
