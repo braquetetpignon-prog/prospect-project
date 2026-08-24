@@ -1,0 +1,1616 @@
+-- ClickProspect — schéma PostgreSQL
+-- Reprend le multi-utilisateurs par espace de travail + les tables nécessaires
+-- aux Options 2 (recherche IA) et 3 (module Avis Prospect).
+
+-- Extensions nécessaires à la recherche floue de codes NAF (insensible aux accents et fautes de frappe)
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS unaccent;
+
+-- Wrapper IMMUTABLE autour de unaccent() (requis pour l'utiliser dans une colonne générée)
+-- Qualification explicite (public.) nécessaire : sans elle, une restauration
+-- via pg_restore échoue (search_path vidé pendant la restauration).
+CREATE OR REPLACE FUNCTION public.immutable_unaccent(text) RETURNS text AS $$
+    SELECT public.unaccent('public.unaccent', $1)
+$$ LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT;
+
+-- Espaces de travail (un par client ClickProspect)
+CREATE TABLE IF NOT EXISTS workspaces (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Abonnement par espace de travail : 'trial' (essai, accès complet, 7 jours par
+-- défaut) / 'free' (gratuit, fonctions restreintes) / 'paid' (payant, accès complet).
+-- Le statut EFFECTIF est calculé dynamiquement (voir app/subscriptions.py) à partir
+-- de trial_ends_at / paid_until — ces colonnes ne sont jamais lues seules.
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'trial';
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMPTZ;
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS paid_until TIMESTAMPTZ;
+-- Dernière connexion d'un membre de l'équipe (mise à jour à chaque login) — sert
+-- à détecter l'inactivité prolongée d'un espace en version gratuite.
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMPTZ NOT NULL DEFAULT now();
+-- Renseigné automatiquement par la tâche quotidienne (30j d'inactivité + gratuit) :
+-- l'espace apparaît alors dans la file de validation du superadmin, qui décide de
+-- supprimer ou d'ignorer — jamais de suppression automatique sans validation humaine.
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS deletion_requested_at TIMESTAMPTZ;
+-- Informations légales/entreprise facultatives (voir Mon compte, réservé au
+-- rôle admin — SIRET et adresse relèvent de l'entreprise, pas d'un membre
+-- en particulier). Même usage que users.first_name/last_name/phone
+-- ci-dessus : alimentent la fiche client synchronisée automatiquement chez
+-- le superadmin (app/client_sync.py) si cette fonctionnalité est activée.
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS siret TEXT;
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS adresse TEXT;
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS code_postal TEXT;
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS ville TEXT;
+-- Quota Recherche IA personnalisé (idée produit) : NULL = quota global par défaut
+-- (ia_search.DAILY_QUOTA, 3/jour), sinon override réglable par le superadmin
+-- pour un client précis (ex: gros volume de prospection).
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS ia_search_quota_override INTEGER;
+-- Logo d'entreprise (Paramètres), même logique de ré-encodage/compression que
+-- l'image de campagne (voir app/campaign_image.py, réutilisé ici).
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS logo_data BYTEA;
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS logo_mimetype TEXT;
+-- Date du dernier résumé hebdomadaire envoyé à l'admin — évite de renvoyer
+-- deux fois dans la même semaine si la tâche de fond passe plusieurs fois.
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS weekly_summary_last_sent_at TIMESTAMPTZ;
+-- Horodatage du rappel "J-2 avant fin d'essai" envoyé à l'admin (voir
+-- app/lifecycle.py::send_trial_ending_reminders) — NULL tant qu'il n'a pas
+-- encore été envoyé, évite tout doublon même si la tâche de fond repasse
+-- plusieurs fois pendant la fenêtre des 2 derniers jours d'essai.
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS trial_ending_reminder_sent_at TIMESTAMPTZ;
+-- Valeur de paid_until pour laquelle le rappel "J-2 avant renouvellement
+-- annuel" a déjà été envoyé (voir app/lifecycle.py::send_annual_renewal_reminders).
+-- Comparée à paid_until courant plutôt qu'un simple NULL/non-NULL : se
+-- réarme automatiquement chaque année au renouvellement suivant, sans
+-- tâche de nettoyage à prévoir.
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS renewal_reminder_sent_for TIMESTAMPTZ;
+-- Date d'expiration de carte (cardExpiryDate Mollie) pour laquelle l'alerte
+-- "carte expirant bientôt" a déjà été envoyée (voir
+-- app/mollie_billing.py::send_card_expiring_reminders). Se réarme
+-- automatiquement si la carte enregistrée change.
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS card_expiry_reminder_sent_for DATE;
+-- Horodatage de la relance "J+7 après bascule en gratuit sans conversion"
+-- (voir app/lifecycle.py::send_free_downgrade_followups) — un seul envoi
+-- par espace, jamais répété même si l'espace reste en gratuit indéfiniment.
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS free_downgrade_followup_sent_at TIMESTAMPTZ;
+
+-- Facturation Mollie (paiement CB / abonnement récurrent). Ces colonnes ne
+-- pilotent jamais l'accès directement — c'est toujours `plan` / `paid_until`
+-- (via effective_plan) qui font foi pour l'accès aux fonctionnalités. Elles
+-- servent à piloter/retrouver l'abonnement côté Mollie et à l'afficher dans
+-- le rapport superadmin.
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS billing_interval TEXT; -- 'monthly' / 'annual'
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS mollie_customer_id TEXT;
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS mollie_subscription_id TEXT;
+-- Reflet du dernier statut connu côté Mollie ('active', 'canceled', 'suspended',
+-- 'pending_first_payment'...) — permet de repérer un paiement en échec avant
+-- même que paid_until n'expire, sans attendre le prochain webhook.
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS mollie_subscription_status TEXT;
+
+-- Journal des événements de paiement Mollie reçus par webhook — utile pour
+-- déboguer un souci de facturation sans avoir à recouper les logs applicatifs.
+CREATE TABLE IF NOT EXISTS mollie_events (
+    id SERIAL PRIMARY KEY,
+    workspace_id INTEGER REFERENCES workspaces(id) ON DELETE SET NULL,
+    mollie_payment_id TEXT,
+    event_type TEXT NOT NULL, -- ex: payment_paid, payment_failed, subscription_canceled
+    details TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_mollie_events_workspace ON mollie_events(workspace_id, created_at DESC);
+
+-- Comptes superadmin — totalement séparés des comptes utilisateurs normaux (table
+-- 'users'), qui sont eux toujours rattachés à un espace de travail. Un superadmin
+-- n'appartient à aucun espace de travail : il gère l'ensemble des clients depuis
+-- une interface cachée (/supadmin), jamais accessible ni visible depuis l'app normale.
+-- Le premier compte est créé automatiquement au démarrage à partir des variables
+-- d'environnement SUPERADMIN_EMAIL / SUPERADMIN_PASSWORD (voir app/superadmin.py) —
+-- ni l'une ni l'autre ne transitent jamais par le code applicatif au-delà de ça.
+CREATE TABLE IF NOT EXISTS superadmins (
+    id SERIAL PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- Rôle superadmin : 'administrateur' (accès complet, y compris actions
+-- destructives/financières et connexion en lieu et place d'un client) ou
+-- 'technicien' (support : consultation, réinitialisation de mot de passe
+-- d'un admin d'espace de travail — jamais login-as, jamais changement
+-- d'abonnement, jamais suppression). Restriction appliquée côté serveur
+-- dans app/superadmin.py (décorateur admin_required), jamais seulement
+-- côté affichage. Le compte bootstrap (SUPERADMIN_EMAIL/PASSWORD) est
+-- toujours 'administrateur'.
+ALTER TABLE superadmins ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'administrateur'
+    CHECK (role IN ('administrateur', 'technicien'));
+
+-- Dernière suggestion (admin_feedback.id) vue par ce compte superadmin —
+-- sert uniquement au badge "non lu" de l'onglet Suggestions (voir
+-- superadmin.py::unread_feedback_count). 0 = jamais rien vu. Par compte et
+-- non global : avec plusieurs superadmins (administrateur + technicien),
+-- chacun doit voir son propre badge, pas un état partagé qui se marquerait
+-- "lu" pour tout le monde dès qu'un seul l'ouvre.
+ALTER TABLE superadmins ADD COLUMN IF NOT EXISTS last_feedback_seen_id INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE superadmins ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+-- Code PIN de confirmation pour le changement de mot de passe (pas pour la
+-- récupération, contrairement à users.pin_hash) : même principe que pour
+-- les utilisateurs classiques, mais l'usage est différent ici — un
+-- superadmin déjà connecté doit aussi saisir son PIN pour changer son mot
+-- de passe, pour qu'une session volée seule (sans connaître le PIN) ne
+-- suffise pas à un tiers usurpateur pour prendre le contrôle du compte.
+-- NULL tant que le superadmin n'a pas configuré de PIN — dans ce cas le
+-- changement de mot de passe reste possible sans PIN (transition en
+-- douceur), voir app/superadmin.py::change_own_password.
+ALTER TABLE superadmins ADD COLUMN IF NOT EXISTS pin_hash TEXT;
+ALTER TABLE superadmins ADD COLUMN IF NOT EXISTS pin_set_at TIMESTAMPTZ;
+
+-- Historique des métriques serveur (disque, RAM, CPU, base de données,
+-- réseau), échantillonné périodiquement par app/vps_monitoring.py depuis
+-- lifecycle.py (toutes les ~5 minutes). Sert à calculer les heures de
+-- pointe/creuses et à afficher un historique dans /supadmin — voir la
+-- section "État du VPS". Les compteurs réseau sont ceux vus depuis le
+-- conteneur applicatif : une bonne approximation tant qu'un seul service
+-- occupe le VPS, à revoir si d'autres conteneurs sont ajoutés dessus.
+CREATE TABLE IF NOT EXISTS vps_metrics_history (
+    id BIGSERIAL PRIMARY KEY,
+    sampled_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    disk_used_pct REAL,
+    disk_used_gb REAL,
+    disk_total_gb REAL,
+    ram_used_pct REAL,
+    ram_used_gb REAL,
+    ram_total_gb REAL,
+    cpu_pct REAL,
+    db_size_mb REAL,
+    db_connections INTEGER,
+    db_status TEXT,
+    net_bytes_sent BIGINT,
+    net_bytes_recv BIGINT,
+    bandwidth_mbps REAL
+);
+CREATE INDEX IF NOT EXISTS idx_vps_metrics_sampled_at ON vps_metrics_history (sampled_at);
+
+-- Journal des actions sensibles effectuées depuis /supadmin. superadmin_id référence
+-- superadmins, mais SET NULL si le compte est supprimé un jour — l'historique reste
+-- lisible grâce à superadmin_email (dénormalisé). Idem pour workspace_id/workspace_name :
+-- l'action doit rester traçable même après suppression définitive de l'espace concerné.
+CREATE TABLE IF NOT EXISTS superadmin_audit_log (
+    id SERIAL PRIMARY KEY,
+    superadmin_id INTEGER REFERENCES superadmins(id) ON DELETE SET NULL,
+    superadmin_email TEXT NOT NULL,
+    action TEXT NOT NULL,
+    workspace_id INTEGER,
+    workspace_name TEXT,
+    details TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Utilisateurs rattachés à un espace de travail
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'commercial',  -- admin / commercial / lecture_seule
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_users_workspace ON users(workspace_id);
+
+-- ALTER plutôt que colonnes dans le CREATE TABLE ci-dessus : la table existe déjà
+-- en production (créée lors de la migration initiale), un CREATE TABLE IF NOT
+-- EXISTS ne la modifierait pas.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'commercial';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+-- Forcé à TRUE quand un superadmin réinitialise le mot de passe de cet utilisateur :
+-- il doit en choisir un nouveau avant de pouvoir faire quoi que ce soit d'autre.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
+-- Traçabilité du consentement donné à l'inscription (CGV + traitement des
+-- données RGPD, cases séparées — voir app/signup.html et app/auth.py). NULL
+-- pour les comptes créés avant l'ajout de ces cases (aucune valeur inventée
+-- a posteriori). consent_ip capture une seule adresse, les deux cases étant
+-- cochées dans le même envoi de formulaire.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS cgv_accepted_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS rgpd_accepted_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS consent_ip TEXT;
+-- Code PIN de récupération (auto-service, sans e-mail) — haché comme un mot
+-- de passe, jamais stocké en clair. NULL tant que l'utilisateur ne l'a pas
+-- défini lui-même (depuis Mon compte, avec son mot de passe actuel).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS pin_hash TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS pin_set_at TIMESTAMPTZ;
+
+-- Vérification d'adresse e-mail à l'inscription (obligatoire — voir
+-- app/main.py::_email_verification_gate). NULL tant que non confirmé.
+-- verification_token_hash est haché comme un mot de passe (jamais stocké en
+-- clair), même principe que pin_hash. verification_sent_at sert à la fois
+-- à l'expiration du lien (24h, voir auth.py) et à limiter les renvois.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_token_hash TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_sent_at TIMESTAMPTZ;
+-- Comptes créés avant la mise en place de cette fonctionnalité : considérés
+-- vérifiés d'office (impossible de leur redemander une confirmation
+-- rétroactive). Date de bascule fixe et volontairement figée dans le passé
+-- proche — CRITIQUE : ce n'est PAS "tout compte sans email_verified_at",
+-- sinon cette ligne re-vérifierait aussi tout nouveau compte non confirmé
+-- à chaque redémarrage de l'app (schema.sql s'exécute à chaque déploiement,
+-- voir app/main.py::init_db). Seuls les comptes créés avant cette date
+-- précise sont concernés, une fois pour toutes.
+UPDATE users SET email_verified_at = created_at
+WHERE email_verified_at IS NULL AND created_at < '2026-08-15 00:00:00+00';
+
+-- Informations personnelles facultatives, renseignées volontairement par
+-- l'utilisateur depuis Mon compte (voir app/my_account.html,
+-- app/auth.py::update_profile). Servent notamment, pour l'administrateur
+-- d'un espace de travail, à alimenter automatiquement la fiche client
+-- correspondante dans l'espace de travail personnel du superadmin — voir
+-- app/client_sync.py. Jamais obligatoires (minimisation des données).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT;
+
+-- Préférences personnelles par utilisateur (idée produit : tableau de bord
+-- modulable). Pour l'instant ne contient que la disposition des widgets du
+-- tableau de bord, mais volontairement générique (JSONB) pour accueillir
+-- d'autres préférences futures sans nouvelle migration.
+CREATE TABLE IF NOT EXISTS user_preferences (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    dashboard_layout JSONB,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Anti brute-force : journal des tentatives de connexion (utilisateur normal
+-- ET superadmin), utilisé par app/rate_limit.py pour bloquer temporairement
+-- après trop d'échecs récents (par email ciblé ET par IP source).
+CREATE TABLE IF NOT EXISTS login_attempts (
+    id SERIAL PRIMARY KEY,
+    identifier TEXT,           -- email visé (minuscules), NULL si non fourni
+    ip_address TEXT,
+    success BOOLEAN NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_login_attempts_identifier ON login_attempts(identifier, created_at);
+CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON login_attempts(ip_address, created_at);
+-- Sépare le compteur anti brute-force par surface ('login', 'superadmin',
+-- 'forgot_password', 'signup'...) : sans cette colonne, le comptage PAR IP
+-- (voir app/rate_limit.py::is_rate_limited) mélangeait tous les échecs d'une
+-- même adresse IP quelle que soit leur origine — tester la création de
+-- compte depuis un bureau pouvait ainsi bloquer par erreur la connexion et
+-- le superadmin pour tout le monde derrière la même IP. NULL pour les lignes
+-- créées avant cette colonne (elles ne comptent simplement plus dans aucun
+-- contexte, sans conséquence : la fenêtre glissante est de 15 minutes).
+ALTER TABLE login_attempts ADD COLUMN IF NOT EXISTS context TEXT;
+CREATE INDEX IF NOT EXISTS idx_login_attempts_context ON login_attempts(context, ip_address, created_at);
+
+-- Messages envoyés depuis le formulaire public /contact (visiteurs non
+-- connectés, pas de workspace associé — distinct de admin_feedback qui vient
+-- des clients déjà inscrits). Toujours conservé même si l'envoi de l'e-mail
+-- de notification échoue, pour ne jamais perdre un message.
+CREATE TABLE IF NOT EXISTS contact_messages (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    message TEXT NOT NULL,
+    ip_address TEXT,
+    notified BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_contact_messages_ip ON contact_messages(ip_address, created_at);
+
+-- Événements de sécurité "self-service" (réinitialisation de mot de passe
+-- via PIN, blocages anti brute-force...) — distinct de superadmin_audit_log
+-- qui trace les actions DU superadmin. Consultable en lecture seule dans
+-- /supadmin pour repérer une activité suspecte (ex: beaucoup de blocages
+-- sur un même espace).
+CREATE TABLE IF NOT EXISTS security_events (
+    id SERIAL PRIMARY KEY,
+    workspace_id INTEGER REFERENCES workspaces(id) ON DELETE SET NULL,
+    workspace_name TEXT,
+    user_email TEXT,
+    event_type TEXT NOT NULL,  -- password_reset_pin / pin_rate_limited
+    details TEXT,
+    ip_address TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_security_events_created ON security_events(created_at DESC);
+
+-- Prospects
+CREATE TABLE IF NOT EXISTS prospects (
+    id SERIAL PRIMARY KEY,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    nom_entreprise TEXT NOT NULL,
+    siren TEXT,
+    siret TEXT,
+    naf_code TEXT,
+    adresse TEXT,
+    code_postal TEXT,
+    ville TEXT,
+    telephone TEXT,
+    email TEXT,
+    site_web TEXT,
+    statut TEXT NOT NULL DEFAULT 'nouveau',   -- nouveau / qualifie / en_attente / client / recale
+    source TEXT,                              -- manuel / sirene / recherche_ia / import_csv
+    motif_recalage TEXT,                      -- ex: "liquidation judiciaire (BODACC)"
+    recale_at TIMESTAMPTZ,                    -- déclenche le compte à rebours d'1 semaine avant purge
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_prospects_workspace ON prospects(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_prospects_statut ON prospects(statut);
+CREATE INDEX IF NOT EXISTS idx_prospects_siren ON prospects(siren);
+
+-- Purge RGPD des prospects "recalés" (spec §6 / écart documenté v6 §2).
+-- recale_source distingue un marquage manuel (NULL) d'un marquage
+-- automatique via BODACC ('bodacc') — seul ce dernier peut être annulé
+-- par l'utilisateur (voir app/prospect_lifecycle.py::cancel_automatic_recalage).
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS recale_source TEXT;
+-- Statut restauré si un marquage automatique BODACC est annulé. NULL pour
+-- un marquage manuel (l'annulation n'a alors pas de sens applicatif : il
+-- suffit de repasser par le changement de statut normal).
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS statut_avant_recalage TEXT;
+
+-- Archive minimale (RGPD, minimisation) des prospects recalés purgés :
+-- nom d'entreprise, ou SIRET si le nom est absent — jamais les deux,
+-- jamais aucune autre donnée. Purgée elle-même 1 jour après création
+-- (voir app/prospect_lifecycle.py::purge_expired_archives).
+CREATE TABLE IF NOT EXISTS prospect_archives (
+    id SERIAL PRIMARY KEY,
+    archive_data TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Renseigné uniquement pour une fiche créée automatiquement par
+-- app/client_sync.py : identifie l'espace de travail client dont ce profil
+-- a été synchronisé, pour permettre une mise à jour (upsert) plutôt qu'un
+-- doublon à chaque nouvelle synchronisation. NULL pour tous les prospects
+-- normaux (immense majorité des lignes).
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS synced_from_workspace_id INTEGER REFERENCES workspaces(id) ON DELETE SET NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_prospects_synced_from_unique
+    ON prospects(workspace_id, synced_from_workspace_id) WHERE synced_from_workspace_id IS NOT NULL;
+-- Statut d'abonnement au moment de la dernière synchronisation (voir
+-- app/client_sync.py) — "Essai", "Payant mensuel", "Payant annuel" ou
+-- "Gratuit", avec sa date de fin le cas échéant. Sert à filtrer facilement
+-- les renouvellements récents pour la facturation manuelle (export CSV).
+-- Mis à jour à chaque renouvellement Mollie, pas seulement à l'enregistrement
+-- du profil — voir mollie_billing.py et superadmin.py::set_plan.
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS synced_subscription_status TEXT;
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS synced_subscription_end_date DATE;
+
+-- Nom du contact (pour personnaliser "Bonjour {prenom}" dans les emails de campagne).
+-- ALTER plutôt que colonne dans le CREATE TABLE ci-dessus : la table existe déjà en
+-- production, un CREATE TABLE IF NOT EXISTS ne la modifierait pas.
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS contact_prenom TEXT;
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS contact_nom TEXT;
+-- Complément d'adresse (bâtiment, étage), en plus de `adresse` (rue) et
+-- `code_postal` déjà existants — ces deux derniers étaient déjà en base
+-- mais absents du formulaire manuel d'ajout/édition, corrigé au même moment.
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS batiment TEXT;
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS etage TEXT;
+-- Qualification simple façon pipeline commercial : score 1 à 5 (affiché en
+-- étoiles) et montant potentiel de l'affaire. Validation (bornes, format)
+-- faite côté application (app/prospects.py, app/csv_import.py) plutôt qu'en
+-- contrainte SQL, pour rester cohérent avec le reste du schéma qui ne pose
+-- pas de CHECK — toujours nullables, jamais renseignés automatiquement.
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS potentiel SMALLINT;
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS valeur_estimee NUMERIC(10,2);
+
+-- Types de statut personnalisables (forme juridique / catégorie), pour classer
+-- les prospects et cibler des campagnes par type.
+CREATE TABLE IF NOT EXISTS prospect_types (
+    id SERIAL PRIMARY KEY,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    nom TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (workspace_id, nom)
+);
+CREATE INDEX IF NOT EXISTS idx_prospect_types_workspace ON prospect_types(workspace_id);
+
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS prospect_type_id INTEGER REFERENCES prospect_types(id) ON DELETE SET NULL;
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS prochaine_action TEXT;
+-- Date structurée associée à prochaine_action (le texte reste libre, cette
+-- date optionnelle sert uniquement au rappel automatique "en retard" — liste
+-- prospects + résumé hebdomadaire). NULL si aucune date n'a été précisée.
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS prochaine_action_date DATE;
+
+-- Historique d'activité par prospect (idée produit "timeline") : trace les
+-- événements clés (création, changement de statut, RDV pris, campagne
+-- reçue...) pour reconstituer le fil d'un dossier sans avoir à recouper
+-- plusieurs écrans. Alimenté au fil de l'eau par les modules concernés
+-- (prospects.py, rendez_vous.py, sending.py) — jamais modifiable a posteriori.
+CREATE TABLE IF NOT EXISTS prospect_activity (
+    id SERIAL PRIMARY KEY,
+    prospect_id INTEGER NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL,   -- cree / statut_change / rdv_planifie / campagne_envoyee / note
+    description TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_prospect_activity_prospect ON prospect_activity(prospect_id, created_at DESC);
+-- Utilisateur à l'origine de l'événement, pour le rapport d'équipe (activité
+-- par membre). NULL = événement automatisé (ex: campagne envoyée par le
+-- planificateur en arrière-plan) ou événement créé avant l'ajout de cette
+-- colonne — pas de perte de données historiques, juste pas d'attribution.
+-- ON DELETE SET NULL plutôt que CASCADE : la suppression d'un compte
+-- utilisateur ne doit jamais effacer l'historique du prospect concerné.
+ALTER TABLE prospect_activity ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_prospect_activity_workspace_user ON prospect_activity(workspace_id, user_id, created_at DESC);
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS notes TEXT;
+CREATE INDEX IF NOT EXISTS idx_prospects_type ON prospects(prospect_type_id);
+
+-- Attribution d'un prospect à un collaborateur (visibilité "qui gère quoi"
+-- dans l'équipe). Toujours nullable : un prospect peut rester non assigné
+-- (décision produit assumée, pas une valeur par défaut à corriger plus tard).
+-- ON DELETE SET NULL est un filet de sécurité pur : le chemin normal de
+-- suppression d'un compte (voir app/auth.py::delete_user) réattribue déjà
+-- explicitement les prospects concernés AVANT de supprimer la ligne users,
+-- donc ce SET NULL ne devrait en pratique jamais être le mécanisme qui joue.
+ALTER TABLE prospects ADD COLUMN IF NOT EXISTS assigned_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_prospects_assigned_user ON prospects(workspace_id, assigned_user_id);
+
+-- Rendez-vous : calendrier partagé au niveau de l'espace de travail. Chaque
+-- utilisateur ne modifie que les siens ; un administrateur peut modifier ceux
+-- des autres (avec notification par e-mail au propriétaire d'origine).
+CREATE TABLE IF NOT EXISTS rendez_vous (
+    id SERIAL PRIMARY KEY,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    prospect_id INTEGER REFERENCES prospects(id) ON DELETE SET NULL,
+    titre TEXT NOT NULL,
+    date_heure TIMESTAMPTZ NOT NULL,
+    duree_minutes INTEGER NOT NULL DEFAULT 30,
+    notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_rendez_vous_workspace_date ON rendez_vous(workspace_id, date_heure);
+
+-- Historique des lancements de recherche IA (pour appliquer le quota de 3/jour/espace)
+CREATE TABLE IF NOT EXISTS ia_search_log (
+    id SERIAL PRIMARY KEY,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    prospect_id INTEGER REFERENCES prospects(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_ia_search_log_workspace_date ON ia_search_log(workspace_id, created_at);
+
+-- Historique des messages envoyés à l'assistant d'aide (pour appliquer un quota
+-- quotidien par espace de travail — même principe que ia_search_log).
+CREATE TABLE IF NOT EXISTS assistant_chat_log (
+    id SERIAL PRIMARY KEY,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_assistant_chat_log_workspace_date ON assistant_chat_log(workspace_id, created_at);
+
+-- Suggestions/idées d'amélioration remontées volontairement par les utilisateurs
+-- depuis l'assistant d'aide. Visibles côté superadmin (/supadmin).
+CREATE TABLE IF NOT EXISTS admin_feedback (
+    id SERIAL PRIMARY KEY,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    workspace_name TEXT,
+    user_email TEXT,
+    message TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- Renseigné quand le superadmin envoie une réponse/remerciement depuis la
+-- console (voir app/main.py: supadmin_feedback_reply). NULL = pas encore répondu.
+ALTER TABLE admin_feedback ADD COLUMN IF NOT EXISTS replied_at TIMESTAMPTZ;
+
+-- Paramètres techniques globaux modifiables sans redéploiement (ex: modèle Gemini
+-- en cas de retrait par Google). Portée globale, pas par espace de travail —
+-- à restreindre à un rôle "super-admin" une fois plusieurs clients réels.
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Recherches IA planifiées (relance automatique quotidienne, fiable côté serveur)
+CREATE TABLE IF NOT EXISTS scheduled_searches (
+    id SERIAL PRIMARY KEY,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    lieu TEXT NOT NULL,
+    type_entreprise TEXT NOT NULL,
+    criteres_additionnels TEXT,
+    heure TIME NOT NULL,
+    actif BOOLEAN NOT NULL DEFAULT TRUE,
+    derniere_execution DATE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_scheduled_searches_workspace ON scheduled_searches(workspace_id);
+
+-- Résultats des recherches planifiées, en attente de vérification manuelle par l'utilisateur
+-- (jamais insérés directement dans prospects — même principe que la recherche manuelle :
+-- rien n'est enregistré sans validation humaine).
+CREATE TABLE IF NOT EXISTS scheduled_search_results (
+    id SERIAL PRIMARY KEY,
+    scheduled_search_id INTEGER NOT NULL REFERENCES scheduled_searches(id) ON DELETE CASCADE,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    fields JSONB NOT NULL,
+    statut TEXT NOT NULL DEFAULT 'a_verifier',  -- a_verifier / traite
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_scheduled_search_results_workspace ON scheduled_search_results(workspace_id, statut);
+
+-- Configuration SMTP par espace de travail (identifiants chiffrés côté application avant écriture)
+CREATE TABLE IF NOT EXISTS smtp_configs (
+    workspace_id INTEGER PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+    host TEXT NOT NULL,
+    port INTEGER NOT NULL,
+    username TEXT NOT NULL,
+    password_encrypted TEXT NOT NULL,
+    from_email TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- Une configuration ne peut servir à une campagne qu'après un test d'envoi réussi
+-- (bouton "Tester l'envoi" dans Paramètres). Remis à FALSE à chaque modification
+-- des identifiants (voir app/workspace_settings.py::set_smtp_config).
+ALTER TABLE smtp_configs ADD COLUMN IF NOT EXISTS verified BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE smtp_configs ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ;
+
+-- Fiche Google Business Profile par espace de travail
+CREATE TABLE IF NOT EXISTS google_business_profiles (
+    workspace_id INTEGER PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+    profile_url TEXT NOT NULL
+);
+
+-- Campagnes (avis / publicitaire / newsletter) — 10 actives max par espace, contrôlé côté app
+CREATE TABLE IF NOT EXISTS campaigns (
+    id SERIAL PRIMARY KEY,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    type TEXT NOT NULL,                       -- avis / publicitaire / newsletter
+    nom TEXT NOT NULL,
+    sujet TEXT,
+    contenu TEXT,
+    quota_par_jour INTEGER DEFAULT 100,
+    statut TEXT NOT NULL DEFAULT 'active',     -- active / inactive
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_campaigns_workspace ON campaigns(workspace_id);
+
+-- Image insérée dans le corps du message (optionnelle). Toujours ré-encodée
+-- côté serveur avant stockage (app/campaign_image.py) : jamais le fichier brut
+-- envoyé par l'utilisateur, pour neutraliser tout payload caché dans les
+-- métadonnées. Poids limité à 200 Ko après compression.
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS image_data BYTEA;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS image_mimetype TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS image_updated_at TIMESTAMPTZ;
+
+-- Envois (email uniquement au lancement — colonne canal prévue pour le SMS futur)
+CREATE TABLE IF NOT EXISTS campaign_sends (
+    id SERIAL PRIMARY KEY,
+    campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+    prospect_id INTEGER NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
+    canal TEXT NOT NULL DEFAULT 'email',       -- email / sms (réservé, pas encore actif)
+    statut TEXT NOT NULL DEFAULT 'planifie',   -- planifie / en_cours / envoye / echec / annule
+    planifie_pour TIMESTAMPTZ,
+    envoye_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_campaign_sends_campaign ON campaign_sends(campaign_id);
+
+-- Horodatage de prise en charge par un worker (pour détecter un envoi resté bloqué,
+-- ex: worker redémarré en pleine tâche — cf. app/sending.py).
+ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS locked_at TIMESTAMPTZ;
+
+-- Consentements RGPD (opt-in / opt-out / intérêt légitime), par prospect et par type de campagne
+CREATE TABLE IF NOT EXISTS consents (
+    id SERIAL PRIMARY KEY,
+    prospect_id INTEGER NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
+    type TEXT NOT NULL,                        -- avis / publicitaire / newsletter
+    statut TEXT NOT NULL,                       -- opt_in / opt_out / interet_legitime
+    source TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_consents_prospect ON consents(prospect_id);
+
+-- Imports CSV — suivi des jobs asynchrones
+CREATE TABLE IF NOT EXISTS import_jobs (
+    id SERIAL PRIMARY KEY,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    filename TEXT,
+    status TEXT NOT NULL DEFAULT 'mapping',    -- mapping / pending / processing / done / failed
+    mapping JSONB,                             -- {"colonne_csv": "champ_prospect"}
+    raw_content BYTEA,                         -- contenu CSV temporaire, vidé une fois le job terminé
+    total_rows INTEGER,
+    processed_rows INTEGER NOT NULL DEFAULT 0,
+    imported_count INTEGER NOT NULL DEFAULT 0,
+    error_count INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    started_at TIMESTAMPTZ,
+    finished_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_import_jobs_workspace ON import_jobs(workspace_id);
+-- Doublons détectés (SIRET ou nom+ville déjà présent) et ignorés à l'import —
+-- comptés à part des erreurs, ce n'est pas une ligne invalide.
+ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS duplicate_count INTEGER NOT NULL DEFAULT 0;
+-- Utilisateur qui a lancé l'import — sert à attribuer les prospects importés
+-- au bon membre pour le rapport d'équipe (voir prospect_activity.user_id
+-- ci-dessus). NULL possible pour des jobs créés avant cette colonne.
+ALTER TABLE import_jobs ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+
+-- Rapport d'erreurs / avertissements ligne par ligne pour un import
+CREATE TABLE IF NOT EXISTS import_errors (
+    id SERIAL PRIMARY KEY,
+    job_id INTEGER NOT NULL REFERENCES import_jobs(id) ON DELETE CASCADE,
+    row_number INTEGER NOT NULL,
+    severity TEXT NOT NULL DEFAULT 'error',    -- error (ligne rejetée) / warning (importée mais à vérifier)
+    message TEXT NOT NULL,
+    raw_row JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_import_errors_job ON import_errors(job_id);
+
+-- Nomenclature officielle des codes NAF/APE (INSEE, 732 codes) — permet la recherche
+-- d'un code à partir d'une description en langage courant ("boulangerie" -> 10.71C...).
+CREATE TABLE IF NOT EXISTS naf_codes (
+    code TEXT PRIMARY KEY,
+    label TEXT NOT NULL,
+    label_normalized TEXT GENERATED ALWAYS AS (immutable_unaccent(lower(label))) STORED
+);
+CREATE INDEX IF NOT EXISTS idx_naf_codes_label_trgm ON naf_codes USING gin (label_normalized gin_trgm_ops);
+
+INSERT INTO naf_codes (code, label) VALUES
+    ('01.11Z', 'Culture de céréales (à l''exception du riz), de légumineuses et de graines oléagineuses'),
+    ('01.12Z', 'Culture du riz'),
+    ('01.13Z', 'Culture de légumes, de melons, de racines et de tubercules'),
+    ('01.14Z', 'Culture de la canne à sucre'),
+    ('01.15Z', 'Culture du tabac'),
+    ('01.16Z', 'Culture de plantes à fibres'),
+    ('01.19Z', 'Autres cultures non permanentes'),
+    ('01.21Z', 'Culture de la vigne'),
+    ('01.22Z', 'Culture de fruits tropicaux et subtropicaux'),
+    ('01.23Z', 'Culture d''agrumes'),
+    ('01.24Z', 'Culture de fruits à pépins et à noyau'),
+    ('01.25Z', 'Culture d''autres fruits d''arbres ou d''arbustes et de fruits à coque'),
+    ('01.26Z', 'Culture de fruits oléagineux'),
+    ('01.27Z', 'Culture de plantes à boissons'),
+    ('01.28Z', 'Culture de plantes à épices, aromatiques, médicinales et pharmaceutiques'),
+    ('01.29Z', 'Autres cultures permanentes'),
+    ('01.30Z', 'Reproduction de plantes'),
+    ('01.41Z', 'Élevage de vaches laitières'),
+    ('01.42Z', 'Élevage d''autres bovins et de buffles'),
+    ('01.43Z', 'Élevage de chevaux et d''autres équidés'),
+    ('01.44Z', 'Élevage de chameaux et d''autres camélidés'),
+    ('01.45Z', 'Élevage d''ovins et de caprins'),
+    ('01.46Z', 'Élevage de porcins'),
+    ('01.47Z', 'Élevage de volailles'),
+    ('01.49Z', 'Élevage d''autres animaux'),
+    ('01.50Z', 'Culture et élevage associés'),
+    ('01.61Z', 'Activités de soutien aux cultures'),
+    ('01.62Z', 'Activités de soutien à la production animale'),
+    ('01.63Z', 'Traitement primaire des récoltes'),
+    ('01.64Z', 'Traitement des semences'),
+    ('01.70Z', 'Chasse, piégeage et services annexes'),
+    ('02.10Z', 'Sylviculture et autres activités forestières'),
+    ('02.20Z', 'Exploitation forestière'),
+    ('02.30Z', 'Récolte de produits forestiers non ligneux poussant à l''état sauvage'),
+    ('02.40Z', 'Services de soutien à l''exploitation forestière'),
+    ('03.11Z', 'Pêche en mer'),
+    ('03.12Z', 'Pêche en eau douce'),
+    ('03.21Z', 'Aquaculture en mer'),
+    ('03.22Z', 'Aquaculture en eau douce'),
+    ('05.10Z', 'Extraction de houille'),
+    ('05.20Z', 'Extraction de lignite'),
+    ('06.10Z', 'Extraction de pétrole brut'),
+    ('06.20Z', 'Extraction de gaz naturel'),
+    ('07.10Z', 'Extraction de minerais de fer'),
+    ('07.21Z', 'Extraction de minerais d''uranium et de thorium'),
+    ('07.29Z', 'Extraction d''autres minerais de métaux non ferreux'),
+    ('08.11Z', 'Extraction de pierres ornementales et de construction, de calcaire industriel, de gypse, de craie et d''ardoise'),
+    ('08.12Z', 'Exploitation de gravières et sablières, extraction d’argiles et de kaolin'),
+    ('08.91Z', 'Extraction des minéraux chimiques et d''engrais minéraux'),
+    ('08.92Z', 'Extraction de tourbe'),
+    ('08.93Z', 'Production de sel'),
+    ('08.99Z', 'Autres activités extractives n.c.a.'),
+    ('09.10Z', 'Activités de soutien à l''extraction d''hydrocarbures'),
+    ('09.90Z', 'Activités de soutien aux autres industries extractives'),
+    ('10.11Z', 'Transformation et conservation de la viande de boucherie'),
+    ('10.12Z', 'Transformation et conservation de la viande de volaille'),
+    ('10.13A', 'Préparation industrielle de produits à base de viande'),
+    ('10.13B', 'Charcuterie'),
+    ('10.20Z', 'Transformation et conservation de poisson, de crustacés et de mollusques'),
+    ('10.31Z', 'Transformation et conservation de pommes de terre'),
+    ('10.32Z', 'Préparation de jus de fruits et légumes'),
+    ('10.39A', 'Autre transformation et conservation de légumes'),
+    ('10.39B', 'Transformation et conservation de fruits'),
+    ('10.41A', 'Fabrication d''huiles et graisses brutes'),
+    ('10.41B', 'Fabrication d''huiles et graisses raffinées'),
+    ('10.42Z', 'Fabrication de margarine et graisses comestibles similaires'),
+    ('10.51A', 'Fabrication de lait liquide et de produits frais'),
+    ('10.51B', 'Fabrication de beurre'),
+    ('10.51C', 'Fabrication de fromage'),
+    ('10.51D', 'Fabrication d''autres produits laitiers'),
+    ('10.52Z', 'Fabrication de glaces et sorbets'),
+    ('10.61A', 'Meunerie'),
+    ('10.61B', 'Autres activités du travail des grains'),
+    ('10.62Z', 'Fabrication de produits amylacés'),
+    ('10.71A', 'Fabrication industrielle de pain et de pâtisserie fraîche'),
+    ('10.71B', 'Cuisson de produits de boulangerie'),
+    ('10.71C', 'Boulangerie et boulangerie-pâtisserie'),
+    ('10.71D', 'Pâtisserie'),
+    ('10.72Z', 'Fabrication de biscuits, biscottes et pâtisseries de conservation'),
+    ('10.73Z', 'Fabrication de pâtes alimentaires'),
+    ('10.81Z', 'Fabrication de sucre'),
+    ('10.82Z', 'Fabrication de cacao, chocolat et de produits de confiserie'),
+    ('10.83Z', 'Transformation du thé et du café'),
+    ('10.84Z', 'Fabrication de condiments et assaisonnements'),
+    ('10.85Z', 'Fabrication de plats préparés'),
+    ('10.86Z', 'Fabrication d''aliments homogénéisés et diététiques'),
+    ('10.89Z', 'Fabrication d''autres produits alimentaires n.c.a.'),
+    ('10.91Z', 'Fabrication d''aliments pour animaux de ferme'),
+    ('10.92Z', 'Fabrication d''aliments pour animaux de compagnie'),
+    ('11.01Z', 'Production de boissons alcooliques distillées'),
+    ('11.02A', 'Fabrication de vins effervescents'),
+    ('11.02B', 'Vinification'),
+    ('11.03Z', 'Fabrication de cidre et de vins de fruits'),
+    ('11.04Z', 'Production d''autres boissons fermentées non distillées'),
+    ('11.05Z', 'Fabrication de bière'),
+    ('11.06Z', 'Fabrication de malt'),
+    ('11.07A', 'Industrie des eaux de table'),
+    ('11.07B', 'Production de boissons rafraîchissantes'),
+    ('12.00Z', 'Fabrication de produits à base de tabac'),
+    ('13.10Z', 'Préparation de fibres textiles et filature'),
+    ('13.20Z', 'Tissage'),
+    ('13.30Z', 'Ennoblissement textile'),
+    ('13.91Z', 'Fabrication d''étoffes à mailles'),
+    ('13.92Z', 'Fabrication d''articles textiles, sauf habillement'),
+    ('13.93Z', 'Fabrication de tapis et moquettes'),
+    ('13.94Z', 'Fabrication de ficelles, cordes et filets'),
+    ('13.95Z', 'Fabrication de non-tissés, sauf habillement'),
+    ('13.96Z', 'Fabrication d''autres textiles techniques et industriels'),
+    ('13.99Z', 'Fabrication d''autres textiles n.c.a.'),
+    ('14.11Z', 'Fabrication de vêtements en cuir'),
+    ('14.12Z', 'Fabrication de vêtements de travail'),
+    ('14.13Z', 'Fabrication de vêtements de dessus'),
+    ('14.14Z', 'Fabrication de vêtements de dessous'),
+    ('14.19Z', 'Fabrication d''autres vêtements et accessoires'),
+    ('14.20Z', 'Fabrication d''articles en fourrure'),
+    ('14.31Z', 'Fabrication d''articles chaussants à mailles'),
+    ('14.39Z', 'Fabrication d''autres articles à mailles'),
+    ('15.11Z', 'Apprêt et tannage des cuirs ; préparation et teinture des fourrures'),
+    ('15.12Z', 'Fabrication d''articles de voyage, de maroquinerie et de sellerie'),
+    ('15.20Z', 'Fabrication de chaussures'),
+    ('16.10A', 'Sciage et rabotage du bois, hors imprégnation'),
+    ('16.10B', 'Imprégnation du bois'),
+    ('16.21Z', 'Fabrication de placage et de panneaux de bois'),
+    ('16.22Z', 'Fabrication de parquets assemblés'),
+    ('16.23Z', 'Fabrication de charpentes et d''autres menuiseries'),
+    ('16.24Z', 'Fabrication d''emballages en bois'),
+    ('16.29Z', 'Fabrication d''objets divers en bois ; fabrication d''objets en liège, vannerie et sparterie'),
+    ('17.11Z', 'Fabrication de pâte à papier'),
+    ('17.12Z', 'Fabrication de papier et de carton'),
+    ('17.21A', 'Fabrication de carton ondulé'),
+    ('17.21B', 'Fabrication de cartonnages'),
+    ('17.21C', 'Fabrication d''emballages en papier'),
+    ('17.22Z', 'Fabrication d''articles en papier à usage sanitaire ou domestique'),
+    ('17.23Z', 'Fabrication d''articles de papeterie'),
+    ('17.24Z', 'Fabrication de papiers peints'),
+    ('17.29Z', 'Fabrication d''autres articles en papier ou en carton'),
+    ('18.11Z', 'Imprimerie de journaux'),
+    ('18.12Z', 'Autre imprimerie (labeur)'),
+    ('18.13Z', 'Activités de pré-presse'),
+    ('18.14Z', 'Reliure et activités connexes'),
+    ('18.20Z', 'Reproduction d''enregistrements'),
+    ('19.10Z', 'Cokéfaction'),
+    ('19.20Z', 'Raffinage du pétrole'),
+    ('20.11Z', 'Fabrication de gaz industriels'),
+    ('20.12Z', 'Fabrication de colorants et de pigments'),
+    ('20.13A', 'Enrichissement et  retraitement de matières nucléaires'),
+    ('20.13B', 'Fabrication d''autres produits chimiques inorganiques de base n.c.a.'),
+    ('20.14Z', 'Fabrication d''autres produits chimiques organiques de base'),
+    ('20.15Z', 'Fabrication de produits azotés et d''engrais'),
+    ('20.16Z', 'Fabrication de matières plastiques de base'),
+    ('20.17Z', 'Fabrication de caoutchouc synthétique'),
+    ('20.20Z', 'Fabrication de pesticides et d’autres produits agrochimiques'),
+    ('20.30Z', 'Fabrication de peintures, vernis, encres et mastics'),
+    ('20.41Z', 'Fabrication de savons, détergents et produits d''entretien'),
+    ('20.42Z', 'Fabrication de parfums et de produits pour la toilette'),
+    ('20.51Z', 'Fabrication de produits explosifs'),
+    ('20.52Z', 'Fabrication de colles'),
+    ('20.53Z', 'Fabrication d''huiles essentielles'),
+    ('20.59Z', 'Fabrication d''autres produits chimiques n.c.a.'),
+    ('20.60Z', 'Fabrication de fibres artificielles ou synthétiques'),
+    ('21.10Z', 'Fabrication de produits pharmaceutiques de base'),
+    ('21.20Z', 'Fabrication de préparations pharmaceutiques'),
+    ('22.11Z', 'Fabrication et rechapage de pneumatiques'),
+    ('22.19Z', 'Fabrication d''autres articles en caoutchouc'),
+    ('22.21Z', 'Fabrication de plaques, feuilles, tubes et profilés en matières plastiques'),
+    ('22.22Z', 'Fabrication d''emballages en matières plastiques'),
+    ('22.23Z', 'Fabrication d''éléments en matières plastiques pour la construction'),
+    ('22.29A', 'Fabrication de pièces techniques à base de matières plastiques'),
+    ('22.29B', 'Fabrication de produits de consommation courante en matières plastiques'),
+    ('23.11Z', 'Fabrication de verre plat'),
+    ('23.12Z', 'Façonnage et transformation du verre plat'),
+    ('23.13Z', 'Fabrication de verre creux'),
+    ('23.14Z', 'Fabrication de fibres de verre'),
+    ('23.19Z', 'Fabrication et façonnage d''autres articles en verre, y compris verre technique'),
+    ('23.20Z', 'Fabrication de produits réfractaires'),
+    ('23.31Z', 'Fabrication de carreaux en céramique'),
+    ('23.32Z', 'Fabrication de briques, tuiles et produits de construction, en terre cuite'),
+    ('23.41Z', 'Fabrication d''articles céramiques à usage domestique ou ornemental'),
+    ('23.42Z', 'Fabrication d''appareils sanitaires en céramique'),
+    ('23.43Z', 'Fabrication d''isolateurs et pièces isolantes en céramique'),
+    ('23.44Z', 'Fabrication d''autres produits céramiques à usage technique'),
+    ('23.49Z', 'Fabrication d''autres produits céramiques'),
+    ('23.51Z', 'Fabrication de ciment'),
+    ('23.52Z', 'Fabrication de chaux et plâtre'),
+    ('23.61Z', 'Fabrication d''éléments en béton pour la construction'),
+    ('23.62Z', 'Fabrication d''éléments en plâtre pour la construction'),
+    ('23.63Z', 'Fabrication de béton prêt à l''emploi'),
+    ('23.64Z', 'Fabrication de mortiers et bétons secs'),
+    ('23.65Z', 'Fabrication d''ouvrages en fibre-ciment'),
+    ('23.69Z', 'Fabrication d''autres ouvrages en béton, en ciment ou en plâtre'),
+    ('23.70Z', 'Taille, façonnage et finissage de pierres'),
+    ('23.91Z', 'Fabrication de produits abrasifs'),
+    ('23.99Z', 'Fabrication d''autres produits minéraux non métalliques n.c.a.'),
+    ('24.10Z', 'Sidérurgie'),
+    ('24.20Z', 'Fabrication de tubes, tuyaux, profilés creux et accessoires correspondants en acier'),
+    ('24.31Z', 'Étirage à froid de barres'),
+    ('24.32Z', 'Laminage à froid de feuillards'),
+    ('24.33Z', 'Profilage à froid par formage ou pliage'),
+    ('24.34Z', 'Tréfilage à froid'),
+    ('24.41Z', 'Production de métaux précieux'),
+    ('24.42Z', 'Métallurgie de l''aluminium'),
+    ('24.43Z', 'Métallurgie du plomb, du zinc ou de l''étain'),
+    ('24.44Z', 'Métallurgie du cuivre'),
+    ('24.45Z', 'Métallurgie des autres métaux non ferreux'),
+    ('24.46Z', 'Élaboration et transformation de matières nucléaires'),
+    ('24.51Z', 'Fonderie de fonte'),
+    ('24.52Z', 'Fonderie d''acier'),
+    ('24.53Z', 'Fonderie de métaux légers'),
+    ('24.54Z', 'Fonderie d''autres métaux non ferreux'),
+    ('25.11Z', 'Fabrication de structures métalliques et de parties de structures'),
+    ('25.12Z', 'Fabrication de portes et fenêtres en métal'),
+    ('25.21Z', 'Fabrication de radiateurs et de chaudières pour le chauffage central'),
+    ('25.29Z', 'Fabrication d''autres réservoirs, citernes et conteneurs métalliques'),
+    ('25.30Z', 'Fabrication de générateurs de vapeur, à l''exception des chaudières pour le chauffage central'),
+    ('25.40Z', 'Fabrication d''armes et de munitions'),
+    ('25.50A', 'Forge, estampage, matriçage ; métallurgie des poudres'),
+    ('25.50B', 'Découpage, emboutissage'),
+    ('25.61Z', 'Traitement et revêtement des métaux'),
+    ('25.62A', 'Décolletage'),
+    ('25.62B', 'Mécanique industrielle'),
+    ('25.71Z', 'Fabrication de coutellerie'),
+    ('25.72Z', 'Fabrication de serrures et de ferrures'),
+    ('25.73A', 'Fabrication de moules et modèles'),
+    ('25.73B', 'Fabrication d''autres outillages'),
+    ('25.91Z', 'Fabrication de fûts et emballages métalliques similaires'),
+    ('25.92Z', 'Fabrication d''emballages métalliques légers'),
+    ('25.93Z', 'Fabrication d''articles en fils métalliques, de chaînes et de ressorts'),
+    ('25.94Z', 'Fabrication de vis et de boulons'),
+    ('25.99A', 'Fabrication d''articles métalliques ménagers'),
+    ('25.99B', 'Fabrication d''autres articles métalliques'),
+    ('26.11Z', 'Fabrication de composants électroniques'),
+    ('26.12Z', 'Fabrication de cartes électroniques assemblées'),
+    ('26.20Z', 'Fabrication d''ordinateurs et d''équipements périphériques'),
+    ('26.30Z', 'Fabrication d''équipements de communication'),
+    ('26.40Z', 'Fabrication de produits électroniques grand public'),
+    ('26.51A', 'Fabrication d''équipements d''aide à la navigation'),
+    ('26.51B', 'Fabrication d''instrumentation scientifique et technique'),
+    ('26.52Z', 'Horlogerie'),
+    ('26.60Z', 'Fabrication d''équipements d''irradiation médicale, d''équipements électromédicaux et électrothérapeutiques'),
+    ('26.70Z', 'Fabrication de matériels optique et photographique'),
+    ('26.80Z', 'Fabrication de supports magnétiques et optiques'),
+    ('27.11Z', 'Fabrication de moteurs, génératrices et transformateurs électriques'),
+    ('27.12Z', 'Fabrication de matériel de distribution et de commande électrique'),
+    ('27.20Z', 'Fabrication de piles et d''accumulateurs électriques'),
+    ('27.31Z', 'Fabrication de câbles de fibres optiques'),
+    ('27.32Z', 'Fabrication d''autres fils et câbles électroniques ou électriques'),
+    ('27.33Z', 'Fabrication de matériel d''installation électrique'),
+    ('27.40Z', 'Fabrication d''appareils d''éclairage électrique'),
+    ('27.51Z', 'Fabrication d''appareils électroménagers'),
+    ('27.52Z', 'Fabrication d''appareils ménagers non électriques'),
+    ('27.90Z', 'Fabrication d''autres matériels électriques'),
+    ('28.11Z', 'Fabrication de moteurs et turbines, à l''exception des moteurs d’avions et de véhicules'),
+    ('28.12Z', 'Fabrication d''équipements hydrauliques et pneumatiques'),
+    ('28.13Z', 'Fabrication d''autres pompes et compresseurs'),
+    ('28.14Z', 'Fabrication d''autres articles de robinetterie'),
+    ('28.15Z', 'Fabrication d''engrenages et d''organes mécaniques de transmission'),
+    ('28.21Z', 'Fabrication de fours et brûleurs'),
+    ('28.22Z', 'Fabrication de matériel de levage et de manutention'),
+    ('28.23Z', 'Fabrication de machines et d''équipements de bureau (à l''exception des ordinateurs et équipements périphériques)'),
+    ('28.24Z', 'Fabrication d''outillage portatif à moteur incorporé'),
+    ('28.25Z', 'Fabrication d''équipements aérauliques et frigorifiques industriels'),
+    ('28.29A', 'Fabrication d''équipements d''emballage, de conditionnement et de pesage'),
+    ('28.29B', 'Fabrication d''autres machines d''usage général'),
+    ('28.30Z', 'Fabrication de machines agricoles et forestières'),
+    ('28.41Z', 'Fabrication de machines-outils pour le travail des métaux'),
+    ('28.49Z', 'Fabrication d''autres machines-outils'),
+    ('28.91Z', 'Fabrication de machines pour la métallurgie'),
+    ('28.92Z', 'Fabrication de machines pour l''extraction ou la construction'),
+    ('28.93Z', 'Fabrication de machines pour l''industrie agro-alimentaire'),
+    ('28.94Z', 'Fabrication de machines pour les industries textiles'),
+    ('28.95Z', 'Fabrication de machines pour les industries du papier et du carton'),
+    ('28.96Z', 'Fabrication de machines pour le travail du caoutchouc ou des plastiques'),
+    ('28.99A', 'Fabrication de machines d''imprimerie'),
+    ('28.99B', 'Fabrication d''autres machines spécialisées'),
+    ('29.10Z', 'Construction de véhicules automobiles'),
+    ('29.20Z', 'Fabrication de carrosseries et remorques'),
+    ('29.31Z', 'Fabrication d''équipements électriques et électroniques automobiles'),
+    ('29.32Z', 'Fabrication d''autres équipements automobiles'),
+    ('30.11Z', 'Construction de navires et de structures flottantes'),
+    ('30.12Z', 'Construction de bateaux de plaisance'),
+    ('30.20Z', 'Construction de locomotives et d''autre matériel ferroviaire roulant'),
+    ('30.30Z', 'Construction aéronautique et spatiale'),
+    ('30.40Z', 'Construction de véhicules militaires de combat'),
+    ('30.91Z', 'Fabrication de motocycles'),
+    ('30.92Z', 'Fabrication de bicyclettes et de véhicules pour invalides'),
+    ('30.99Z', 'Fabrication d’autres équipements de transport n.c.a.'),
+    ('31.01Z', 'Fabrication de meubles de bureau et de magasin'),
+    ('31.02Z', 'Fabrication de meubles de cuisine'),
+    ('31.03Z', 'Fabrication de matelas'),
+    ('31.09A', 'Fabrication de sièges d''ameublement d''intérieur'),
+    ('31.09B', 'Fabrication d’autres meubles et industries connexes de l’ameublement'),
+    ('32.11Z', 'Frappe de monnaie'),
+    ('32.12Z', 'Fabrication d’articles de joaillerie et bijouterie'),
+    ('32.13Z', 'Fabrication d’articles de bijouterie fantaisie et articles similaires'),
+    ('32.20Z', 'Fabrication d''instruments de musique'),
+    ('32.30Z', 'Fabrication d''articles de sport'),
+    ('32.40Z', 'Fabrication de jeux et jouets'),
+    ('32.50A', 'Fabrication de matériel médico-chirurgical et dentaire'),
+    ('32.50B', 'Fabrication de lunettes'),
+    ('32.91Z', 'Fabrication d’articles de brosserie'),
+    ('32.99Z', 'Autres activités manufacturières n.c.a.'),
+    ('33.11Z', 'Réparation d''ouvrages en métaux'),
+    ('33.12Z', 'Réparation de machines et équipements mécaniques'),
+    ('33.13Z', 'Réparation de matériels électroniques et optiques'),
+    ('33.14Z', 'Réparation d''équipements électriques'),
+    ('33.15Z', 'Réparation et maintenance navale'),
+    ('33.16Z', 'Réparation et maintenance d''aéronefs et d''engins spatiaux'),
+    ('33.17Z', 'Réparation et maintenance d''autres équipements de transport'),
+    ('33.19Z', 'Réparation d''autres équipements'),
+    ('33.20A', 'Installation de structures métalliques, chaudronnées et de tuyauterie'),
+    ('33.20B', 'Installation de machines et équipements mécaniques'),
+    ('33.20C', 'Conception d''ensemble et assemblage sur site industriel d''équipements de contrôle des processus industriels'),
+    ('33.20D', 'Installation d''équipements électriques, de matériels électroniques et optiques ou d''autres matériels'),
+    ('35.11Z', 'Production d''électricité'),
+    ('35.12Z', 'Transport d''électricité'),
+    ('35.13Z', 'Distribution d''électricité'),
+    ('35.14Z', 'Commerce d''électricité'),
+    ('35.21Z', 'Production de combustibles gazeux'),
+    ('35.22Z', 'Distribution de combustibles gazeux par conduites'),
+    ('35.23Z', 'Commerce de combustibles gazeux par conduites'),
+    ('35.30Z', 'Production et distribution de vapeur et d''air conditionné'),
+    ('36.00Z', 'Captage, traitement et distribution d''eau'),
+    ('37.00Z', 'Collecte et traitement des eaux usées'),
+    ('38.11Z', 'Collecte des déchets non dangereux'),
+    ('38.12Z', 'Collecte des déchets dangereux'),
+    ('38.21Z', 'Traitement et élimination des déchets non dangereux'),
+    ('38.22Z', 'Traitement et élimination des déchets dangereux'),
+    ('38.31Z', 'Démantèlement d''épaves'),
+    ('38.32Z', 'Récupération de déchets triés'),
+    ('39.00Z', 'Dépollution et autres services de gestion des déchets'),
+    ('41.10A', 'Promotion immobilière de logements'),
+    ('41.10B', 'Promotion immobilière de bureaux'),
+    ('41.10C', 'Promotion immobilière d''autres bâtiments'),
+    ('41.10D', 'Supports juridiques de programmes'),
+    ('41.20A', 'Construction de maisons individuelles'),
+    ('41.20B', 'Construction d''autres bâtiments'),
+    ('42.11Z', 'Construction de routes et autoroutes'),
+    ('42.12Z', 'Construction de voies ferrées de surface et souterraines'),
+    ('42.13A', 'Construction d''ouvrages d''art'),
+    ('42.13B', 'Construction et entretien de tunnels'),
+    ('42.21Z', 'Construction de réseaux pour fluides'),
+    ('42.22Z', 'Construction de réseaux électriques et de télécommunications'),
+    ('42.91Z', 'Construction d''ouvrages maritimes et fluviaux'),
+    ('42.99Z', 'Construction d''autres ouvrages de génie civil n.c.a.'),
+    ('43.11Z', 'Travaux de démolition'),
+    ('43.12A', 'Travaux de terrassement courants et travaux préparatoires'),
+    ('43.12B', 'Travaux de terrassement spécialisés ou de grande masse'),
+    ('43.13Z', 'Forages et sondages'),
+    ('43.21A', 'Travaux d''installation électrique dans tous locaux'),
+    ('43.21B', 'Travaux d''installation électrique sur la voie publique'),
+    ('43.22A', 'Travaux d''installation d''eau et de gaz en tous locaux'),
+    ('43.22B', 'Travaux d''installation d''équipements thermiques et de climatisation'),
+    ('43.29A', 'Travaux d''isolation'),
+    ('43.29B', 'Autres travaux d''installation n.c.a.'),
+    ('43.31Z', 'Travaux de plâtrerie'),
+    ('43.32A', 'Travaux de menuiserie bois et PVC'),
+    ('43.32B', 'Travaux de menuiserie métallique et serrurerie'),
+    ('43.32C', 'Agencement de lieux de vente'),
+    ('43.33Z', 'Travaux de revêtement des sols et des murs'),
+    ('43.34Z', 'Travaux de peinture et vitrerie'),
+    ('43.39Z', 'Autres travaux de finition'),
+    ('43.91A', 'Travaux de charpente'),
+    ('43.91B', 'Travaux de couverture par éléments'),
+    ('43.99A', 'Travaux d''étanchéification'),
+    ('43.99B', 'Travaux de montage de structures métalliques'),
+    ('43.99C', 'Travaux de maçonnerie générale et gros œuvre de bâtiment'),
+    ('43.99D', 'Autres travaux spécialisés de construction'),
+    ('43.99E', 'Location avec opérateur de matériel de construction'),
+    ('45.11Z', 'Commerce de voitures et de véhicules automobiles légers'),
+    ('45.19Z', 'Commerce d''autres véhicules automobiles'),
+    ('45.20A', 'Entretien et réparation de véhicules automobiles légers'),
+    ('45.20B', 'Entretien et réparation d''autres véhicules automobiles'),
+    ('45.31Z', 'Commerce de gros d''équipements automobiles'),
+    ('45.32Z', 'Commerce de détail d''équipements automobiles'),
+    ('45.40Z', 'Commerce et réparation de motocycles'),
+    ('46.11Z', 'Intermédiaires du commerce en matières premières agricoles, animaux vivants, matières premières textiles et produits semi-finis'),
+    ('46.12A', 'Centrales d''achat de carburant'),
+    ('46.12B', 'Autres intermédiaires du commerce en combustibles, métaux, minéraux et produits chimiques'),
+    ('46.13Z', 'Intermédiaires du commerce en bois et matériaux de construction'),
+    ('46.14Z', 'Intermédiaires du commerce en machines, équipements industriels, navires et avions'),
+    ('46.15Z', 'Intermédiaires du commerce en meubles, articles de ménage et quincaillerie'),
+    ('46.16Z', 'Intermédiaires du commerce en textiles, habillement, fourrures, chaussures et articles en cuir'),
+    ('46.17A', 'Centrales d''achat alimentaires'),
+    ('46.17B', 'Autres intermédiaires du commerce en denrées, boissons et tabac'),
+    ('46.18Z', 'Intermédiaires spécialisés dans le commerce d''autres produits spécifiques'),
+    ('46.19A', 'Centrales d''achat non alimentaires'),
+    ('46.19B', 'Autres intermédiaires du commerce en produits divers'),
+    ('46.21Z', 'Commerce de gros (commerce interentreprises) de céréales, de tabac non manufacturé, de semences et d''aliments pour le bétail'),
+    ('46.22Z', 'Commerce de gros (commerce interentreprises) de fleurs et plantes'),
+    ('46.23Z', 'Commerce de gros (commerce interentreprises) d''animaux vivants'),
+    ('46.24Z', 'Commerce de gros (commerce interentreprises) de cuirs et peaux'),
+    ('46.31Z', 'Commerce de gros (commerce interentreprises) de fruits et légumes'),
+    ('46.32A', 'Commerce de gros (commerce interentreprises) de viandes de boucherie'),
+    ('46.32B', 'Commerce de gros (commerce interentreprises) de produits à base de viande'),
+    ('46.32C', 'Commerce de gros (commerce interentreprises) de volailles et gibier'),
+    ('46.33Z', 'Commerce de gros (commerce interentreprises) de produits laitiers, œufs, huiles et matières grasses comestibles'),
+    ('46.34Z', 'Commerce de gros (commerce interentreprises) de boissons'),
+    ('46.35Z', 'Commerce de gros (commerce interentreprises) de produits à base de tabac'),
+    ('46.36Z', 'Commerce de gros (commerce interentreprises) de sucre, chocolat et confiserie'),
+    ('46.37Z', 'Commerce de gros (commerce interentreprises) de café, thé, cacao et épices'),
+    ('46.38A', 'Commerce de gros (commerce interentreprises) de poissons, crustacés et mollusques'),
+    ('46.38B', 'Commerce de gros (commerce interentreprises) alimentaire spécialisé divers'),
+    ('46.39A', 'Commerce de gros (commerce interentreprises) de produits surgelés'),
+    ('46.39B', 'Commerce de gros (commerce interentreprises) alimentaire non spécialisé'),
+    ('46.41Z', 'Commerce de gros (commerce interentreprises) de textiles'),
+    ('46.42Z', 'Commerce de gros (commerce interentreprises) d''habillement et de chaussures'),
+    ('46.43Z', 'Commerce de gros (commerce interentreprises) d''appareils électroménagers'),
+    ('46.44Z', 'Commerce de gros (commerce interentreprises) de vaisselle, verrerie et produits d''entretien'),
+    ('46.45Z', 'Commerce de gros (commerce interentreprises) de parfumerie et de produits de beauté'),
+    ('46.46Z', 'Commerce de gros (commerce interentreprises) de produits pharmaceutiques'),
+    ('46.47Z', 'Commerce de gros (commerce interentreprises) de meubles, de tapis et d''appareils d''éclairage'),
+    ('46.48Z', 'Commerce de gros (commerce interentreprises) d''articles d''horlogerie et de bijouterie'),
+    ('46.49Z', 'Commerce de gros (commerce interentreprises) d''autres biens domestiques'),
+    ('46.51Z', 'Commerce de gros (commerce interentreprises) d''ordinateurs, d''équipements informatiques périphériques et de logiciels'),
+    ('46.52Z', 'Commerce de gros (commerce interentreprises) de composants et d''équipements électroniques et de télécommunication'),
+    ('46.61Z', 'Commerce de gros (commerce interentreprises) de matériel agricole'),
+    ('46.62Z', 'Commerce de gros (commerce interentreprises) de machines-outils'),
+    ('46.63Z', 'Commerce de gros (commerce interentreprises) de machines pour l''extraction, la construction et le génie civil'),
+    ('46.64Z', 'Commerce de gros (commerce interentreprises) de machines pour l''industrie textile et l''habillement'),
+    ('46.65Z', 'Commerce de gros (commerce interentreprises) de mobilier de bureau'),
+    ('46.66Z', 'Commerce de gros (commerce interentreprises) d''autres machines et équipements de bureau'),
+    ('46.69A', 'Commerce de gros (commerce interentreprises) de matériel électrique'),
+    ('46.69B', 'Commerce de gros (commerce interentreprises) de fournitures et équipements industriels divers'),
+    ('46.69C', 'Commerce de gros (commerce interentreprises) de fournitures et équipements divers pour le commerce et les services'),
+    ('46.71Z', 'Commerce de gros (commerce interentreprises) de combustibles et de produits annexes'),
+    ('46.72Z', 'Commerce de gros (commerce interentreprises) de minerais et métaux'),
+    ('46.73A', 'Commerce de gros (commerce interentreprises) de bois et de matériaux de construction'),
+    ('46.73B', 'Commerce de gros (commerce interentreprises) d''appareils sanitaires et de produits de décoration'),
+    ('46.74A', 'Commerce de gros (commerce interentreprises) de quincaillerie'),
+    ('46.74B', 'Commerce de gros (commerce interentreprises) de fournitures pour la plomberie et le chauffage'),
+    ('46.75Z', 'Commerce de gros (commerce interentreprises) de produits chimiques'),
+    ('46.76Z', 'Commerce de gros (commerce interentreprises) d''autres produits intermédiaires'),
+    ('46.77Z', 'Commerce de gros (commerce interentreprises) de déchets et débris'),
+    ('46.90Z', 'Commerce de gros (commerce interentreprises) non spécialisé'),
+    ('47.11A', 'Commerce de détail de produits surgelés'),
+    ('47.11B', 'Commerce d''alimentation générale'),
+    ('47.11C', 'Supérettes'),
+    ('47.11D', 'Supermarchés'),
+    ('47.11E', 'Magasins multi-commerces'),
+    ('47.11F', 'Hypermarchés'),
+    ('47.19A', 'Grands magasins'),
+    ('47.19B', 'Autres commerces de détail en magasin non spécialisé'),
+    ('47.21Z', 'Commerce de détail de fruits et légumes en magasin spécialisé'),
+    ('47.22Z', 'Commerce de détail de viandes et de produits à base de viande en magasin spécialisé'),
+    ('47.23Z', 'Commerce de détail de poissons, crustacés et mollusques en magasin spécialisé'),
+    ('47.24Z', 'Commerce de détail de pain, pâtisserie et confiserie en magasin spécialisé'),
+    ('47.25Z', 'Commerce de détail de boissons en magasin spécialisé'),
+    ('47.26Z', 'Commerce de détail de produits à base de tabac en magasin spécialisé'),
+    ('47.29Z', 'Autres commerces de détail alimentaires en magasin spécialisé'),
+    ('47.30Z', 'Commerce de détail de carburants en magasin spécialisé'),
+    ('47.41Z', 'Commerce de détail d''ordinateurs, d''unités périphériques et de logiciels en magasin spécialisé'),
+    ('47.42Z', 'Commerce de détail de matériels de télécommunication en magasin spécialisé'),
+    ('47.43Z', 'Commerce de détail de matériels audio et vidéo en magasin spécialisé'),
+    ('47.51Z', 'Commerce de détail de textiles en magasin spécialisé'),
+    ('47.52A', 'Commerce de détail de quincaillerie, peintures et verres en petites surfaces (moins de 400 m2)'),
+    ('47.52B', 'Commerce de détail de quincaillerie, peintures et verres en grandes surfaces (400 m2et plus)'),
+    ('47.53Z', 'Commerce de détail de tapis, moquettes et revêtements de murs et de sols en magasin spécialisé'),
+    ('47.54Z', 'Commerce de détail d''appareils électroménagers en magasin spécialisé'),
+    ('47.59A', 'Commerce de détail de meubles'),
+    ('47.59B', 'Commerce de détail d''autres équipements du foyer'),
+    ('47.61Z', 'Commerce de détail de livres en magasin spécialisé'),
+    ('47.62Z', 'Commerce de détail de journaux et papeterie en magasin spécialisé'),
+    ('47.63Z', 'Commerce de détail d''enregistrements musicaux et vidéo en magasin spécialisé'),
+    ('47.64Z', 'Commerce de détail d''articles de sport en magasin spécialisé'),
+    ('47.65Z', 'Commerce de détail de jeux et jouets en magasin spécialisé'),
+    ('47.71Z', 'Commerce de détail d''habillement en magasin spécialisé'),
+    ('47.72A', 'Commerce de détail de la chaussure'),
+    ('47.72B', 'Commerce de détail de maroquinerie et d''articles de voyage'),
+    ('47.73Z', 'Commerce de détail de produits pharmaceutiques en magasin spécialisé'),
+    ('47.74Z', 'Commerce de détail d''articles médicaux et orthopédiques en magasin spécialisé'),
+    ('47.75Z', 'Commerce de détail de parfumerie et de produits de beauté en magasin spécialisé'),
+    ('47.76Z', 'Commerce de détail de fleurs, plantes, graines, engrais, animaux de compagnie et aliments pour ces animaux en magasin spécialisé'),
+    ('47.77Z', 'Commerce de détail d''articles d''horlogerie et de bijouterie en magasin spécialisé'),
+    ('47.78A', 'Commerces de détail d''optique'),
+    ('47.78B', 'Commerces de détail de charbons et combustibles'),
+    ('47.78C', 'Autres commerces de détail spécialisés divers'),
+    ('47.79Z', 'Commerce de détail de biens d''occasion en magasin'),
+    ('47.81Z', 'Commerce de détail alimentaire sur éventaires et marchés'),
+    ('47.82Z', 'Commerce de détail de textiles, d''habillement et de chaussures sur éventaires et marchés'),
+    ('47.89Z', 'Autres commerces de détail sur éventaires et marchés'),
+    ('47.91A', 'Vente à distance sur catalogue général'),
+    ('47.91B', 'Vente à distance sur catalogue spécialisé'),
+    ('47.99A', 'Vente à domicile'),
+    ('47.99B', 'Vente par automates et autres commerces de détail hors magasin, éventaires ou marchés n.c.a.'),
+    ('49.10Z', 'Transport ferroviaire interurbain de voyageurs'),
+    ('49.20Z', 'Transports ferroviaires de fret'),
+    ('49.31Z', 'Transports urbains et suburbains de voyageurs'),
+    ('49.32Z', 'Transports de voyageurs par taxis'),
+    ('49.39A', 'Transports routiers réguliers de voyageurs'),
+    ('49.39B', 'Autres transports routiers de voyageurs'),
+    ('49.39C', 'Téléphériques et remontées mécaniques'),
+    ('49.41A', 'Transports routiers de fret interurbains'),
+    ('49.41B', 'Transports routiers de fret de proximité'),
+    ('49.41C', 'Location de camions avec chauffeur'),
+    ('49.42Z', 'Services de déménagement'),
+    ('49.50Z', 'Transports par conduites'),
+    ('50.10Z', 'Transports maritimes et côtiers de passagers'),
+    ('50.20Z', 'Transports maritimes et côtiers de fret'),
+    ('50.30Z', 'Transports fluviaux de passagers'),
+    ('50.40Z', 'Transports fluviaux de fret'),
+    ('51.10Z', 'Transports aériens de passagers'),
+    ('51.21Z', 'Transports aériens de fret'),
+    ('51.22Z', 'Transports spatiaux'),
+    ('52.10A', 'Entreposage et stockage frigorifique'),
+    ('52.10B', 'Entreposage et stockage non frigorifique'),
+    ('52.21Z', 'Services auxiliaires des transports terrestres'),
+    ('52.22Z', 'Services auxiliaires des transports par eau'),
+    ('52.23Z', 'Services auxiliaires des transports aériens'),
+    ('52.24A', 'Manutention portuaire'),
+    ('52.24B', 'Manutention non portuaire'),
+    ('52.29A', 'Messagerie, fret express'),
+    ('52.29B', 'Affrètement et organisation des transports'),
+    ('53.10Z', 'Activités de poste dans le cadre d''une obligation de service universel'),
+    ('53.20Z', 'Autres activités de poste et de courrier'),
+    ('55.10Z', 'Hôtels et hébergement similaire'),
+    ('55.20Z', 'Hébergement touristique et autre hébergement de courte durée'),
+    ('55.30Z', 'Terrains de camping et parcs pour caravanes ou véhicules de loisirs'),
+    ('55.90Z', 'Autres hébergements'),
+    ('56.10A', 'Restauration traditionnelle'),
+    ('56.10B', 'Cafétérias et autres libres-services'),
+    ('56.10C', 'Restauration de type rapide'),
+    ('56.21Z', 'Services des traiteurs'),
+    ('56.29A', 'Restauration collective sous contrat'),
+    ('56.29B', 'Autres services de restauration n.c.a.'),
+    ('56.30Z', 'Débits de boissons'),
+    ('58.11Z', 'Édition de livres'),
+    ('58.12Z', 'Édition de répertoires et de fichiers d''adresses'),
+    ('58.13Z', 'Édition de journaux'),
+    ('58.14Z', 'Édition de revues et périodiques'),
+    ('58.19Z', 'Autres activités d''édition'),
+    ('58.21Z', 'Édition de jeux électroniques'),
+    ('58.29A', 'Édition de logiciels système et de réseau'),
+    ('58.29B', 'Edition de logiciels outils de développement et de langages'),
+    ('58.29C', 'Edition de logiciels applicatifs'),
+    ('59.11A', 'Production de films et de programmes pour la télévision'),
+    ('59.11B', 'Production de films institutionnels et publicitaires'),
+    ('59.11C', 'Production de films pour le cinéma'),
+    ('59.12Z', 'Post-production de films cinématographiques, de vidéo et de programmes de télévision'),
+    ('59.13A', 'Distribution de films cinématographiques'),
+    ('59.13B', 'Edition et distribution vidéo'),
+    ('59.14Z', 'Projection de films cinématographiques'),
+    ('59.20Z', 'Enregistrement sonore et édition musicale'),
+    ('60.10Z', 'Édition et diffusion de programmes radio'),
+    ('60.20A', 'Edition de chaînes généralistes'),
+    ('60.20B', 'Edition de chaînes thématiques'),
+    ('61.10Z', 'Télécommunications filaires'),
+    ('61.20Z', 'Télécommunications sans fil'),
+    ('61.30Z', 'Télécommunications par satellite'),
+    ('61.90Z', 'Autres activités de télécommunication'),
+    ('62.01Z', 'Programmation informatique'),
+    ('62.02A', 'Conseil en systèmes et logiciels informatiques'),
+    ('62.02B', 'Tierce maintenance de systèmes et d’applications informatiques'),
+    ('62.03Z', 'Gestion d''installations informatiques'),
+    ('62.09Z', 'Autres activités informatiques'),
+    ('63.11Z', 'Traitement de données, hébergement et activités connexes'),
+    ('63.12Z', 'Portails Internet'),
+    ('63.91Z', 'Activités des agences de presse'),
+    ('63.99Z', 'Autres services d''information n.c.a.'),
+    ('64.11Z', 'Activités de banque centrale'),
+    ('64.19Z', 'Autres intermédiations monétaires'),
+    ('64.20Z', 'Activités des sociétés holding'),
+    ('64.30Z', 'Fonds de placement et entités financières similaires'),
+    ('64.91Z', 'Crédit-bail'),
+    ('64.92Z', 'Autre distribution de crédit'),
+    ('64.99Z', 'Autres activités des services financiers, hors assurance et caisses de retraite, n.c.a.'),
+    ('65.11Z', 'Assurance vie'),
+    ('65.12Z', 'Autres assurances'),
+    ('65.20Z', 'Réassurance'),
+    ('65.30Z', 'Caisses de retraite'),
+    ('66.11Z', 'Administration de marchés financiers'),
+    ('66.12Z', 'Courtage de valeurs mobilières et de marchandises'),
+    ('66.19A', 'Supports juridiques de gestion de patrimoine mobilier'),
+    ('66.19B', 'Autres activités auxiliaires de services financiers, hors assurance et caisses de retraite, n.c.a.'),
+    ('66.21Z', 'Évaluation des risques et dommages'),
+    ('66.22Z', 'Activités des agents et courtiers d''assurances'),
+    ('66.29Z', 'Autres activités auxiliaires d''assurance et de caisses de retraite'),
+    ('66.30Z', 'Gestion de fonds'),
+    ('68.10Z', 'Activités des marchands de biens immobiliers'),
+    ('68.20A', 'Location de logements'),
+    ('68.20B', 'Location de terrains et d''autres biens immobiliers'),
+    ('68.31Z', 'Agences immobilières'),
+    ('68.32A', 'Administration d''immeubles et autres biens immobiliers'),
+    ('68.32B', 'Supports juridiques de gestion de patrimoine immobilier'),
+    ('69.10Z', 'Activités juridiques'),
+    ('69.20Z', 'Activités comptables'),
+    ('70.10Z', 'Activités des sièges sociaux'),
+    ('70.21Z', 'Conseil en relations publiques et communication'),
+    ('70.22Z', 'Conseil pour les affaires et autres conseils de gestion'),
+    ('71.11Z', 'Activités d''architecture'),
+    ('71.12A', 'Activité des géomètres'),
+    ('71.12B', 'Ingénierie, études techniques'),
+    ('71.20A', 'Contrôle technique automobile'),
+    ('71.20B', 'Analyses, essais et inspections techniques'),
+    ('72.11Z', 'Recherche-développement en biotechnologie'),
+    ('72.19Z', 'Recherche-développement en autres sciences physiques et naturelles'),
+    ('72.20Z', 'Recherche-développement en sciences humaines et sociales'),
+    ('73.11Z', 'Activités des agences de publicité'),
+    ('73.12Z', 'Régie publicitaire de médias'),
+    ('73.20Z', 'Études de marché et sondages'),
+    ('74.10Z', 'Activités spécialisées de design'),
+    ('74.20Z', 'Activités photographiques'),
+    ('74.30Z', 'Traduction et interprétation'),
+    ('74.90A', 'Activité des économistes de la construction'),
+    ('74.90B', 'Activités spécialisées, scientifiques et techniques diverses'),
+    ('75.00Z', 'Activités vétérinaires'),
+    ('77.11A', 'Location de courte durée de voitures et de véhicules automobiles légers'),
+    ('77.11B', 'Location de longue durée de voitures et de véhicules automobiles légers'),
+    ('77.12Z', 'Location et location-bail de camions'),
+    ('77.21Z', 'Location et location-bail d''articles de loisirs et de sport'),
+    ('77.22Z', 'Location de vidéocassettes et disques vidéo'),
+    ('77.29Z', 'Location et location-bail d''autres biens personnels et domestiques'),
+    ('77.31Z', 'Location et location-bail de machines et équipements agricoles'),
+    ('77.32Z', 'Location et location-bail de machines et équipements pour la construction'),
+    ('77.33Z', 'Location et location-bail de machines de bureau et de matériel informatique'),
+    ('77.34Z', 'Location et location-bail de matériels de transport par eau'),
+    ('77.35Z', 'Location et location-bail de matériels de transport aérien'),
+    ('77.39Z', 'Location et location-bail d''autres machines, équipements et biens matériels n.c.a.'),
+    ('77.40Z', 'Location-bail de propriété intellectuelle et de produits similaires, à l''exception des œuvres soumises à copyright'),
+    ('78.10Z', 'Activités des agences de placement de main-d''œuvre'),
+    ('78.20Z', 'Activités des agences de travail temporaire'),
+    ('78.30Z', 'Autre mise à disposition de ressources humaines'),
+    ('79.11Z', 'Activités des agences de voyage'),
+    ('79.12Z', 'Activités des voyagistes'),
+    ('79.90Z', 'Autres services de réservation et activités connexes'),
+    ('80.10Z', 'Activités de sécurité privée'),
+    ('80.20Z', 'Activités liées aux systèmes de sécurité'),
+    ('80.30Z', 'Activités d''enquête'),
+    ('81.10Z', 'Activités combinées de soutien lié aux bâtiments'),
+    ('81.21Z', 'Nettoyage courant des bâtiments'),
+    ('81.22Z', 'Autres activités de nettoyage des bâtiments et nettoyage industriel'),
+    ('81.29A', 'Désinfection, désinsectisation, dératisation'),
+    ('81.29B', 'Autres activités de nettoyage n.c.a.'),
+    ('81.30Z', 'Services d''aménagement paysager'),
+    ('82.11Z', 'Services administratifs combinés de bureau'),
+    ('82.19Z', 'Photocopie, préparation de documents et autres activités spécialisées de soutien de bureau'),
+    ('82.20Z', 'Activités de centres d''appels'),
+    ('82.30Z', 'Organisation de foires, salons professionnels et congrès'),
+    ('82.91Z', 'Activités des agences de recouvrement de factures et des sociétés d''information financière sur la clientèle'),
+    ('82.92Z', 'Activités de conditionnement'),
+    ('82.99Z', 'Autres activités de soutien aux entreprises n.c.a.'),
+    ('84.11Z', 'Administration publique générale'),
+    ('84.12Z', 'Administration publique (tutelle) de la santé, de la formation, de la culture et des services sociaux, autre que sécurité sociale'),
+    ('84.13Z', 'Administration publique (tutelle) des activités économiques'),
+    ('84.21Z', 'Affaires étrangères'),
+    ('84.22Z', 'Défense'),
+    ('84.23Z', 'Justice'),
+    ('84.24Z', 'Activités d’ordre public et de sécurité'),
+    ('84.25Z', 'Services du feu et de secours'),
+    ('84.30A', 'Activités générales de sécurité sociale'),
+    ('84.30B', 'Gestion des retraites complémentaires'),
+    ('84.30C', 'Distribution sociale de revenus'),
+    ('85.10Z', 'Enseignement pré-primaire'),
+    ('85.20Z', 'Enseignement primaire'),
+    ('85.31Z', 'Enseignement secondaire général'),
+    ('85.32Z', 'Enseignement secondaire technique ou professionnel'),
+    ('85.41Z', 'Enseignement post-secondaire non supérieur'),
+    ('85.42Z', 'Enseignement supérieur'),
+    ('85.51Z', 'Enseignement de disciplines sportives et d''activités de loisirs'),
+    ('85.52Z', 'Enseignement culturel'),
+    ('85.53Z', 'Enseignement de la conduite'),
+    ('85.59A', 'Formation continue d''adultes'),
+    ('85.59B', 'Autres enseignements'),
+    ('85.60Z', 'Activités de soutien à l''enseignement'),
+    ('86.10Z', 'Activités hospitalières'),
+    ('86.21Z', 'Activité des médecins généralistes'),
+    ('86.22A', 'Activités de radiodiagnostic et de radiothérapie'),
+    ('86.22B', 'Activités chirurgicales'),
+    ('86.22C', 'Autres activités des médecins spécialistes'),
+    ('86.23Z', 'Pratique dentaire'),
+    ('86.90A', 'Ambulances'),
+    ('86.90B', 'Laboratoires d''analyses médicales'),
+    ('86.90C', 'Centres de collecte et banques d''organes'),
+    ('86.90D', 'Activités des infirmiers et des sages-femmes'),
+    ('86.90E', 'Activités des professionnels de la rééducation, de l’appareillage et des pédicures-podologues'),
+    ('86.90F', 'Activités de santé humaine non classées ailleurs'),
+    ('87.10A', 'Hébergement médicalisé pour personnes âgées'),
+    ('87.10B', 'Hébergement médicalisé pour enfants handicapés'),
+    ('87.10C', 'Hébergement médicalisé pour adultes handicapés et autre hébergement médicalisé'),
+    ('87.20A', 'Hébergement social pour handicapés mentaux et malades mentaux'),
+    ('87.20B', 'Hébergement social pour toxicomanes'),
+    ('87.30A', 'Hébergement social pour personnes âgées'),
+    ('87.30B', 'Hébergement social pour handicapés  physiques'),
+    ('87.90A', 'Hébergement social pour enfants en difficultés'),
+    ('87.90B', 'Hébergement social pour adultes et familles en difficultés et autre hébergement social'),
+    ('88.10A', 'Aide à domicile'),
+    ('88.10B', 'Accueil ou accompagnement sans hébergement d’adultes handicapés ou de  personnes âgées'),
+    ('88.10C', 'Aide par le travail'),
+    ('88.91A', 'Accueil de jeunes enfants'),
+    ('88.91B', 'Accueil ou accompagnement sans hébergement d’enfants handicapés'),
+    ('88.99A', 'Autre accueil ou accompagnement sans hébergement d’enfants et d’adolescents'),
+    ('88.99B', 'Action sociale sans hébergement n.c.a.'),
+    ('90.01Z', 'Arts du spectacle vivant'),
+    ('90.02Z', 'Activités de soutien au spectacle vivant'),
+    ('90.03A', 'Création artistique relevant des arts plastiques'),
+    ('90.03B', 'Autre création artistique'),
+    ('90.04Z', 'Gestion de salles de spectacles'),
+    ('91.01Z', 'Gestion des bibliothèques et des archives'),
+    ('91.02Z', 'Gestion des musées'),
+    ('91.03Z', 'Gestion des sites et monuments historiques et des attractions touristiques similaires'),
+    ('91.04Z', 'Gestion des jardins botaniques et zoologiques et des réserves naturelles'),
+    ('92.00Z', 'Organisation de jeux de hasard et d''argent'),
+    ('93.11Z', 'Gestion d''installations sportives'),
+    ('93.12Z', 'Activités de clubs de sports'),
+    ('93.13Z', 'Activités des centres de culture physique'),
+    ('93.19Z', 'Autres activités liées au sport'),
+    ('93.21Z', 'Activités des parcs d''attractions et parcs à thèmes'),
+    ('93.29Z', 'Autres activités récréatives et de loisirs'),
+    ('94.11Z', 'Activités des organisations patronales et consulaires'),
+    ('94.12Z', 'Activités des organisations professionnelles'),
+    ('94.20Z', 'Activités des syndicats de salariés'),
+    ('94.91Z', 'Activités des organisations religieuses'),
+    ('94.92Z', 'Activités des organisations politiques'),
+    ('94.99Z', 'Autres organisations fonctionnant par adhésion volontaire'),
+    ('95.11Z', 'Réparation d''ordinateurs et d''équipements périphériques'),
+    ('95.12Z', 'Réparation d''équipements de communication'),
+    ('95.21Z', 'Réparation de produits électroniques grand public'),
+    ('95.22Z', 'Réparation d''appareils électroménagers et d''équipements pour la maison et le jardin'),
+    ('95.23Z', 'Réparation de chaussures et d''articles en cuir'),
+    ('95.24Z', 'Réparation de meubles et d''équipements du foyer'),
+    ('95.25Z', 'Réparation d''articles d''horlogerie et de bijouterie'),
+    ('95.29Z', 'Réparation d''autres biens personnels et domestiques'),
+    ('96.01A', 'Blanchisserie-teinturerie de gros'),
+    ('96.01B', 'Blanchisserie-teinturerie de détail'),
+    ('96.02A', 'Coiffure'),
+    ('96.02B', 'Soins de beauté'),
+    ('96.03Z', 'Services funéraires'),
+    ('96.04Z', 'Entretien corporel'),
+    ('96.09Z', 'Autres services personnels n.c.a.'),
+    ('97.00Z', 'Activités des ménages en tant qu''employeurs de personnel domestique'),
+    ('98.10Z', 'Activités indifférenciées des ménages en tant que producteurs de biens pour usage propre'),
+    ('98.20Z', 'Activités indifférenciées des ménages en tant que producteurs de services pour usage propre'),
+    ('99.00Z', 'Activités des organisations et organismes extraterritoriaux')
+ON CONFLICT (code) DO NOTHING;
+-- fin de la seed NAF
+
+-- Synonymes de métiers courants -> code NAF officiel.
+-- Nécessaire car la nomenclature INSEE utilise un vocabulaire administratif
+-- ("Travaux d'installation d'eau et de gaz en tous locaux") plutôt que les
+-- termes de métier usuels ("plombier", "plomberie") — la recherche floue seule
+-- sur les libellés officiels ne les retrouve pas.
+CREATE TABLE IF NOT EXISTS naf_synonyms (
+    id SERIAL PRIMARY KEY,
+    term TEXT NOT NULL,
+    code TEXT NOT NULL REFERENCES naf_codes(code),
+    term_normalized TEXT GENERATED ALWAYS AS (immutable_unaccent(lower(term))) STORED
+);
+CREATE INDEX IF NOT EXISTS idx_naf_synonyms_term_trgm ON naf_synonyms USING gin (term_normalized gin_trgm_ops);
+
+INSERT INTO naf_synonyms (term, code) VALUES
+    ('plombier', '43.22A'),
+    ('plomberie', '43.22A'),
+    ('electricien', '43.21A'),
+    ('electricite generale', '43.21A'),
+    ('chauffagiste', '43.22B'),
+    ('climatisation', '43.22B'),
+    ('macon', '43.99C'),
+    ('maconnerie', '43.99C'),
+    ('gros oeuvre', '43.99C'),
+    ('menuisier', '43.32A'),
+    ('menuiserie bois', '43.32A'),
+    ('serrurier', '43.32B'),
+    ('serrurerie', '43.32B'),
+    ('menuiserie metallique', '43.32B'),
+    ('peintre en batiment', '43.34Z'),
+    ('peinture batiment', '43.34Z'),
+    ('vitrier', '43.34Z'),
+    ('vitrerie', '43.34Z'),
+    ('charpentier', '43.91A'),
+    ('charpente', '43.91A'),
+    ('couvreur', '43.91B'),
+    ('couverture toiture', '43.91B'),
+    ('carreleur', '43.32A'),
+    ('paysagiste', '81.30Z'),
+    ('jardinier', '81.30Z'),
+    ('amenagement paysager', '81.30Z')
+ON CONFLICT DO NOTHING;
+
+-- Base de connaissances (wiki interne) : procédures courtes, éditables
+-- uniquement depuis /supadmin, consultables par tous les utilisateurs via un
+-- panneau latéral ouvert depuis une icône d'aide contextuelle (ex: à côté du
+-- bloc SMTP). Totalement distinct de l'assistant d'aide en ligne (assistant.py).
+CREATE TABLE IF NOT EXISTS kb_articles (
+    id SERIAL PRIMARY KEY,
+    slug TEXT NOT NULL UNIQUE,  -- identifiant stable utilisé par les icônes d'aide, ex: "smtp-microsoft-365"
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,  -- texte brut, sauts de ligne préservés à l'affichage (pas de HTML)
+    display_order INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_kb_articles_order ON kb_articles(display_order, id);
+
+INSERT INTO kb_articles (slug, title, content, display_order) VALUES (
+    'smtp-microsoft-365',
+    'Configurer le SMTP avec un compte Microsoft 365 / Outlook',
+    'Si vous utilisez une adresse Microsoft 365, Outlook ou Hotmail comme compte d''envoi, l''authentification SMTP classique est souvent désactivée par défaut, pour des raisons de sécurité imposées par Microsoft.
+
+Ce que vous devez faire :
+
+1. Contactez votre administrateur informatique (ou Microsoft si vous gérez seul votre compte).
+2. Demandez l''activation de « l''authentification SMTP » pour votre boîte, dans le centre d''administration Microsoft 365.
+3. Une fois activée, revenez sur cette page et testez à nouveau l''envoi.
+
+Si vous ne pouvez pas faire activer cette option, une alternative simple consiste à utiliser un compte Gmail comme adresse d''envoi à la place.
+
+En cas de blocage, contactez votre interlocuteur ClickProspect habituel.',
+    10
+) ON CONFLICT (slug) DO NOTHING;
+
+INSERT INTO kb_articles (slug, title, content, display_order) VALUES (
+    'campagnes-premiere-utilisation',
+    'Avant d''envoyer votre première campagne',
+    'Pour pouvoir envoyer des campagnes (avis, publicité, newsletter), vous devez d''abord configurer votre compte d''envoi.
+
+Étapes :
+
+1. Allez dans Paramètres.
+2. Renseignez votre adresse e-mail et son mot de passe dans le bloc « Configuration SMTP ».
+3. Testez l''envoi depuis cette même page.
+
+Sans cette configuration, le bouton « Configurer & envoyer » ne pourra pas fonctionner.
+
+Si vous utilisez une adresse Microsoft 365 ou Outlook, une étape supplémentaire est parfois nécessaire : voir la procédure dédiée « Configurer le SMTP avec un compte Microsoft 365 / Outlook » depuis l''icône d''aide de la page Paramètres.',
+    20
+) ON CONFLICT (slug) DO NOTHING;
+
+
+-- Automatisations conditionnelles légères (chantier 5 de la feuille de route
+-- CRM) — réservées aux espaces en essai ou payants, comme le Pipeline et le
+-- tableau de bord enrichi. Deux déclencheurs pris en charge :
+--   - statut_stagnant : un prospect reste dans le même statut depuis trop
+--     longtemps (ex: "nouveau" depuis 7 jours)
+--   - rappel_depasse : la date de rappel (prospects.prochaine_action_date)
+--     est dépassée sans qu'aucune action n'ait été faite
+-- Une seule action pour l'instant : notification interne à l'équipe (rien
+-- envoyé au prospect), affichée dans l'app — pas d'e-mail, volontairement
+-- "léger" comme demandé.
+CREATE TABLE IF NOT EXISTS automation_rules (
+    id SERIAL PRIMARY KEY,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    trigger_type TEXT NOT NULL,   -- statut_stagnant / rappel_depasse
+    statut TEXT,                  -- requis pour statut_stagnant, NULL pour rappel_depasse
+    seuil_jours INTEGER NOT NULL, -- jours de stagnation, ou jours de grâce après le rappel
+    actif BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_automation_rules_workspace ON automation_rules(workspace_id);
+
+CREATE TABLE IF NOT EXISTS team_notifications (
+    id SERIAL PRIMARY KEY,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    prospect_id INTEGER REFERENCES prospects(id) ON DELETE CASCADE,
+    rule_id INTEGER REFERENCES automation_rules(id) ON DELETE SET NULL,
+    message TEXT NOT NULL,
+    read_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_team_notifications_workspace ON team_notifications(workspace_id, created_at DESC);
+-- Empêche de renotifier en boucle pour le même prospect/règle tant qu'une
+-- notification précédente n'a pas été marquée comme lue.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_team_notif_dedup ON team_notifications(workspace_id, prospect_id, rule_id) WHERE read_at IS NULL;
+
+-- Veille réglementaire : liste de sources officielles surveillées (CNIL,
+-- service-public.fr, Légifrance...) + historique des changements détectés.
+-- Ne déclenche jamais aucune action automatique — chaque alerte est un
+-- simple signalement à examiner manuellement dans /supadmin.
+CREATE TABLE IF NOT EXISTS regulatory_sources (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    url TEXT NOT NULL,
+    category TEXT,                     -- ex: 'CNIL', 'service-public', 'Légifrance'
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    last_checked_at TIMESTAMPTZ,
+    last_check_error TEXT,             -- dernière erreur de récupération, le cas échéant (source injoignable...)
+    last_content_hash TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- 'html_diff' (comportement d'origine : hash de la page entière, adapté à une
+-- page de recommandation statique) ou 'rss' (suit un flux RSS/Atom et
+-- n'alerte que sur les entrées réellement nouvelles — indispensable pour un
+-- blog ou un fil d'actualité qui publie souvent, sous peine de spam d'alertes
+-- à chaque republication non pertinente).
+ALTER TABLE regulatory_sources ADD COLUMN IF NOT EXISTS source_type TEXT NOT NULL DEFAULT 'html_diff';
+-- Filtre mots-clés, séparés par des virgules (ex: "RGPD,CNIL,données personnelles,cookies").
+-- NULL ou vide = pas de filtre, tout changement/entrée déclenche une alerte.
+-- Sert de "semblant de recherche" pour ignorer le bruit d'un site généraliste
+-- (ex: Village de la Justice couvre bien plus que le seul droit du numérique).
+ALTER TABLE regulatory_sources ADD COLUMN IF NOT EXISTS keywords TEXT;
+
+CREATE TABLE IF NOT EXISTS regulatory_alerts (
+    id SERIAL PRIMARY KEY,
+    source_id INTEGER NOT NULL REFERENCES regulatory_sources(id) ON DELETE CASCADE,
+    detected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    url TEXT,                          -- lien précis (l'article du flux RSS, ou l'URL de la source en mode diff)
+    resume TEXT,                       -- résumé généré par IA (Gemini) de ce qui a changé
+    pertinence TEXT,                   -- évaluation IA de la pertinence pour ClickProspect
+    status TEXT NOT NULL DEFAULT 'nouveau',  -- nouveau / en_cours / traite / sans_suite
+    notes TEXT,                        -- notes manuelles de l'administrateur
+    reviewed_at TIMESTAMPTZ,
+    reviewed_by INTEGER REFERENCES superadmins(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_regulatory_alerts_status ON regulatory_alerts(status, detected_at DESC);
+CREATE INDEX IF NOT EXISTS idx_regulatory_alerts_source ON regulatory_alerts(source_id);
+-- Ajoutée après la mise en prod initiale (table déjà existante à ce moment) —
+-- indispensable pour que init_db() la crée sur les environnements déjà déployés.
+ALTER TABLE regulatory_alerts ADD COLUMN IF NOT EXISTS url TEXT;
+-- Article/entrée d'un lien titre déjà vu dans un flux RSS d'une source —
+-- empêche de re-signaler indéfiniment le même article à chaque passage.
+CREATE TABLE IF NOT EXISTS regulatory_feed_items (
+    id SERIAL PRIMARY KEY,
+    source_id INTEGER NOT NULL REFERENCES regulatory_sources(id) ON DELETE CASCADE,
+    item_key TEXT NOT NULL,            -- hash du guid (ou du lien, à défaut) de l'entrée du flux
+    seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_regulatory_feed_items_dedup ON regulatory_feed_items(source_id, item_key);
+-- ============================================================================
+-- Fonctionnalité "Préparer mon appel" (call_prep.py) — 6 août 2026
+-- À COLLER À LA FIN de app/schema.sql (avant la ligne finale s'il y en a une,
+-- sinon tout en bas). Idempotent (IF NOT EXISTS partout), sans danger à
+-- rejouer au démarrage comme le reste du fichier.
+-- ============================================================================
+
+-- Cache partagé par workspace : un texte généré pour un couple
+-- (secteur, type de contact) est réutilisé par tous les utilisateurs du même
+-- espace de travail, sans re-consommer le quota Gemini. secteur_key = code
+-- NAF du prospect, ou 'non_renseigne' si absent (jamais NULL : deux valeurs
+-- NULL ne s'égalent jamais en SQL, ce qui casserait la contrainte UNIQUE
+-- ci-dessous et empêcherait toute réutilisation entre prospects sans NAF).
+CREATE TABLE IF NOT EXISTS call_prep_cache (
+    id SERIAL PRIMARY KEY,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    secteur_key TEXT NOT NULL,
+    type_contact TEXT NOT NULL,   -- premier_contact / rappel / proposition_particuliere
+    texte_genere JSONB NOT NULL,  -- {accroche, pitch, questions[], objections[]}
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    usage_count INTEGER NOT NULL DEFAULT 1,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (workspace_id, secteur_key, type_contact)
+);
+CREATE INDEX IF NOT EXISTS idx_call_prep_cache_lookup ON call_prep_cache(workspace_id, secteur_key, type_contact);
+
+-- Quota quotidien PAR UTILISATEUR (indépendant du quota ia_search.py, qui
+-- est par workspace) — même logique de comptage que ia_search_log, table
+-- distincte pour ne jamais mélanger les deux quotas.
+CREATE TABLE IF NOT EXISTS call_prep_generation_log (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_call_prep_generation_log_user_date ON call_prep_generation_log(user_id, created_at);
+
+-- Consentement formalisé (case à cocher), une fois par utilisateur et par
+-- version du texte légal — PAS par workspace : c'est une responsabilité
+-- individuelle. Si le texte du bandeau/disclaimer change, incrémenter
+-- call_prep.DISCLAIMER_VERSION force une nouvelle validation pour tout le
+-- monde sans purge ni migration de données.
+CREATE TABLE IF NOT EXISTS call_prep_consent (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    disclaimer_version INTEGER NOT NULL,
+    accepted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id, disclaimer_version)
+);

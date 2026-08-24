@@ -1,0 +1,2250 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/static/img/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/img/apple-touch-icon.png">
+<link rel="manifest" href="/static/img/site.webmanifest">
+<meta name="robots" content="noindex, nofollow">
+<title>Superadmin — ClickProspect</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600,0,700&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --cream: #FAF6F0; --terracotta: #C1653D; --terracotta-deep: #A2502E; --terracotta-darker: #894427;
+    --sauge: #7A9471; --sauge-light: #E7EDE3; --text: #35302A; --text-soft: #6E6459;
+    --white: #FFFFFF; --border: rgba(53,48,42,0.12);
+    --shadow: 0 6px 18px rgba(53,40,24,0.06);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--cream); color: var(--text); font-family: 'Figtree', sans-serif; display: flex; min-height: 100vh; }
+  h1 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 24px; margin: 0; }
+  h2 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 17px; margin: 0; }
+  .sidebar {
+    width: 240px; flex-shrink: 0; background: var(--white); border-right: 1px solid var(--border);
+    padding: 24px 16px; display: flex; flex-direction: column; gap: 22px; position: sticky; top: 0; height: 100vh;
+  }
+  .sidebar-logo { display: flex; align-items: center; gap: 9px; padding: 0 6px; }
+  .sidebar-logo .mark { width: 26px; height: 26px; object-fit: contain; flex-shrink: 0; }
+  .sidebar-logo .name .accent { color: var(--terracotta); }
+  .sidebar-logo .name { font-family: 'Fraunces', serif; font-weight: 700; font-size: 17px; }
+  .sidebar-logo .tag { font-size: 11px; color: var(--text-soft); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  .sidebar-who { background: var(--cream); border-radius: 12px; padding: 12px 14px; font-size: 12.5px; }
+  .sidebar-who .email { font-weight: 700; color: var(--text); word-break: break-word; }
+  .sidebar-who .role-badge { display: inline-block; margin-top: 5px; font-size: 10.5px; font-weight: 700; padding: 2px 9px; border-radius: 999px; text-transform: uppercase; letter-spacing: .03em; }
+  .sidebar-who .role-badge.role-administrateur { background: var(--terracotta-deep); color: var(--white); }
+  .sidebar-who .role-badge.role-technicien { background: var(--sauge-light); color: #4F6647; }
+  .sidebar-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; overflow-y: auto; }
+  .sidebar-nav button {
+    display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+    background: none; border: none; color: var(--text-soft); font-family: 'Figtree', sans-serif;
+    font-size: 13.5px; font-weight: 600; padding: 9px 10px; border-radius: 10px; cursor: pointer;
+    transition: background .15s ease, color .15s ease;
+  }
+  .sidebar-nav button:hover { background: var(--cream); color: var(--text); }
+  .sidebar-nav button.is-active { background: var(--sauge-light); color: #3B4F35; }
+  .sidebar-nav .nav-badge {
+    margin-left: auto; font-size: 11px; font-weight: 700; color: var(--white);
+    background: var(--terracotta-deep); min-width: 18px; height: 18px; padding: 0 5px;
+    border-radius: 999px; display: flex; align-items: center; justify-content: center;
+  }
+  .sidebar-foot { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--border); padding-top: 14px; }
+  .sidebar-foot button {
+    background: none; border: none; text-align: left; font-family: 'Figtree', sans-serif;
+    font-size: 12.5px; font-weight: 600; color: var(--text-soft); padding: 7px 10px; border-radius: 8px; cursor: pointer;
+  }
+  .sidebar-foot button:hover { background: var(--cream); color: var(--text); }
+  .content { flex: 1; min-width: 0; }
+  .content-head { padding: 30px 32px 6px; }
+  .content-head .greeting { display: flex; align-items: center; gap: 12px; }
+  .content-head p.sub { margin: 4px 0 0; color: var(--text-soft); font-size: 14px; }
+  .panel { scroll-margin-top: 0; }
+  .main { padding: 10px 32px 60px; max-width: 1100px; margin: 0; display: flex; flex-direction: column; gap: 22px; }
+  .panel[hidden] { display: none; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 16px; border-radius: 999px; font-weight: 600; font-size: 13.5px; border: none; cursor: pointer; font-family: 'Figtree', sans-serif; }
+  .btn-primary { background: var(--terracotta-deep); color: var(--white); }
+  .btn-primary:hover { background: var(--terracotta-darker); }
+  .btn-ghost { background: var(--white); color: var(--text); border: 1.5px solid var(--border); }
+  .btn-ghost:hover { border-color: var(--text); }
+  .btn-dark { background: var(--text); color: var(--white); }
+  .btn-danger { background: #F8E6E0; color: #A2502E; }
+  .btn-danger:hover { background: #F3D9CF; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .panel { background: var(--white); border-radius: 18px; box-shadow: var(--shadow); overflow: hidden; }
+  .panel-head { padding: 18px 22px; border-bottom: 1px solid var(--border); }
+  .panel-head p { margin: 4px 0 0; font-size: 13px; color: var(--text-soft); }
+  .panel-body { padding: 22px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-soft); font-weight: 600; padding: 12px 18px; background: var(--cream); }
+  td { padding: 14px 18px; border-top: 1px solid var(--border); font-size: 14px; vertical-align: middle; }
+  tr.flagged td { background: #FDF4F0; }
+  .badge { font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 999px; white-space: nowrap; }
+  .badge-trial { background: #EAF0FF; color: #3454A8; }
+  .badge-free { background: #F3E3E3; color: #9B4646; }
+  .badge-paid { background: var(--sauge-light); color: #4F6647; }
+  .badge-flagged { background: var(--terracotta-deep); color: var(--white); }
+  .muted { color: var(--text-soft); font-size: 12.5px; }
+  .row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  input, select {
+    font-family: 'Figtree', sans-serif; font-size: 14px; color: var(--text);
+    border: 1.5px solid var(--border); border-radius: 10px; padding: 9px 12px; background: var(--cream); width: 100%;
+  }
+  label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; margin-top: 14px; }
+  label:first-of-type { margin-top: 0; }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(53,48,42,0.4); display: none; align-items: center; justify-content: center; z-index: 90; padding: 24px; }
+  .modal-overlay.show { display: flex; }
+  .modal { background: var(--white); border-radius: 18px; padding: 26px; width: 100%; max-width: 400px; }
+  .modal h3 { font-family: 'Fraunces', serif; font-size: 17px; margin: 0 0 16px; }
+  .modal-actions { display: flex; gap: 10px; margin-top: 20px; justify-content: flex-end; }
+  .temp-password { font-family: monospace; font-size: 18px; font-weight: 700; background: var(--cream); border-radius: 10px; padding: 12px 14px; text-align: center; letter-spacing: 0.03em; margin: 14px 0; user-select: all; }
+  .warning { font-size: 12.5px; color: var(--terracotta-deep); background: #FDECE3; border-radius: 10px; padding: 10px 12px; }
+  .empty-state { padding: 48px 24px; text-align: center; color: var(--text-soft); }
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 18px; }
+  .stat-card { background: var(--cream); border-radius: 14px; padding: 16px 18px; }
+  .stat-card .value { font-family: 'Fraunces', serif; font-size: 26px; font-weight: 600; }
+  .stat-card .label { font-size: 12.5px; color: var(--text-soft); margin-top: 2px; }
+  .stat-card.is-clickable { cursor: pointer; transition: background .15s ease, transform .15s ease; }
+  .stat-card.is-clickable:hover { background: var(--sauge-light, #E7EDE3); transform: translateY(-1px); }
+  .vps-gauge-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 18px; }
+  .vps-gauge { background: var(--cream); border-radius: 14px; padding: 16px 18px; }
+  .vps-gauge .label { font-size: 12.5px; color: var(--text-soft); margin-bottom: 8px; }
+  .vps-gauge .value-row { display: flex; align-items: baseline; gap: 6px; margin-bottom: 8px; }
+  .vps-gauge .value { font-family: 'Fraunces', serif; font-size: 24px; font-weight: 600; }
+  .vps-gauge .value-sub { font-size: 12px; color: var(--text-soft); }
+  .vps-gauge .bar-track { height: 7px; border-radius: 999px; background: var(--border); overflow: hidden; }
+  .vps-gauge .bar-fill { height: 100%; border-radius: 999px; background: var(--sauge); transition: width .3s ease; }
+  .vps-gauge .bar-fill.is-warning { background: var(--terracotta); }
+  .vps-peak-row { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+  .vps-peak-card { flex: 1; min-width: 180px; background: var(--white); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; }
+  .vps-peak-card .label { font-size: 12px; color: var(--text-soft); }
+  .vps-peak-card .value { font-family: 'Fraunces', serif; font-size: 19px; font-weight: 600; margin-top: 2px; }
+  .threshold-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+  .threshold-row label { margin: 0; flex: 1; font-weight: 600; font-size: 13px; }
+  .threshold-row input { width: 90px; }
+  .accounts-table td .muted { display: block; font-size: 11.5px; margin-top: 2px; }
+  .detail-row td { background: var(--cream); padding: 18px 22px; }
+  .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+  .detail-grid h4 { font-size: 13px; text-transform: uppercase; letter-spacing: .03em; color: var(--text-soft); margin: 0 0 10px; }
+  .detail-mini-table { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--white); border-radius: 10px; overflow: hidden; }
+  .detail-mini-table th, .detail-mini-table td { text-align: left; padding: 7px 10px; border-top: 1px solid var(--border, #eee); }
+  .detail-mini-table th { color: var(--text-soft); font-weight: 600; font-size: 11.5px; background: var(--cream-warm, #F1E9DC); }
+  @media (max-width: 760px) { .detail-grid { grid-template-columns: 1fr; } }
+  .kpi-donut-wrap { display: flex; align-items: center; gap: 28px; flex-wrap: wrap; margin: 16px 0; }
+  .kpi-donut-wrap svg { width: 160px; height: 160px; flex-shrink: 0; }
+  .kpi-legend { list-style: none; margin: 0; padding: 0; font-size: 13.5px; }
+  .kpi-legend li { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+  .kpi-legend .swatch { width: 11px; height: 11px; border-radius: 3px; flex-shrink: 0; }
+  .kpi-legend .count { margin-left: auto; font-weight: 600; padding-left: 14px; }
+  .kpi-detail-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13.5px; }
+  .kpi-detail-table th, .kpi-detail-table td { text-align: left; padding: 7px 4px; border-top: 1px solid var(--border, #eee); }
+  .kpi-detail-table th { color: var(--text-soft); font-weight: 600; font-size: 12px; }
+  .purge-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-top: 1px solid var(--border); }
+  .purge-row:first-of-type { border-top: none; }
+  .table-scroll { max-height: 480px; overflow-y: auto; }
+  .table-scroll thead th { position: sticky; top: 0; z-index: 1; }
+  /* Le tableau des espaces de travail a beaucoup de colonnes + jusqu'à 6
+     boutons d'action par ligne — trop large pour tenir sur beaucoup
+     d'écrans. Plutôt que de laisser .panel (overflow:hidden) couper le
+     contenu, on le rend défilable horizontalement dans son propre cadre. */
+  .table-scroll-x { overflow-x: auto; }
+  .table-scroll-x table { min-width: 980px; }
+  .table-scroll-x .row-actions { flex-wrap: nowrap; }
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <img src="/static/img/logo-icon-nav.png" alt="" class="mark">
+    <div><div class="name">Click<span class="accent">Prospect</span></div><div class="tag">Superadmin</div></div>
+  </div>
+
+  <div class="sidebar-who">
+    <div class="email" id="who-email">…</div>
+    <span class="role-badge" id="who-role-badge"></span>
+  </div>
+
+  <nav class="sidebar-nav" id="sidebar-nav">
+    <button type="button" data-target="vue-ensemble" class="is-active">Vue d'ensemble</button>
+    <button type="button" data-target="etat-vps">État du VPS</button>
+    <button type="button" data-target="espaces-travail">Espaces de travail</button>
+    <button type="button" data-target="crm-sync" data-admin-only="1">Synchro Gestion Client</button>
+    <button type="button" data-target="base-donnees">Base de données</button>
+    <button type="button" data-target="comptes-superadmin" data-admin-only="1">Comptes superadmin</button>
+    <button type="button" data-target="email-systeme">E-mail système</button>
+    <button type="button" data-target="suggestions">Suggestions<span id="suggestions-nav-badge" class="nav-badge" style="display:none;">0</span></button>
+    <button type="button" data-target="journal-audit">Journal d'audit</button>
+    <button type="button" data-target="evenements-securite">Événements de sécurité</button>
+    <button type="button" data-target="base-connaissances">Base de connaissances</button>
+    <button type="button" data-target="veille-reglementaire">Veille réglementaire</button>
+  </nav>
+
+  <div class="sidebar-foot">
+    <span class="badge" id="maintenance-badge" style="display:none; align-self:flex-start;"></span>
+    <button id="maintenance-toggle-btn" type="button" data-admin-only="1">Mode maintenance</button>
+    <button id="change-password-btn" type="button">Changer mon mot de passe</button>
+    <button id="set-pin-btn" type="button">Configurer mon code PIN</button>
+    <button id="logout-btn" type="button">Déconnexion</button>
+  </div>
+</aside>
+
+<div class="content">
+  <div class="content-head">
+    <div class="greeting"><h1>Bonjour 👋</h1></div>
+    <p class="sub" id="content-subtitle">Vue d'ensemble de la supervision ClickProspect.</p>
+  </div>
+
+<div class="main">
+  <div class="panel" id="vue-ensemble">
+    <div class="panel-head">
+      <h2>Vue d'ensemble</h2>
+      <p>Calculé à partir des espaces de travail actuels — se met à jour à chaque chargement de la page.</p>
+    </div>
+    <div class="panel-body" id="kpi-container">
+      <div class="empty-state">Chargement…</div>
+    </div>
+  </div>
+
+
+  <div class="panel" id="espaces-travail" hidden>
+    <div class="panel-head">
+      <h2>Espaces de travail</h2>
+      <p>Les lignes surlignées ont été signalées automatiquement pour inactivité prolongée (gratuit, 30 jours+) — à valider ou ignorer manuellement.</p>
+    </div>
+    <div style="padding:0 20px 14px;">
+      <input id="workspace-search-input" type="search" placeholder="Rechercher un espace ou un e-mail admin…"
+             style="width:100%; max-width:360px; box-sizing:border-box; padding:8px 10px; border:1px solid var(--border, #ddd); border-radius:8px; font-size:13px; font-family:inherit;">
+    </div>
+    <div id="table-container">
+      <div class="empty-state">Chargement…</div>
+    </div>
+  </div>
+
+  <div class="panel" id="crm-sync" hidden data-admin-only="1">
+    <div class="panel-head">
+      <h2>Synchro Gestion Client</h2>
+      <p>Fait remonter automatiquement le profil de l'administrateur de chaque espace de travail (nom, entreprise, SIRET, adresse, contact) vers ta propre rubrique Gestion Client, dans l'espace de travail choisi ci-dessous. Se déclenche à chaque fois qu'un administrateur enregistre ses informations depuis « Mon compte ».</p>
+    </div>
+    <div class="panel-body">
+      <div style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
+        <div style="flex:1; min-width:260px;">
+          <label for="crm-target-select">Espace de travail cible (le tien)</label>
+          <select id="crm-target-select">
+            <option value="">— Désactivé —</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" id="crm-target-save-btn" type="button">Enregistrer</button>
+        <button class="btn btn-ghost" id="crm-sync-run-btn" type="button">Resynchroniser tout maintenant</button>
+      </div>
+      <div id="crm-sync-result" class="muted" style="margin-top:10px;"></div>
+      <p class="muted" style="margin-top:14px;">Ne synchronise que les champs volontairement renseignés (jamais de mot de passe, jamais de PIN). Les fiches créées portent la mention « Client ClickProspect — profil synchronisé automatiquement » et le statut « Client » directement.</p>
+    </div>
+  </div>
+
+  <div class="panel" id="base-donnees" hidden>
+    <div class="panel-head">
+      <h2>Base de données</h2>
+      <p>Nettoyage des données obsolètes — n'affecte jamais les prospects ni les comptes.</p>
+    </div>
+    <div class="panel-body" id="db-stats-container">
+      <div class="empty-state">Chargement…</div>
+    </div>
+  </div>
+
+  <div class="panel" id="email-systeme" hidden>
+    <div class="panel-head">
+      <h2>E-mail système</h2>
+      <p>Vérifie que SYSTEM_SMTP_* est bien configuré (alertes d'inactivité, futures annonces) sans toucher à un vrai espace client.</p>
+    </div>
+    <div class="panel-body">
+      <div style="display:flex; gap:10px; align-items:flex-end;">
+        <div style="flex:1;">
+          <label for="test-email-input">Envoyer un e-mail de test à</label>
+          <input id="test-email-input" type="email" placeholder="toi@exemple.fr">
+        </div>
+        <button class="btn btn-primary" id="test-email-btn" type="button">Envoyer</button>
+      </div>
+      <div id="test-email-result" class="muted" style="margin-top:10px;"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="suggestions" hidden>
+    <div class="panel-head">
+      <h2>Suggestions</h2>
+      <p>Idées et retours envoyés volontairement par les utilisateurs depuis l'assistant d'aide.</p>
+    </div>
+    <div id="feedback-container">
+      <div class="empty-state">Chargement…</div>
+    </div>
+  </div>
+
+  <div class="panel" id="journal-audit" hidden>
+    <div class="panel-head">
+      <h2>Journal d'audit</h2>
+      <p>Historique des actions sensibles effectuées depuis cette console (200 dernières).</p>
+    </div>
+    <div id="audit-log-container">
+      <div class="empty-state">Chargement…</div>
+    </div>
+  </div>
+
+  <div class="panel" id="evenements-securite" hidden>
+    <div class="panel-head">
+      <h2>Événements de sécurité</h2>
+      <p>Réinitialisations de mot de passe par PIN et blocages anti brute-force (100 derniers) — pour repérer une activité suspecte.</p>
+    </div>
+    <div id="security-events-container">
+      <div class="empty-state">Chargement…</div>
+    </div>
+  </div>
+
+  <div class="panel" id="base-connaissances" hidden>
+    <div class="panel-head">
+      <h2>Base de connaissances</h2>
+      <p>Procédures affichées aux utilisateurs via le panneau d'aide (icône « ? »). L'identifiant (slug) relie une icône dans l'application à son article — ne le change pas sans mettre à jour l'icône correspondante.</p>
+    </div>
+    <div class="panel-body">
+      <button class="btn btn-primary" id="kb-new-btn" type="button">+ Nouvel article</button>
+    </div>
+    <div id="kb-articles-container">
+      <div class="empty-state">Chargement…</div>
+    </div>
+  </div>
+
+  <div class="panel" id="veille-reglementaire" hidden>
+    <div class="panel-head">
+      <h2>Veille réglementaire</h2>
+      <p>Vérifie chaque jour les sources ci-dessous et signale tout changement de contenu détecté, avec un résumé assisté par IA. Rien n'est jamais appliqué automatiquement — chaque alerte reste à examiner et à traiter manuellement.</p>
+    </div>
+
+    <div class="panel-body">
+      <h3 style="margin:0 0 10px;">Sources surveillées</h3>
+      <div style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; margin-bottom:14px;">
+        <div style="flex:1; min-width:200px;">
+          <label for="rw-source-name">Nom</label>
+          <input id="rw-source-name" type="text" placeholder="ex : CNIL — Actualités">
+        </div>
+        <div style="flex:2; min-width:260px;">
+          <label for="rw-source-url">URL</label>
+          <input id="rw-source-url" type="url" placeholder="https://www.cnil.fr/fr/actualites">
+        </div>
+        <div style="flex:1; min-width:160px;">
+          <label for="rw-source-category">Catégorie</label>
+          <input id="rw-source-category" type="text" placeholder="CNIL, service-public...">
+        </div>
+        <div style="min-width:140px;">
+          <label for="rw-source-type">Type</label>
+          <select id="rw-source-type">
+            <option value="html_diff">Diff de page</option>
+            <option value="rss">Flux RSS</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" id="rw-add-source-btn" type="button">+ Ajouter</button>
+        <button class="btn btn-ghost" id="rw-check-now-btn" type="button">Vérifier maintenant</button>
+      </div>
+      <div style="margin-bottom:10px;">
+        <label for="rw-source-keywords">Mots-clés (optionnel — séparés par des virgules ; filtre les changements/articles non pertinents, ex : "RGPD,CNIL,données personnelles")</label>
+        <input id="rw-source-keywords" type="text" style="width:100%; max-width:640px; box-sizing:border-box;" placeholder="RGPD,CNIL,données personnelles,cookies...">
+      </div>
+      <div id="rw-source-error" class="muted" style="color:#A2502E; display:none; margin-bottom:10px;"></div>
+    </div>
+    <div id="rw-sources-container">
+      <div class="empty-state">Chargement…</div>
+    </div>
+
+    <div class="panel-body" style="border-top:1px solid var(--border, #eee); margin-top:6px;">
+      <h3 style="margin:16px 0 10px;">Alertes</h3>
+      <div style="display:flex; gap:8px; align-items:center; margin-bottom:12px;">
+        <label for="rw-alert-filter" style="margin:0;">Filtrer :</label>
+        <select id="rw-alert-filter" style="width:auto;">
+          <option value="">Voir tout</option>
+          <option value="en_cours">En cours</option>
+          <option value="sans_suite">Sans suite</option>
+          <option value="traite">Traité</option>
+        </select>
+      </div>
+    </div>
+    <div id="rw-alerts-container">
+      <div class="empty-state">Chargement…</div>
+    </div>
+  </div>
+
+  <div class="panel" id="etat-vps" hidden>
+    <div class="panel-head">
+      <h2>État du VPS</h2>
+      <p>Instantané le plus récent (échantillonné toutes les ~5 minutes). Reflète le conteneur applicatif — fiable tant qu'un seul service occupe le VPS.</p>
+    </div>
+    <div class="panel-body" id="vps-snapshot-container">
+      <div class="empty-state">Chargement…</div>
+    </div>
+  </div>
+
+  <div class="panel" id="comptes-superadmin" hidden data-admin-only="1">
+    <div class="panel-head">
+      <h2>Comptes superadmin</h2>
+      <p>Un compte « administrateur » a accès à tout. Un compte « technicien » peut consulter et réinitialiser un mot de passe client, mais jamais changer un abonnement, supprimer un espace, ou se connecter à la place d'un client.</p>
+    </div>
+    <div class="panel-body">
+      <div style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
+        <div style="flex:1; min-width:180px;">
+          <label for="new-account-email">E-mail</label>
+          <input id="new-account-email" type="email" placeholder="prenom@exemple.fr">
+        </div>
+        <div style="flex:1; min-width:160px;">
+          <label for="new-account-password">Mot de passe initial</label>
+          <input id="new-account-password" type="text" placeholder="8 caractères minimum" autocomplete="off">
+        </div>
+        <div style="min-width:150px;">
+          <label for="new-account-role">Rôle</label>
+          <select id="new-account-role">
+            <option value="technicien">Technicien</option>
+            <option value="administrateur">Administrateur</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" id="create-account-btn" type="button">Créer</button>
+      </div>
+      <div id="create-account-result" class="muted" style="margin-top:10px;"></div>
+    </div>
+    <div id="accounts-container">
+      <div class="empty-state">Chargement…</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- Modal : changer son propre mot de passe superadmin -->
+<div class="modal-overlay" id="password-modal-overlay">
+  <div class="modal">
+    <h3>Changer mon mot de passe</h3>
+    <label for="current-password-input">Mot de passe actuel</label>
+    <input id="current-password-input" type="password" autocomplete="off">
+    <label for="new-password-input">Nouveau mot de passe</label>
+    <input id="new-password-input" type="password" placeholder="8 caractères minimum" autocomplete="new-password">
+    <div id="password-pin-row" style="display:none;">
+      <label for="password-pin-input">Code PIN</label>
+      <input id="password-pin-input" type="text" inputmode="numeric" placeholder="6 chiffres minimum" autocomplete="off">
+      <p class="muted" style="margin-top:4px;">Confirmation obligatoire : sans ton code PIN, personne ne peut changer ce mot de passe même avec ta session ouverte.</p>
+    </div>
+    <div id="password-modal-error" class="muted" style="color:#A2502E; display:none; margin-top:10px;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="password-modal-cancel-btn" type="button">Annuler</button>
+      <button class="btn btn-primary" id="password-modal-save-btn" type="button">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal : configurer / changer son code PIN -->
+<div class="modal-overlay" id="pin-modal-overlay">
+  <div class="modal">
+    <h3>Configurer mon code PIN</h3>
+    <p class="muted">Ce code sera ensuite demandé à chaque changement de mot de passe, pour empêcher qu'une session laissée ouverte suffise à un tiers pour prendre le contrôle du compte.</p>
+    <label for="pin-current-password-input">Mot de passe actuel</label>
+    <input id="pin-current-password-input" type="password" autocomplete="off">
+    <label for="new-pin-input">Nouveau code PIN</label>
+    <input id="new-pin-input" type="text" inputmode="numeric" placeholder="6 chiffres minimum, jamais consécutifs" autocomplete="off">
+    <div id="pin-modal-error" class="muted" style="color:#A2502E; display:none; margin-top:10px;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="pin-modal-cancel-btn" type="button">Annuler</button>
+      <button class="btn btn-primary" id="pin-modal-save-btn" type="button">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal : créer/modifier un article de la base de connaissances -->
+<div class="modal-overlay" id="kb-modal-overlay">
+  <div class="modal" style="max-width:560px;">
+    <h3 id="kb-modal-title">Nouvel article</h3>
+    <input type="hidden" id="kb-modal-id">
+
+    <label for="kb-modal-slug">Identifiant (slug)</label>
+    <input id="kb-modal-slug" placeholder="ex: smtp-microsoft-365">
+
+    <label for="kb-modal-order">Ordre d'affichage</label>
+    <input id="kb-modal-order" type="number" value="0" style="max-width:120px;">
+
+    <label for="kb-modal-title-input">Titre</label>
+    <input id="kb-modal-title-input" placeholder="Titre affiché en haut du panneau">
+
+    <label for="kb-modal-content">Contenu</label>
+    <textarea id="kb-modal-content" rows="10" style="width:100%; box-sizing:border-box; font-family:inherit; font-size:13.5px; padding:9px 11px; border:1px solid var(--border, #ddd); border-radius:8px; margin-top:6px;" placeholder="Texte brut, les sauts de ligne sont conservés à l'affichage."></textarea>
+
+    <div id="kb-modal-error" class="muted" style="color:#A2502E; display:none; margin-top:10px;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="kb-modal-cancel-btn" type="button">Annuler</button>
+      <button class="btn btn-primary" id="kb-modal-save-btn" type="button">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal : changer l'abonnement -->
+<div class="modal-overlay" id="plan-modal-overlay">
+  <div class="modal">
+    <h3>Changer l'abonnement</h3>
+    <div id="plan-modal-workspace-name" class="muted" style="margin-bottom: 10px;"></div>
+
+    <label for="plan-select">Statut</label>
+    <select id="plan-select">
+      <option value="trial">Essai (7 jours à partir d'aujourd'hui)</option>
+      <option value="paid">Payant</option>
+      <option value="free">Gratuit (restreint)</option>
+    </select>
+
+    <div id="paid-until-field" style="display:none;">
+      <label for="paid-until-input">Abonnement payant jusqu'au</label>
+      <input id="paid-until-input" type="date">
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="plan-cancel-btn" type="button">Annuler</button>
+      <button class="btn btn-primary" id="plan-confirm-btn" type="button">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal : réinitialisation de mot de passe -->
+<div class="modal-overlay" id="reset-modal-overlay">
+  <div class="modal">
+    <h3>Mot de passe temporaire</h3>
+    <div id="reset-modal-body"></div>
+    <div class="modal-actions">
+      <button class="btn btn-dark" id="reset-close-btn" type="button">Fermer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal : suppression définitive -->
+<div class="modal-overlay" id="delete-modal-overlay">
+  <div class="modal">
+    <h3>Supprimer définitivement cet espace ?</h3>
+    <p class="muted" id="delete-modal-warning"></p>
+    <label for="delete-confirm-input">Tape le nom exact de l'espace pour confirmer</label>
+    <input id="delete-confirm-input" type="text">
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="delete-cancel-btn" type="button">Annuler</button>
+      <button class="btn btn-danger" id="delete-confirm-btn" type="button" disabled>Supprimer définitivement</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal : répondre/remercier une suggestion -->
+<div class="modal-overlay" id="feedback-reply-modal-overlay">
+  <div class="modal" style="max-width:560px;">
+    <h3>Répondre</h3>
+    <p class="muted">À : <strong id="feedback-reply-to"></strong></p>
+    <p class="muted" style="font-style:italic; background:var(--cream); padding:10px 12px; border-radius:8px;" id="feedback-reply-original"></p>
+
+    <label for="feedback-reply-subject">Objet</label>
+    <input id="feedback-reply-subject" type="text">
+
+    <label for="feedback-reply-body">Message</label>
+    <textarea id="feedback-reply-body" rows="8" style="width:100%; box-sizing:border-box; font-family:inherit; font-size:13.5px; padding:9px 11px; border:1px solid var(--border, #ddd); border-radius:8px; margin-top:6px;"></textarea>
+
+    <p class="muted" style="margin-top:8px;">Envoyé depuis l'adresse système ClickProspect (SYSTEM_SMTP_FROM_EMAIL) — jamais depuis ta propre boîte.</p>
+
+    <div id="feedback-reply-error" class="muted" style="color:#A2502E; display:none; margin-top:6px;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="feedback-reply-cancel-btn" type="button">Annuler</button>
+      <button class="btn btn-primary" id="feedback-reply-send-btn" type="button">Envoyer</button>
+    </div>
+  </div>
+</div>
+<div class="modal-overlay" id="kpi-modal-overlay">
+  <div class="modal" style="max-width:640px;">
+    <h3 id="kpi-modal-title">Détail</h3>
+    <div id="kpi-modal-body"></div>
+    <div class="modal-actions">
+      <button class="btn btn-dark" id="kpi-modal-close-btn" type="button">Fermer</button>
+    </div>
+  </div>
+</div>
+
+<script nonce="{{ csp_nonce }}">
+let workspaces = [];
+let currentPlanWorkspaceId = null;
+let currentFeedbackReplyId = null;
+let currentDeleteWorkspaceId = null;
+
+// Listeners délégués globaux pour les boutons/champs générés dynamiquement
+// (innerHTML) — remplace les anciens onclick="..."/onchange="..." inline
+// dispersés dans le HTML généré, nécessaire pour retirer 'unsafe-inline'
+// du CSP. Un seul listener par type d'événement, actif quel que soit le
+// contenu réellement rendu à un instant donné (event delegation).
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-action]');
+  if (!el) return;
+  const id = el.dataset.id ? parseInt(el.dataset.id, 10) : null;
+  switch (el.dataset.action) {
+    case 'open-kb-modal': openKbModal(id); break;
+    case 'delete-kb-article': deleteKbArticle(id); break;
+    case 'edit-regulatory-source': startEditRegulatorySource(id); break;
+    case 'delete-regulatory-source': deleteRegulatorySource(id); break;
+    case 'save-edit-regulatory-source': saveEditRegulatorySource(id); break;
+    case 'cancel-edit-regulatory-source': loadRegulatorySources(); break;
+    case 'save-regulatory-alert': saveRegulatoryAlert(id); break;
+  }
+});
+document.addEventListener('change', (e) => {
+  const el = e.target.closest('[data-action="toggle-regulatory-source"]');
+  if (el) toggleRegulatorySource(parseInt(el.dataset.id, 10), el.checked);
+});
+
+async function fetchJSON(url, options) {
+  const res = await fetch(url, options);
+  if (res.status === 401) {
+    window.location.href = '/supadmin/login';
+    throw new Error('Non authentifié');
+  }
+  let data = null;
+  try { data = await res.json(); } catch (e) {}
+  if (!res.ok) throw new Error((data && data.error) || `Erreur ${res.status}`);
+  return data;
+}
+
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function formatDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+function formatDateTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' }) +
+    ' à ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+}
+
+const planLabels = { trial: 'Essai', free: 'Gratuit', paid: 'Payant' };
+
+function planEndLabel(w) {
+  if (w.plan_effective === 'trial') return `Essai jusqu'au ${formatDate(w.trial_ends_at)}`;
+  if (w.plan_effective === 'paid') {
+    const canceled = w.mollie_subscription_status === 'canceled' ? ' <span class="badge badge-flagged">Résilié</span>' : '';
+    return `Payant jusqu'au ${formatDate(w.paid_until)}${canceled}`;
+  }
+  return 'Gratuit (restreint)';
+}
+
+function billingIntervalLabel(w) {
+  if (w.plan_effective !== 'paid' || !w.billing_interval) return '—';
+  return w.billing_interval === 'annual' ? 'Annuel' : 'Mensuel';
+}
+
+// --- Espaces de travail ---
+
+let lastKpiList = [];
+
+function renderKpis(list) {
+  const container = document.getElementById('kpi-container');
+  lastKpiList = list;
+  if (!list.length) {
+    container.innerHTML = `<div class="empty-state">Aucun espace de travail pour l'instant.</div>`;
+    return;
+  }
+
+  const total = list.length;
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const actifs = list.filter(w => w.last_active_at && new Date(w.last_active_at) >= thirtyDaysAgo).length;
+  const inactifs = total - actifs;
+
+  const nbEssai = list.filter(w => w.plan_effective === 'trial').length;
+  const nbGratuit = list.filter(w => w.plan_effective === 'free').length;
+  const nbPayant = list.filter(w => w.plan_effective === 'paid').length;
+
+  const nbMensuel = list.filter(w => w.plan_effective === 'paid' && w.billing_interval === 'monthly').length;
+  const nbAnnuel = list.filter(w => w.plan_effective === 'paid' && w.billing_interval === 'annual').length;
+  const nbPayantManuel = nbPayant - nbMensuel - nbAnnuel; // passé en payant à la main par le superadmin, hors Mollie
+
+  const mrr = nbMensuel * 12 + nbAnnuel * 9;
+
+  // Taux de conversion essai -> payant : parmi les espaces qui ont déjà quitté
+  // l'essai (donc payant OU gratuit), quelle proportion a choisi de payer.
+  // Les essais toujours en cours sont volontairement exclus du calcul.
+  const decides = nbPayant + nbGratuit;
+  const tauxConversion = decides > 0 ? Math.round((nbPayant / decides) * 100) : null;
+
+  container.innerHTML = `
+    <div class="stats-grid">
+      <div class="stat-card is-clickable" data-kpi="total"><div class="value">${total}</div><div class="label">Espaces de travail</div></div>
+      <div class="stat-card is-clickable" data-kpi="activity"><div class="value">${actifs} / ${inactifs}</div><div class="label">Actifs / inactifs (30j)</div></div>
+      <div class="stat-card is-clickable" data-kpi="plan"><div class="value">${nbEssai} / ${nbGratuit} / ${nbPayant}</div><div class="label">Essai / Gratuit / Payant</div></div>
+      <div class="stat-card is-clickable" data-kpi="interval"><div class="value">${nbMensuel} / ${nbAnnuel}</div><div class="label">Mensuel / Annuel${nbPayantManuel > 0 ? ` <span class="muted">(+${nbPayantManuel} manuel)</span>` : ''}</div></div>
+      <div class="stat-card is-clickable" data-kpi="mrr"><div class="value">${mrr}€</div><div class="label">MRR estimé (récurrent Mollie)</div></div>
+      <div class="stat-card is-clickable" data-kpi="conversion"><div class="value">${tauxConversion !== null ? tauxConversion + '%' : '—'}</div><div class="label">Taux de conversion essai → payant</div></div>
+    </div>
+  `;
+
+  container.querySelectorAll('[data-kpi]').forEach(card => {
+    card.addEventListener('click', () => openKpiModal(card.dataset.kpi));
+  });
+}
+
+function buildPieSvg(segments) {
+  const total = segments.reduce((s, seg) => s + seg.value, 0);
+  const r = 15.91549430918954; // rayon choisi pour que la circonférence = 100 (correspond directement aux %)
+  if (total === 0) {
+    return `<svg viewBox="0 0 42 42"><circle cx="21" cy="21" r="${r}" fill="transparent" stroke="var(--border, #E5DDD0)" stroke-width="6"/></svg>`;
+  }
+  let cumulative = 0;
+  const circles = segments.filter(s => s.value > 0).map(seg => {
+    const pct = (seg.value / total) * 100;
+    const dashArray = `${pct} ${100 - pct}`;
+    const dashOffset = 25 - cumulative; // démarre en haut (12h) plutôt qu'à 3h
+    cumulative += pct;
+    return `<circle cx="21" cy="21" r="${r}" fill="transparent" stroke="${seg.color}" stroke-width="6" stroke-dasharray="${dashArray}" stroke-dashoffset="${dashOffset}"></circle>`;
+  }).join('');
+  return `<svg viewBox="0 0 42 42">${circles}</svg>`;
+}
+
+function computeKpiDetail(kind, list) {
+  const COLORS = { terracotta: '#A2502E', terracottaLight: '#C1653D', sauge: '#7A9471', muted: '#B8AE9E' };
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+  if (kind === 'total') return null; // géré à part : défilement vers le tableau
+
+  if (kind === 'activity') {
+    const inactive = list.filter(w => !w.last_active_at || new Date(w.last_active_at) < thirtyDaysAgo)
+      .sort((a, b) => new Date(a.last_active_at || 0) - new Date(b.last_active_at || 0));
+    const active = list.length - inactive.length;
+    return {
+      title: 'Activité (30 derniers jours)',
+      segments: [
+        { label: 'Actifs', value: active, color: COLORS.sauge },
+        { label: 'Inactifs', value: inactive.length, color: COLORS.terracotta },
+      ],
+      tableHead: ['Espace inactif', 'Admin', 'Dernière activité'],
+      tableRows: inactive.map(w => [w.name, w.admin_email || '—', formatDateTime(w.last_active_at)]),
+      emptyNote: 'Aucun espace inactif — tout le monde est venu dans les 30 derniers jours.',
+    };
+  }
+
+  if (kind === 'plan') {
+    const essai = list.filter(w => w.plan_effective === 'trial').length;
+    const gratuit = list.filter(w => w.plan_effective === 'free').length;
+    const payant = list.filter(w => w.plan_effective === 'paid').length;
+    return {
+      title: 'Répartition Essai / Gratuit / Payant',
+      segments: [
+        { label: 'Essai', value: essai, color: COLORS.terracottaLight },
+        { label: 'Gratuit', value: gratuit, color: COLORS.muted },
+        { label: 'Payant', value: payant, color: COLORS.sauge },
+      ],
+      tableHead: ['Statut', 'Nombre', 'Part'],
+      tableRows: [
+        ['Essai', essai, pct(essai, list.length)],
+        ['Gratuit', gratuit, pct(gratuit, list.length)],
+        ['Payant', payant, pct(payant, list.length)],
+      ],
+    };
+  }
+
+  if (kind === 'interval') {
+    const mensuel = list.filter(w => w.plan_effective === 'paid' && w.billing_interval === 'monthly').length;
+    const annuel = list.filter(w => w.plan_effective === 'paid' && w.billing_interval === 'annual').length;
+    const manuel = list.filter(w => w.plan_effective === 'paid' && !w.billing_interval).length;
+    const segments = [
+      { label: 'Mensuel', value: mensuel, color: COLORS.terracotta },
+      { label: 'Annuel', value: annuel, color: COLORS.sauge },
+    ];
+    if (manuel > 0) segments.push({ label: 'Passé payant manuellement', value: manuel, color: COLORS.muted });
+    return {
+      title: 'Formule des abonnements payants',
+      segments,
+      tableHead: ['Formule', 'Nombre'],
+      tableRows: segments.map(s => [s.label, s.value]),
+      emptyNote: 'Aucun abonnement payant pour l\'instant.',
+    };
+  }
+
+  if (kind === 'mrr') {
+    const mensuel = list.filter(w => w.plan_effective === 'paid' && w.billing_interval === 'monthly').length;
+    const annuel = list.filter(w => w.plan_effective === 'paid' && w.billing_interval === 'annual').length;
+    const revMensuel = mensuel * 12;
+    const revAnnuel = annuel * 9;
+    return {
+      title: 'Composition du MRR estimé',
+      segments: [
+        { label: 'Abonnements mensuels', value: revMensuel, color: COLORS.terracotta },
+        { label: 'Abonnements annuels', value: revAnnuel, color: COLORS.sauge },
+      ],
+      tableHead: ['Origine', 'Contribution au MRR'],
+      tableRows: [
+        [`Mensuel (${mensuel} × 12€)`, `${revMensuel}€`],
+        [`Annuel (${annuel} × 9€ éq./mois)`, `${revAnnuel}€`],
+        ['Total', `${revMensuel + revAnnuel}€`],
+      ],
+      emptyNote: 'Aucun revenu récurrent pour l\'instant.',
+    };
+  }
+
+  if (kind === 'conversion') {
+    const payant = list.filter(w => w.plan_effective === 'paid').length;
+    const gratuit = list.filter(w => w.plan_effective === 'free').length;
+    return {
+      title: 'Conversion essai → payant',
+      segments: [
+        { label: 'Passés payants', value: payant, color: COLORS.sauge },
+        { label: 'Restés gratuits', value: gratuit, color: COLORS.muted },
+      ],
+      tableHead: ['Issue de l\'essai', 'Nombre'],
+      tableRows: [['Passés payants', payant], ['Restés gratuits (non convertis)', gratuit]],
+      emptyNote: 'Aucun essai terminé pour l\'instant — pas encore de taux calculable.',
+    };
+  }
+
+  return null;
+}
+
+function pct(value, total) {
+  return total > 0 ? Math.round((value / total) * 100) + '%' : '—';
+}
+
+function openKpiModal(kind) {
+  if (kind === 'total') {
+    document.getElementById('table-container').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+
+  const detail = computeKpiDetail(kind, lastKpiList);
+  if (!detail) return;
+
+  document.getElementById('kpi-modal-title').textContent = detail.title;
+
+  const totalValue = detail.segments.reduce((s, seg) => s + seg.value, 0);
+  const legendHtml = detail.segments.map(seg => `
+    <li><span class="swatch" style="background:${seg.color};"></span>${escapeHtml(seg.label)}<span class="count">${seg.value}</span></li>
+  `).join('');
+
+  const tableHtml = detail.tableRows.length ? `
+    <table class="kpi-detail-table">
+      <thead><tr>${detail.tableHead.map(h => `<th>${escapeHtml(h)}</th>`).join('')}</tr></thead>
+      <tbody>${detail.tableRows.map(row => `<tr>${row.map(c => `<td>${escapeHtml(String(c))}</td>`).join('')}</tr>`).join('')}</tbody>
+    </table>
+  ` : `<p class="muted">${escapeHtml(detail.emptyNote || 'Aucune donnée.')}</p>`;
+
+  document.getElementById('kpi-modal-body').innerHTML = `
+    <div class="kpi-donut-wrap">
+      ${buildPieSvg(detail.segments)}
+      <ul class="kpi-legend">${legendHtml}</ul>
+    </div>
+    ${totalValue > 0 ? tableHtml : `<p class="muted">${escapeHtml(detail.emptyNote || 'Aucune donnée.')}</p>`}
+  `;
+
+  document.getElementById('kpi-modal-overlay').classList.add('show');
+}
+
+document.getElementById('kpi-modal-close-btn').addEventListener('click', () => {
+  document.getElementById('kpi-modal-overlay').classList.remove('show');
+});
+document.getElementById('kpi-modal-overlay').addEventListener('click', (e) => {
+  if (e.target.id === 'kpi-modal-overlay') document.getElementById('kpi-modal-overlay').classList.remove('show');
+});
+
+async function loadWorkspaces() {
+  try {
+    const data = await fetchJSON('/api/supadmin/workspaces');
+    workspaces = data.workspaces;
+    renderTable();
+    renderKpis(workspaces);
+    document.getElementById('workspace-search-input').addEventListener('input', (e) => {
+      const q = e.target.value.trim().toLowerCase();
+      const filtered = !q ? workspaces : workspaces.filter(w =>
+        w.name.toLowerCase().includes(q) || (w.admin_email || '').toLowerCase().includes(q)
+      );
+      renderTable(filtered);
+    });
+  } catch (err) {
+    document.getElementById('table-container').innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderTable(list) {
+  list = list || workspaces;
+  if (!list.length) {
+    document.getElementById('table-container').innerHTML = `<div class="empty-state">Aucun espace de travail trouvé.</div>`;
+    return;
+  }
+  document.getElementById('table-container').innerHTML = `
+    <div class="table-scroll-x">
+    <table>
+      <thead><tr><th>Espace</th><th>Admin</th><th>Membres</th><th>Créé le</th><th>Dernière activité</th><th>Statut</th><th>Formule</th><th>Quota IA</th><th></th></tr></thead>
+      <tbody>
+        ${list.map(w => `
+          <tr class="${w.deletion_requested_at ? 'flagged' : ''}">
+            <td>
+              <strong>${escapeHtml(w.name)}</strong>
+              ${w.deletion_requested_at ? `<div><span class="badge badge-flagged">Suppression demandée</span></div>` : ''}
+            </td>
+            <td>${escapeHtml(w.admin_email || '—')}</td>
+            <td>${w.member_count}</td>
+            <td class="muted">${formatDate(w.created_at)}</td>
+            <td class="muted">${formatDateTime(w.last_active_at)}</td>
+            <td>
+              <span class="badge badge-${w.plan_effective}">${planLabels[w.plan_effective]}</span>
+              <div class="muted" style="margin-top:4px;">${planEndLabel(w)}</div>
+            </td>
+            <td class="muted">${billingIntervalLabel(w)}</td>
+            <td class="muted">${w.ia_search_quota_override != null ? `${w.ia_search_quota_override}/jour` : 'défaut (3/jour)'}</td>
+            <td>
+              <div class="row-actions">
+                <button class="btn btn-ghost" data-action="detail" data-id="${w.id}">Détails</button>
+                <button class="btn btn-ghost" data-action="plan" data-id="${w.id}">Abonnement</button>
+                <button class="btn btn-ghost" data-action="ia-quota" data-id="${w.id}">Quota IA</button>
+                <button class="btn btn-ghost" data-action="reset" data-id="${w.id}">Réinit. mdp</button>
+                ${w.admin_email ? `<button class="btn btn-ghost" data-action="login-as" data-id="${w.id}">Connexion client</button>` : ''}
+                ${w.deletion_requested_at ? `<button class="btn btn-ghost" data-action="dismiss" data-id="${w.id}">Ignorer la demande</button>` : ''}
+                <button class="btn btn-danger" data-action="delete" data-id="${w.id}">Supprimer</button>
+              </div>
+            </td>
+          </tr>
+          <tr class="detail-row" id="detail-row-${w.id}" style="display:none;">
+            <td colspan="9"><div class="detail-body" id="detail-body-${w.id}"></div></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+    </div>
+  `;
+
+  document.querySelectorAll('[data-action="detail"]').forEach(btn => {
+    btn.addEventListener('click', () => toggleWorkspaceDetail(parseInt(btn.dataset.id, 10), btn));
+  });
+  document.querySelectorAll('[data-action="plan"]').forEach(btn => {
+    btn.addEventListener('click', () => openPlanModal(parseInt(btn.dataset.id, 10)));
+  });
+  document.querySelectorAll('[data-action="ia-quota"]').forEach(btn => {
+    btn.addEventListener('click', () => setIaQuota(parseInt(btn.dataset.id, 10)));
+  });
+  document.querySelectorAll('[data-action="reset"]').forEach(btn => {
+    btn.addEventListener('click', () => resetPassword(parseInt(btn.dataset.id, 10)));
+  });
+  document.querySelectorAll('[data-action="login-as"]').forEach(btn => {
+    btn.addEventListener('click', () => loginAs(parseInt(btn.dataset.id, 10)));
+  });
+  document.querySelectorAll('[data-action="dismiss"]').forEach(btn => {
+    btn.addEventListener('click', () => dismissDeletion(parseInt(btn.dataset.id, 10)));
+  });
+  document.querySelectorAll('[data-action="delete"]').forEach(btn => {
+    btn.addEventListener('click', () => openDeleteModal(parseInt(btn.dataset.id, 10)));
+  });
+}
+
+const workspaceDetailCache = {};
+
+async function toggleWorkspaceDetail(workspaceId, btn) {
+  const row = document.getElementById(`detail-row-${workspaceId}`);
+  const body = document.getElementById(`detail-body-${workspaceId}`);
+  const isOpen = row.style.display !== 'none';
+
+  if (isOpen) {
+    row.style.display = 'none';
+    btn.textContent = 'Détails';
+    return;
+  }
+
+  row.style.display = '';
+  btn.textContent = 'Masquer';
+
+  if (workspaceDetailCache[workspaceId]) {
+    body.innerHTML = workspaceDetailCache[workspaceId];
+    return;
+  }
+
+  body.innerHTML = `<p class="muted">Chargement…</p>`;
+  try {
+    const detail = await fetchJSON(`/api/supadmin/workspaces/${workspaceId}/detail`);
+    const html = renderWorkspaceDetailHtml(detail);
+    workspaceDetailCache[workspaceId] = html;
+    body.innerHTML = html;
+  } catch (err) {
+    body.innerHTML = `<p class="muted">${escapeHtml(err.message)}</p>`;
+  }
+}
+
+const roleLabelsSupadmin = { admin: 'Administrateur', commercial: 'Commercial', lecture_seule: 'Lecture seule' };
+
+function renderWorkspaceDetailHtml(detail) {
+  const membersHtml = detail.members.length ? `
+    <table class="detail-mini-table">
+      <thead><tr><th>Utilisateur</th><th>Rôle</th><th>Actif</th><th>Depuis</th></tr></thead>
+      <tbody>
+        ${detail.members.map(m => `
+          <tr>
+            <td>${escapeHtml(m.email)}</td>
+            <td class="muted">${roleLabelsSupadmin[m.role] || m.role}</td>
+            <td class="muted">${m.is_active ? 'Oui' : 'Non'}</td>
+            <td class="muted">${formatDate(m.created_at)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  ` : `<p class="muted">Aucun utilisateur.</p>`;
+
+  const billingHtml = detail.billing_events.length ? `
+    <table class="detail-mini-table">
+      <thead><tr><th>Événement</th><th>Détail</th><th>Quand</th></tr></thead>
+      <tbody>
+        ${detail.billing_events.map(e => `
+          <tr>
+            <td class="muted">${escapeHtml(e.event_type)}</td>
+            <td class="muted">${escapeHtml(e.details || '—')}</td>
+            <td class="muted">${formatDateTime(e.created_at)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  ` : `<p class="muted">Aucun événement de facturation pour cet espace.</p>`;
+
+  return `
+    <div class="detail-grid">
+      <div>
+        <h4>Utilisateurs</h4>
+        ${membersHtml}
+      </div>
+      <div>
+        <h4>Usage de l'application</h4>
+        <div class="stats-grid">
+          <div class="stat-card"><div class="value">${detail.prospect_count}</div><div class="label">Prospects</div></div>
+          <div class="stat-card"><div class="value">${detail.client_count}</div><div class="label">Clients</div></div>
+          <div class="stat-card"><div class="value">${detail.active_campaign_count}</div><div class="label">Campagnes actives</div></div>
+        </div>
+        <h4 style="margin-top:18px;">Historique de facturation (Mollie)</h4>
+        ${billingHtml}
+      </div>
+    </div>
+  `;
+}
+
+async function setIaQuota(workspaceId) {
+  const w = workspaces.find(x => x.id === workspaceId);
+  const current = w && w.ia_search_quota_override != null ? String(w.ia_search_quota_override) : '';
+  const input = prompt("Quota Recherche IA par jour pour cet espace (laisser vide pour revenir au défaut global de 3/jour) :", current);
+  if (input === null) return;  // annulé
+  const trimmed = input.trim();
+  const quota = trimmed === '' ? null : parseInt(trimmed, 10);
+  if (trimmed !== '' && (!Number.isInteger(quota) || quota < 1)) {
+    alert("Le quota doit être un nombre entier positif, ou vide pour le défaut.");
+    return;
+  }
+  try {
+    await fetchJSON(`/api/supadmin/workspaces/${workspaceId}/ia-quota`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quota }),
+    });
+    await loadWorkspaces();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function loginAs(workspaceId) {
+  const w = workspaces.find(x => x.id === workspaceId);
+  if (!w) return;
+  if (!confirm(`Te connecter en tant qu'administrateur de "${w.name}" (${w.admin_email}) ? Cette action est journalisée.`)) return;
+  try {
+    await fetchJSON(`/api/supadmin/workspaces/${workspaceId}/login-as`, { method: 'POST' });
+    window.location.href = '/dashboard';
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+function openPlanModal(workspaceId) {
+  const w = workspaces.find(x => x.id === workspaceId);
+  if (!w) return;
+  currentPlanWorkspaceId = workspaceId;
+  document.getElementById('plan-modal-workspace-name').textContent = w.name;
+  document.getElementById('plan-select').value = w.plan_effective;
+  document.getElementById('paid-until-field').style.display = w.plan_effective === 'paid' ? 'block' : 'none';
+  if (w.paid_until) {
+    const d = new Date(w.paid_until);
+    document.getElementById('paid-until-input').value = d.toISOString().slice(0, 10);
+  } else {
+    document.getElementById('paid-until-input').value = '';
+  }
+  document.getElementById('plan-modal-overlay').classList.add('show');
+}
+
+document.getElementById('plan-select').addEventListener('change', (e) => {
+  document.getElementById('paid-until-field').style.display = e.target.value === 'paid' ? 'block' : 'none';
+});
+
+document.getElementById('plan-cancel-btn').addEventListener('click', () => {
+  document.getElementById('plan-modal-overlay').classList.remove('show');
+});
+
+document.getElementById('plan-confirm-btn').addEventListener('click', async () => {
+  const plan = document.getElementById('plan-select').value;
+  const paidUntilRaw = document.getElementById('paid-until-input').value;
+  if (plan === 'paid' && !paidUntilRaw) {
+    alert("Indique une date de fin pour un abonnement payant.");
+    return;
+  }
+  try {
+    await fetchJSON(`/api/supadmin/workspaces/${currentPlanWorkspaceId}/plan`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan, paid_until: plan === 'paid' ? paidUntilRaw : null }),
+    });
+    document.getElementById('plan-modal-overlay').classList.remove('show');
+    loadWorkspaces();
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+async function resetPassword(workspaceId) {
+  const w = workspaces.find(x => x.id === workspaceId);
+  if (!w) return;
+  if (!confirm(`Réinitialiser le mot de passe de l'administrateur de "${w.name}" ? L'accès actuel sera immédiatement coupé.`)) return;
+
+  try {
+    const result = await fetchJSON(`/api/supadmin/workspaces/${workspaceId}/reset-admin-password`, { method: 'POST' });
+    document.getElementById('reset-modal-body').innerHTML = `
+      <p>Nouveau mot de passe temporaire pour <strong>${escapeHtml(result.emails.join(', '))}</strong> :</p>
+      <div class="temp-password">${escapeHtml(result.temporary_password)}</div>
+      <div class="warning">Ce mot de passe ne sera plus jamais affiché. Transmets-le à l'administrateur concerné — il devra en choisir un nouveau à sa prochaine connexion.</div>
+    `;
+    document.getElementById('reset-modal-overlay').classList.add('show');
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+document.getElementById('reset-close-btn').addEventListener('click', () => {
+  document.getElementById('reset-modal-overlay').classList.remove('show');
+});
+
+async function dismissDeletion(workspaceId) {
+  try {
+    await fetchJSON(`/api/supadmin/workspaces/${workspaceId}/dismiss-deletion`, { method: 'POST' });
+    loadWorkspaces();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+function openDeleteModal(workspaceId) {
+  const w = workspaces.find(x => x.id === workspaceId);
+  if (!w) return;
+  currentDeleteWorkspaceId = workspaceId;
+  document.getElementById('delete-modal-warning').textContent =
+    `Toutes les données de "${w.name}" (prospects, campagnes, rendez-vous...) seront supprimées définitivement. Cette action est irréversible.`;
+  document.getElementById('delete-confirm-input').value = '';
+  document.getElementById('delete-confirm-input').dataset.expected = w.name;
+  document.getElementById('delete-confirm-btn').disabled = true;
+  document.getElementById('delete-modal-overlay').classList.add('show');
+}
+
+document.getElementById('delete-confirm-input').addEventListener('input', (e) => {
+  document.getElementById('delete-confirm-btn').disabled = e.target.value !== e.target.dataset.expected;
+});
+
+document.getElementById('delete-cancel-btn').addEventListener('click', () => {
+  document.getElementById('delete-modal-overlay').classList.remove('show');
+});
+
+document.getElementById('delete-confirm-btn').addEventListener('click', async () => {
+  try {
+    await fetchJSON(`/api/supadmin/workspaces/${currentDeleteWorkspaceId}`, { method: 'DELETE' });
+    document.getElementById('delete-modal-overlay').classList.remove('show');
+    loadWorkspaces();
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+// --- Base de données ---
+
+async function loadDbStats() {
+  try {
+    const stats = await fetchJSON('/api/supadmin/db-stats');
+    renderDbStats(stats);
+  } catch (err) {
+    document.getElementById('db-stats-container').innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderDbStats(stats) {
+  document.getElementById('db-stats-container').innerHTML = `
+    <div class="stats-grid">
+      <div class="stat-card"><div class="value">${stats.workspace_count}</div><div class="label">Espaces de travail</div></div>
+      <div class="stat-card"><div class="value">${stats.prospect_count}</div><div class="label">Prospects au total</div></div>
+    </div>
+    <div class="purge-row">
+      <div>
+        <strong>Recherches IA planifiées jamais vérifiées</strong>
+        <div class="muted">${stats.stale_scheduled_results} résultat(s) de plus de 30 jours, jamais relus</div>
+      </div>
+      <button class="btn btn-ghost" id="purge-scheduled-btn" ${stats.stale_scheduled_results === 0 ? 'disabled' : ''}>Purger</button>
+    </div>
+    <div class="purge-row">
+      <div>
+        <strong>Imports CSV abandonnés</strong>
+        <div class="muted">${stats.abandoned_import_jobs} import(s) commencé(s) puis jamais confirmé(s) (24h+)</div>
+      </div>
+      <button class="btn btn-ghost" id="purge-imports-btn" ${stats.abandoned_import_jobs === 0 ? 'disabled' : ''}>Purger</button>
+    </div>
+  `;
+
+  document.getElementById('purge-scheduled-btn')?.addEventListener('click', () => purge('scheduled_search_results', stats.stale_scheduled_results));
+  document.getElementById('purge-imports-btn')?.addEventListener('click', () => purge('import_jobs', stats.abandoned_import_jobs));
+}
+
+async function purge(target, count) {
+  if (!confirm(`Supprimer définitivement ces ${count} entrée(s) obsolète(s) ? Cette action est irréversible.`)) return;
+  try {
+    const result = await fetchJSON('/api/supadmin/purge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target }),
+    });
+    alert(`${result.deleted_count} entrée(s) supprimée(s).`);
+    loadDbStats();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+// --- E-mail système ---
+
+document.getElementById('test-email-btn').addEventListener('click', async () => {
+  const input = document.getElementById('test-email-input');
+  const resultBox = document.getElementById('test-email-result');
+  const btn = document.getElementById('test-email-btn');
+  if (!input.value.trim()) {
+    resultBox.textContent = 'Indique une adresse e-mail.';
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'Envoi…';
+  resultBox.textContent = '';
+  try {
+    await fetchJSON('/api/supadmin/test-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to_email: input.value.trim() }),
+    });
+    resultBox.textContent = `E-mail envoyé à ${input.value.trim()} — vérifie sa boîte de réception (et les spams).`;
+  } catch (err) {
+    resultBox.textContent = `Échec : ${err.message}`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Envoyer';
+  }
+});
+
+document.getElementById('logout-btn').addEventListener('click', async () => {
+  await fetch('/api/supadmin/logout', { method: 'POST' });
+  window.location.href = '/supadmin/login';
+});
+
+// --- Mode maintenance ---
+
+const maintenanceBtn = document.getElementById('maintenance-toggle-btn');
+const maintenanceBadge = document.getElementById('maintenance-badge');
+
+function renderMaintenanceState(enabled) {
+  if (enabled) {
+    maintenanceBadge.textContent = 'Maintenance active';
+    maintenanceBadge.className = 'badge badge-flagged';
+    maintenanceBadge.style.display = 'inline-block';
+    maintenanceBtn.textContent = 'Désactiver la maintenance';
+  } else {
+    maintenanceBadge.style.display = 'none';
+    maintenanceBtn.textContent = 'Activer le mode maintenance';
+  }
+}
+
+async function loadMaintenanceState() {
+  const res = await fetch('/api/supadmin/maintenance');
+  const data = await res.json();
+  renderMaintenanceState(data.enabled);
+}
+
+maintenanceBtn.addEventListener('click', async () => {
+  const currentlyEnabled = maintenanceBadge.style.display !== 'none';
+  const next = !currentlyEnabled;
+  if (next && !confirm("Activer le mode maintenance ? Le site public sera inaccessible pour tous les visiteurs jusqu'à ce que tu le désactives.")) return;
+  maintenanceBtn.disabled = true;
+  try {
+    const res = await fetch('/api/supadmin/maintenance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: next }),
+    });
+    const data = await res.json();
+    renderMaintenanceState(data.enabled);
+  } finally {
+    maintenanceBtn.disabled = false;
+  }
+});
+
+loadMaintenanceState();
+
+// --- Journal d'audit ---
+
+const actionLabels = {
+  set_plan: "Changement d'abonnement",
+  reset_admin_password: "Réinitialisation de mot de passe",
+  delete_workspace: "Suppression d'espace",
+  dismiss_deletion_request: "Demande de suppression ignorée",
+  purge_scheduled_search_results: "Purge — recherches IA planifiées",
+  purge_import_jobs: "Purge — imports CSV abandonnés",
+  login_as: "Connexion en tant que",
+};
+
+async function loadAuditLog() {
+  try {
+    const data = await fetchJSON('/api/supadmin/audit-log');
+    renderAuditLog(data.entries);
+  } catch (err) {
+    document.getElementById('audit-log-container').innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderAuditLog(entries) {
+  if (!entries.length) {
+    document.getElementById('audit-log-container').innerHTML = `<div class="empty-state">Aucune action journalisée pour l'instant.</div>`;
+    return;
+  }
+  document.getElementById('audit-log-container').innerHTML = `
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Quand</th><th>Qui</th><th>Action</th><th>Espace</th><th>Détail</th></tr></thead>
+        <tbody>
+          ${entries.map(e => `
+            <tr>
+              <td class="muted">${formatDateTime(e.created_at)}</td>
+              <td>${escapeHtml(e.superadmin_email)}</td>
+              <td>${escapeHtml(actionLabels[e.action] || e.action)}</td>
+              <td>${escapeHtml(e.workspace_name || '—')}</td>
+              <td class="muted">${escapeHtml(e.details || '—')}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+const securityEventLabels = {
+  password_reset_pin: "Mot de passe réinitialisé (PIN)",
+  pin_rate_limited: "Blocage anti brute-force (PIN)",
+};
+
+async function loadSecurityEvents() {
+  try {
+    const data = await fetchJSON('/api/supadmin/security-events');
+    renderSecurityEvents(data.entries);
+  } catch (err) {
+    document.getElementById('security-events-container').innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderSecurityEvents(entries) {
+  if (!entries.length) {
+    document.getElementById('security-events-container').innerHTML = `<div class="empty-state">Aucun événement pour l'instant.</div>`;
+    return;
+  }
+  document.getElementById('security-events-container').innerHTML = `
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Quand</th><th>Type</th><th>Compte</th><th>Espace</th><th>IP</th><th>Détail</th></tr></thead>
+        <tbody>
+          ${entries.map(e => `
+            <tr>
+              <td class="muted">${formatDateTime(e.created_at)}</td>
+              <td><span class="badge ${e.event_type === 'pin_rate_limited' ? 'badge-flagged' : 'badge-active'}">${escapeHtml(securityEventLabels[e.event_type] || e.event_type)}</span></td>
+              <td>${escapeHtml(e.user_email || '—')}</td>
+              <td>${escapeHtml(e.workspace_name || '—')}</td>
+              <td class="muted">${escapeHtml(e.ip_address || '—')}</td>
+              <td class="muted">${escapeHtml(e.details || '—')}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+// --- Navigation par onglets (sidebar) ---
+
+const navButtons = Array.from(document.querySelectorAll('.sidebar-nav button'));
+const panelSubtitles = {
+  'vue-ensemble': "Vue d'ensemble de la supervision ClickProspect.",
+  'etat-vps': "État du serveur en temps quasi réel.",
+  'espaces-travail': "Gestion des espaces de travail clients.",
+  'crm-sync': "Faire de ClickProspect ton propre outil de gestion client.",
+  'base-donnees': "Statistiques et opérations de maintenance de la base.",
+  'comptes-superadmin': "Gestion des comptes ayant accès à cette console.",
+  'email-systeme': "Vérification de la configuration d'envoi.",
+  'suggestions': "Retours envoyés par les utilisateurs.",
+  'journal-audit': "Historique des actions superadmin.",
+  'evenements-securite': "Activité de sécurité récente.",
+  'base-connaissances': "Articles d'aide affichés dans l'application.",
+  'veille-reglementaire': "Surveillance automatique de sources officielles (CNIL, service-public...) et alertes de changement.",
+};
+
+function showPanel(targetId) {
+  document.querySelectorAll('.main > .panel').forEach((panel) => {
+    panel.hidden = panel.id !== targetId;
+  });
+  navButtons.forEach((btn) => {
+    btn.classList.toggle('is-active', btn.dataset.target === targetId);
+  });
+  const subtitleEl = document.getElementById('content-subtitle');
+  if (subtitleEl && panelSubtitles[targetId]) subtitleEl.textContent = panelSubtitles[targetId];
+  window.scrollTo({ top: 0, behavior: 'instant' in window ? 'instant' : 'auto' });
+}
+
+navButtons.forEach((btn) => {
+  btn.addEventListener('click', () => {
+    showPanel(btn.dataset.target);
+    if (btn.dataset.target === 'suggestions') markFeedbackSeen();
+  });
+});
+
+// --- Rôle courant : affiche l'identité, masque ce qui est réservé à l'administrateur ---
+
+let currentSuperadminRole = null;
+let currentHasPin = false;
+
+function applyRoleRestrictions() {
+  const isAdmin = currentSuperadminRole === 'administrateur';
+  document.querySelectorAll('[data-admin-only]').forEach((el) => {
+    el.style.display = isAdmin ? '' : 'none';
+  });
+}
+
+async function loadMe() {
+  const res = await fetch('/api/supadmin/me');
+  if (!res.ok) return;
+  const data = await res.json();
+  currentSuperadminRole = data.role;
+  currentHasPin = !!data.has_pin;
+  document.getElementById('who-email').textContent = data.email;
+  const badge = document.getElementById('who-role-badge');
+  badge.textContent = data.role === 'administrateur' ? 'Administrateur' : 'Technicien';
+  badge.className = `role-badge role-${data.role}`;
+
+  applyRoleRestrictions();
+  if (data.role !== 'administrateur') {
+    // Si l'onglet actif au chargement était réservé (jamais le cas par défaut,
+    // mais on se protège si l'URL est rechargée sur cet état) -> retour à la vue d'ensemble.
+    const activeBtn = navButtons.find((b) => b.classList.contains('is-active'));
+    if (activeBtn && activeBtn.dataset.adminOnly) showPanel('vue-ensemble');
+  }
+}
+
+// --- État du VPS ---
+
+function vpsBar(pct, warningAt) {
+  const safePct = Math.max(0, Math.min(100, pct || 0));
+  const warnClass = safePct >= warningAt ? ' is-warning' : '';
+  return `<div class="bar-track"><div class="bar-fill${warnClass}" style="width:${safePct}%"></div></div>`;
+}
+
+async function loadVpsSnapshot() {
+  const container = document.getElementById('vps-snapshot-container');
+  try {
+    const res = await fetch('/api/supadmin/vps/snapshot');
+    const data = await res.json();
+    if (!data.snapshot) {
+      container.innerHTML = '<div class="empty-state">Aucun échantillon pour le moment — le premier arrivera dans quelques minutes.</div>';
+      return;
+    }
+    const s = data.snapshot;
+    const t = data.thresholds;
+    const peak = data.peak_hours;
+
+    let html = '<div class="vps-gauge-grid">';
+    html += `
+      <div class="vps-gauge">
+        <div class="label">Disque</div>
+        <div class="value-row"><span class="value">${s.disk_used_pct?.toFixed(0) ?? '—'}%</span><span class="value-sub">${s.disk_used_gb?.toFixed(1) ?? '—'} / ${s.disk_total_gb?.toFixed(0) ?? '—'} Go</span></div>
+        ${vpsBar(s.disk_used_pct, t.vps_alert_disk_pct)}
+      </div>
+      <div class="vps-gauge">
+        <div class="label">RAM</div>
+        <div class="value-row"><span class="value">${s.ram_used_pct?.toFixed(0) ?? '—'}%</span><span class="value-sub">${s.ram_used_gb?.toFixed(2) ?? '—'} / ${s.ram_total_gb?.toFixed(2) ?? '—'} Go</span></div>
+        ${vpsBar(s.ram_used_pct, t.vps_alert_ram_pct)}
+      </div>
+      <div class="vps-gauge">
+        <div class="label">CPU</div>
+        <div class="value-row"><span class="value">${s.cpu_pct?.toFixed(0) ?? '—'}%</span></div>
+        ${vpsBar(s.cpu_pct, t.vps_alert_cpu_pct)}
+      </div>
+      <div class="vps-gauge">
+        <div class="label">Base de données</div>
+        <div class="value-row"><span class="value" style="font-size:17px;">${s.db_status === 'ok' ? 'OK' : 'Indisponible'}</span></div>
+        <div class="value-sub">${s.db_size_mb ? s.db_size_mb.toFixed(0) + ' Mo' : '—'} · ${s.db_connections ?? '—'} connexions actives</div>
+      </div>
+    `;
+    html += '</div>';
+
+    html += `<p class="muted" style="margin-bottom:16px;">Bande passante instantanée : ${s.bandwidth_mbps != null ? s.bandwidth_mbps.toFixed(2) + ' Mbit/s' : 'pas encore mesurable'} · dernier échantillon ${new Date(s.sampled_at).toLocaleString('fr-FR')}</p>`;
+
+    html += '<div class="vps-peak-row">';
+    if (peak) {
+      html += `
+        <div class="vps-peak-card"><div class="label">Heure de pointe</div><div class="value">${peak.heure_haute.heure}h — ${peak.heure_haute.bandwidth_mbps.toFixed(2)} Mbit/s</div></div>
+        <div class="vps-peak-card"><div class="label">Heure creuse</div><div class="value">${peak.heure_basse.heure}h — ${peak.heure_basse.bandwidth_mbps.toFixed(2)} Mbit/s</div></div>
+      `;
+    } else {
+      html += '<div class="vps-peak-card"><div class="label">Heures de pointe / creuses</div><div class="muted" style="margin-top:4px;">Pas encore assez d\'historique (12h minimum).</div></div>';
+    }
+    html += '</div>';
+
+    html += `
+      <h4 style="font-size:13px; text-transform:uppercase; letter-spacing:.03em; color:var(--text-soft); margin:0 0 10px;">Seuils d'alerte (e-mail aux administrateurs si dépassé)</h4>
+      <div class="threshold-row"><label>Disque (%)</label><input type="number" id="threshold-disk" min="1" max="100" value="${t.vps_alert_disk_pct}"></div>
+      <div class="threshold-row"><label>RAM (%)</label><input type="number" id="threshold-ram" min="1" max="100" value="${t.vps_alert_ram_pct}"></div>
+      <div class="threshold-row"><label>CPU (%)</label><input type="number" id="threshold-cpu" min="1" max="100" value="${t.vps_alert_cpu_pct}"></div>
+      <button class="btn btn-primary" id="save-thresholds-btn" type="button" style="margin-top:10px;" data-admin-only="1">Enregistrer les seuils</button>
+      <div id="thresholds-result" class="muted" style="margin-top:8px;"></div>
+    `;
+
+    container.innerHTML = html;
+    applyRoleRestrictions();
+
+    const saveBtn = document.getElementById('save-thresholds-btn');
+    if (saveBtn) {
+      saveBtn.addEventListener('click', async () => {
+        saveBtn.disabled = true;
+        const resultEl = document.getElementById('thresholds-result');
+        try {
+          const res2 = await fetch('/api/supadmin/vps/thresholds', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              vps_alert_disk_pct: document.getElementById('threshold-disk').value,
+              vps_alert_ram_pct: document.getElementById('threshold-ram').value,
+              vps_alert_cpu_pct: document.getElementById('threshold-cpu').value,
+            }),
+          });
+          const data2 = await res2.json();
+          if (!res2.ok) throw new Error(data2.error || 'Échec de la mise à jour.');
+          resultEl.textContent = 'Seuils enregistrés.';
+        } catch (err) {
+          resultEl.textContent = `Échec : ${err.message}`;
+        } finally {
+          saveBtn.disabled = false;
+        }
+      });
+    }
+  } catch (err) {
+    container.innerHTML = '<div class="empty-state">Impossible de charger l\'état du VPS.</div>';
+  }
+}
+
+// --- Synchro Gestion Client ---
+
+async function loadCrmSyncSettings() {
+  const select = document.getElementById('crm-target-select');
+  try {
+    const [wsData, settingsData] = await Promise.all([
+      fetch('/api/supadmin/workspaces').then((r) => r.json()),
+      fetch('/api/supadmin/crm-sync').then((r) => r.json()),
+    ]);
+    const current = settingsData.target_workspace_id;
+    select.innerHTML = '<option value="">— Désactivé —</option>' + wsData.workspaces.map((w) =>
+      `<option value="${w.id}"${String(w.id) === String(current) ? ' selected' : ''}>${escapeHtml(w.name)} (${escapeHtml(w.admin_email || '—')})</option>`
+    ).join('');
+  } catch (err) {
+    select.innerHTML = '<option value="">Impossible de charger les espaces</option>';
+  }
+}
+
+const crmSaveBtn = document.getElementById('crm-target-save-btn');
+if (crmSaveBtn) {
+  crmSaveBtn.addEventListener('click', async () => {
+    const resultEl = document.getElementById('crm-sync-result');
+    crmSaveBtn.disabled = true;
+    try {
+      const value = document.getElementById('crm-target-select').value;
+      const res = await fetch('/api/supadmin/crm-sync', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_workspace_id: value || null }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Échec.');
+      resultEl.textContent = value ? 'Espace cible enregistré.' : 'Synchronisation désactivée.';
+    } catch (err) {
+      resultEl.textContent = `Échec : ${err.message}`;
+    } finally {
+      crmSaveBtn.disabled = false;
+    }
+  });
+}
+
+const crmRunBtn = document.getElementById('crm-sync-run-btn');
+if (crmRunBtn) {
+  crmRunBtn.addEventListener('click', async () => {
+    const resultEl = document.getElementById('crm-sync-result');
+    crmRunBtn.disabled = true;
+    resultEl.textContent = 'Resynchronisation en cours…';
+    try {
+      const res = await fetch('/api/supadmin/crm-sync/run', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Échec.');
+      resultEl.textContent = `${data.processed} espace(s) traité(s).`;
+    } catch (err) {
+      resultEl.textContent = `Échec : ${err.message}`;
+    } finally {
+      crmRunBtn.disabled = false;
+    }
+  });
+}
+
+// --- Comptes superadmin ---
+
+const ROLE_LABELS = { administrateur: 'Administrateur', technicien: 'Technicien' };
+
+async function loadSuperadminAccounts() {
+  const container = document.getElementById('accounts-container');
+  try {
+    const res = await fetch('/api/supadmin/accounts');
+    const data = await res.json();
+    if (!data.accounts || data.accounts.length === 0) {
+      container.innerHTML = '<div class="empty-state">Aucun compte.</div>';
+      return;
+    }
+    let html = '<table class="accounts-table"><thead><tr><th>Compte</th><th>Rôle</th><th>Statut</th><th></th></tr></thead><tbody>';
+    data.accounts.forEach((acc) => {
+      html += `
+        <tr>
+          <td>${acc.email}<span class="muted">Créé le ${new Date(acc.created_at).toLocaleDateString('fr-FR')}</span></td>
+          <td>${ROLE_LABELS[acc.role] || acc.role}</td>
+          <td>${acc.is_active ? '<span class="badge badge-paid">Actif</span>' : '<span class="badge badge-free">Désactivé</span>'}</td>
+          <td class="row-actions">
+            <button class="btn btn-ghost toggle-active-btn" data-id="${acc.id}" data-next="${acc.is_active ? 'false' : 'true'}" type="button">${acc.is_active ? 'Désactiver' : 'Réactiver'}</button>
+          </td>
+        </tr>
+      `;
+    });
+    html += '</tbody></table>';
+    container.innerHTML = html;
+
+    container.querySelectorAll('.toggle-active-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        const next = btn.dataset.next === 'true';
+        if (!next && !confirm('Désactiver ce compte superadmin ? Il ne pourra plus se connecter.')) return;
+        btn.disabled = true;
+        try {
+          const res2 = await fetch(`/api/supadmin/accounts/${id}/active`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ is_active: next }),
+          });
+          if (!res2.ok) {
+            const data2 = await res2.json();
+            throw new Error(data2.error || 'Échec.');
+          }
+          loadSuperadminAccounts();
+        } catch (err) {
+          alert(err.message);
+          btn.disabled = false;
+        }
+      });
+    });
+  } catch (err) {
+    container.innerHTML = '<div class="empty-state">Impossible de charger les comptes.</div>';
+  }
+}
+
+document.getElementById('create-account-btn').addEventListener('click', async () => {
+  const email = document.getElementById('new-account-email').value.trim();
+  const password = document.getElementById('new-account-password').value;
+  const role = document.getElementById('new-account-role').value;
+  const resultEl = document.getElementById('create-account-result');
+  const btn = document.getElementById('create-account-btn');
+  btn.disabled = true;
+  resultEl.textContent = '';
+  try {
+    const res = await fetch('/api/supadmin/accounts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, role }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Échec de la création.');
+    resultEl.textContent = `Compte créé (${email}, ${ROLE_LABELS[role]}). Communique-lui son mot de passe initial de façon sécurisée — il pourra le changer depuis « Changer mon mot de passe ».`;
+    document.getElementById('new-account-email').value = '';
+    document.getElementById('new-account-password').value = '';
+    loadSuperadminAccounts();
+  } catch (err) {
+    resultEl.textContent = `Échec : ${err.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// --- Changer son propre mot de passe ---
+
+const passwordModal = document.getElementById('password-modal-overlay');
+document.getElementById('change-password-btn').addEventListener('click', () => {
+  document.getElementById('current-password-input').value = '';
+  document.getElementById('new-password-input').value = '';
+  document.getElementById('password-pin-input').value = '';
+  document.getElementById('password-pin-row').style.display = currentHasPin ? 'block' : 'none';
+  document.getElementById('password-modal-error').style.display = 'none';
+  passwordModal.classList.add('show');
+});
+document.getElementById('password-modal-cancel-btn').addEventListener('click', () => {
+  passwordModal.classList.remove('show');
+});
+document.getElementById('password-modal-save-btn').addEventListener('click', async () => {
+  const errorEl = document.getElementById('password-modal-error');
+  errorEl.style.display = 'none';
+  const btn = document.getElementById('password-modal-save-btn');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/supadmin/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        current_password: document.getElementById('current-password-input').value,
+        new_password: document.getElementById('new-password-input').value,
+        pin: document.getElementById('password-pin-input').value || null,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Échec.');
+    passwordModal.classList.remove('show');
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// --- Configurer / changer son code PIN ---
+
+const pinModal = document.getElementById('pin-modal-overlay');
+document.getElementById('set-pin-btn').addEventListener('click', () => {
+  document.getElementById('pin-current-password-input').value = '';
+  document.getElementById('new-pin-input').value = '';
+  document.getElementById('pin-modal-error').style.display = 'none';
+  pinModal.classList.add('show');
+});
+document.getElementById('pin-modal-cancel-btn').addEventListener('click', () => {
+  pinModal.classList.remove('show');
+});
+document.getElementById('pin-modal-save-btn').addEventListener('click', async () => {
+  const errorEl = document.getElementById('pin-modal-error');
+  errorEl.style.display = 'none';
+  const btn = document.getElementById('pin-modal-save-btn');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/supadmin/pin', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        current_password: document.getElementById('pin-current-password-input').value,
+        pin: document.getElementById('new-pin-input').value,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Échec.');
+    currentHasPin = true;
+    pinModal.classList.remove('show');
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+(async () => {
+  await loadMe();
+  loadWorkspaces();
+  loadDbStats();
+  loadAuditLog();
+  loadFeedback();
+  loadSecurityEvents();
+  loadKbArticles();
+  loadVpsSnapshot();
+  loadSuperadminAccounts();
+  loadCrmSyncSettings();
+  loadRegulatorySources();
+  loadRegulatoryAlerts();
+  refreshFeedbackBadge();
+})();
+
+// Poll léger — même logique que le badge de notifications de l'app
+// principale (base.html) : cette page reste souvent ouverte en fond toute
+// la journée, pas de raison de la recharger pour voir une nouvelle
+// suggestion arriver.
+setInterval(refreshFeedbackBadge, 5 * 60 * 1000);
+
+async function refreshFeedbackBadge() {
+  try {
+    const data = await fetchJSON('/api/supadmin/feedback/unread-count');
+    const badge = document.getElementById('suggestions-nav-badge');
+    if (data.unread_count > 0) {
+      badge.textContent = data.unread_count > 99 ? '99+' : data.unread_count;
+      badge.style.display = 'flex';
+    } else {
+      badge.style.display = 'none';
+    }
+  } catch (e) {
+    // Silencieux — un badge qui ne se met pas à jour une fois n'a pas
+    // besoin d'interrompre la console avec une erreur visible.
+  }
+}
+
+async function markFeedbackSeen() {
+  document.getElementById('suggestions-nav-badge').style.display = 'none';
+  try {
+    await fetchJSON('/api/supadmin/feedback/mark-seen', { method: 'POST' });
+  } catch (e) {
+    // Si l'appel échoue, le prochain refreshFeedbackBadge (5 min max)
+    // réaffichera le badge — pas grave, pas besoin de bloquer l'ouverture
+    // de l'onglet pour ça.
+  }
+}
+
+// --- Suggestions ---
+
+async function loadFeedback() {
+  try {
+    const data = await fetchJSON('/api/supadmin/feedback');
+    renderFeedback(data.entries);
+  } catch (err) {
+    document.getElementById('feedback-container').innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderFeedback(entries) {
+  if (!entries.length) {
+    document.getElementById('feedback-container').innerHTML = `<div class="empty-state">Aucune suggestion pour l'instant.</div>`;
+    return;
+  }
+  document.getElementById('feedback-container').innerHTML = `
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Quand</th><th>Espace</th><th>Utilisateur</th><th>Message</th><th></th></tr></thead>
+        <tbody>
+          ${entries.map(e => `
+            <tr>
+              <td class="muted">${formatDateTime(e.created_at)}</td>
+              <td>${escapeHtml(e.workspace_name || '—')}</td>
+              <td>${escapeHtml(e.user_email || '—')}</td>
+              <td>${escapeHtml(e.message)}</td>
+              <td style="white-space:nowrap;">
+                ${e.replied_at
+                  ? `<span class="muted">Répondu le ${formatDate(e.replied_at)}</span>`
+                  : `<button class="btn btn-ghost" type="button" data-reply-id="${e.id}" ${e.user_email ? '' : 'disabled title="Pas d\'adresse e-mail"'}>Répondre</button>`}
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+  feedbackEntries = entries;
+  document.querySelectorAll('[data-reply-id]').forEach(btn => {
+    btn.addEventListener('click', () => openFeedbackReplyModal(parseInt(btn.dataset.replyId, 10)));
+  });
+}
+
+let feedbackEntries = [];
+
+function openFeedbackReplyModal(feedbackId) {
+  const entry = feedbackEntries.find(e => e.id === feedbackId);
+  if (!entry) return;
+  currentFeedbackReplyId = feedbackId;
+  document.getElementById('feedback-reply-to').textContent = entry.user_email;
+  document.getElementById('feedback-reply-original').textContent = entry.message;
+  document.getElementById('feedback-reply-subject').value = 'Merci pour ton retour — ClickProspect';
+  document.getElementById('feedback-reply-body').value =
+`Bonjour,
+
+Merci d'avoir pris le temps de nous écrire — chaque suggestion nous aide à améliorer ClickProspect.
+
+On a bien noté ta remarque et on la garde en tête pour la suite.
+
+Belle journée,
+L'équipe ClickProspect`;
+  document.getElementById('feedback-reply-error').style.display = 'none';
+  document.getElementById('feedback-reply-modal-overlay').classList.add('show');
+}
+
+document.getElementById('feedback-reply-cancel-btn').addEventListener('click', () => {
+  document.getElementById('feedback-reply-modal-overlay').classList.remove('show');
+});
+
+document.getElementById('feedback-reply-send-btn').addEventListener('click', async () => {
+  const subject = document.getElementById('feedback-reply-subject').value.trim();
+  const bodyText = document.getElementById('feedback-reply-body').value.trim();
+  const errorEl = document.getElementById('feedback-reply-error');
+  errorEl.style.display = 'none';
+  try {
+    await fetchJSON(`/api/supadmin/feedback/${currentFeedbackReplyId}/reply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subject, body: bodyText }),
+    });
+    document.getElementById('feedback-reply-modal-overlay').classList.remove('show');
+    loadFeedback();
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.style.display = 'block';
+  }
+});
+
+// --- Base de connaissances ---
+
+let kbArticlesCache = [];
+
+async function loadKbArticles() {
+  try {
+    const data = await fetchJSON('/api/supadmin/kb-articles');
+    kbArticlesCache = data.articles;
+    renderKbArticles(kbArticlesCache);
+  } catch (err) {
+    document.getElementById('kb-articles-container').innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderKbArticles(articles) {
+  if (!articles.length) {
+    document.getElementById('kb-articles-container').innerHTML = `<div class="empty-state">Aucun article pour l'instant.</div>`;
+    return;
+  }
+  document.getElementById('kb-articles-container').innerHTML = `
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Ordre</th><th>Titre</th><th>Identifiant (slug)</th><th>Mis à jour</th><th></th></tr></thead>
+        <tbody>
+          ${articles.map(a => `
+            <tr>
+              <td class="muted">${a.display_order}</td>
+              <td>${escapeHtml(a.title)}</td>
+              <td class="muted">${escapeHtml(a.slug)}</td>
+              <td class="muted">${formatDateTime(a.updated_at)}</td>
+              <td style="white-space:nowrap;">
+                <button class="btn btn-ghost" type="button" data-action="open-kb-modal" data-id="${a.id}">Modifier</button>
+                <button class="btn btn-ghost" type="button" data-action="delete-kb-article" data-id="${a.id}">Supprimer</button>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function openKbModal(articleId) {
+  const article = articleId ? kbArticlesCache.find(a => a.id === articleId) : null;
+  document.getElementById('kb-modal-title').textContent = article ? 'Modifier l\'article' : 'Nouvel article';
+  document.getElementById('kb-modal-id').value = article ? article.id : '';
+  document.getElementById('kb-modal-slug').value = article ? article.slug : '';
+  document.getElementById('kb-modal-order').value = article ? article.display_order : 0;
+  document.getElementById('kb-modal-title-input').value = article ? article.title : '';
+  document.getElementById('kb-modal-content').value = article ? article.content : '';
+  document.getElementById('kb-modal-error').style.display = 'none';
+  document.getElementById('kb-modal-overlay').classList.add('show');
+}
+
+function closeKbModal() {
+  document.getElementById('kb-modal-overlay').classList.remove('show');
+}
+
+document.getElementById('kb-new-btn').addEventListener('click', () => openKbModal(null));
+document.getElementById('kb-modal-cancel-btn').addEventListener('click', closeKbModal);
+
+document.getElementById('kb-modal-save-btn').addEventListener('click', async () => {
+  const id = document.getElementById('kb-modal-id').value;
+  const body = {
+    slug: document.getElementById('kb-modal-slug').value.trim(),
+    display_order: parseInt(document.getElementById('kb-modal-order').value, 10) || 0,
+    title: document.getElementById('kb-modal-title-input').value.trim(),
+    content: document.getElementById('kb-modal-content').value.trim(),
+  };
+  const errorEl = document.getElementById('kb-modal-error');
+  errorEl.style.display = 'none';
+  try {
+    await fetchJSON(id ? `/api/supadmin/kb-articles/${id}` : '/api/supadmin/kb-articles', {
+      method: id ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    closeKbModal();
+    loadKbArticles();
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.style.display = 'block';
+  }
+});
+
+async function deleteKbArticle(id) {
+  const article = kbArticlesCache.find(a => a.id === id);
+  if (!confirm(`Supprimer l'article « ${article ? article.title : ''} » ? Les icônes d'aide qui y renvoient afficheront un message d'indisponibilité.`)) return;
+  try {
+    await fetchJSON(`/api/supadmin/kb-articles/${id}`, { method: 'DELETE' });
+    loadKbArticles();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+// --- Veille réglementaire ---
+
+const RW_STATUS_LABELS = {
+  en_cours: 'En cours',
+  sans_suite: 'Sans suite',
+  traite: 'Traité',
+};
+
+let regulatorySourcesCache = [];
+
+async function loadRegulatorySources() {
+  try {
+    const data = await fetchJSON('/api/supadmin/regulatory-watch/sources');
+    regulatorySourcesCache = data.sources;
+    renderRegulatorySources(data.sources);
+  } catch (err) {
+    document.getElementById('rw-sources-container').innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderRegulatorySources(sources) {
+  if (!sources.length) {
+    document.getElementById('rw-sources-container').innerHTML = `<div class="empty-state">Aucune source configurée pour l'instant.</div>`;
+    return;
+  }
+  document.getElementById('rw-sources-container').innerHTML = `
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Nom</th><th>Catégorie</th><th>Type</th><th>Mots-clés</th><th>Dernière vérification</th><th>Statut</th><th>Active</th><th></th></tr></thead>
+        <tbody>
+          ${sources.map(s => renderRegulatorySourceRow(s)).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderRegulatorySourceRow(s) {
+  return `
+    <tr id="rw-source-row-${s.id}">
+      <td><a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.name)}</a></td>
+      <td class="muted">${escapeHtml(s.category || '—')}</td>
+      <td class="muted">${s.source_type === 'rss' ? 'Flux RSS' : 'Diff de page'}</td>
+      <td class="muted" style="max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(s.keywords || '')}">${escapeHtml(s.keywords || '—')}</td>
+      <td class="muted">${s.last_checked_at ? formatDateTime(s.last_checked_at) : 'Jamais'}</td>
+      <td>${s.last_check_error ? `<span class="badge badge-flagged" title="${escapeHtml(s.last_check_error)}">Erreur</span>` : '<span class="badge badge-paid">OK</span>'}</td>
+      <td>
+        <input type="checkbox" ${s.active ? 'checked' : ''} data-action="toggle-regulatory-source" data-id="${s.id}">
+      </td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn-ghost" type="button" data-action="edit-regulatory-source" data-id="${s.id}">Modifier</button>
+        <button class="btn btn-ghost" type="button" data-action="delete-regulatory-source" data-id="${s.id}">Supprimer</button>
+      </td>
+    </tr>
+  `;
+}
+
+function startEditRegulatorySource(id) {
+  const s = regulatorySourcesCache.find(x => x.id === id);
+  if (!s) return;
+  const row = document.getElementById(`rw-source-row-${id}`);
+  row.innerHTML = `
+    <td colspan="8">
+      <div style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; padding:8px 0;">
+        <div style="flex:1; min-width:180px;">
+          <label>Nom</label>
+          <input id="rw-edit-name-${id}" type="text" value="${escapeHtml(s.name)}">
+        </div>
+        <div style="flex:2; min-width:240px;">
+          <label>URL</label>
+          <input id="rw-edit-url-${id}" type="url" value="${escapeHtml(s.url)}">
+        </div>
+        <div style="flex:1; min-width:140px;">
+          <label>Catégorie</label>
+          <input id="rw-edit-category-${id}" type="text" value="${escapeHtml(s.category || '')}">
+        </div>
+        <div style="min-width:130px;">
+          <label>Type</label>
+          <select id="rw-edit-type-${id}">
+            <option value="html_diff" ${s.source_type !== 'rss' ? 'selected' : ''}>Diff de page</option>
+            <option value="rss" ${s.source_type === 'rss' ? 'selected' : ''}>Flux RSS</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-bottom:8px;">
+        <label>Mots-clés</label>
+        <input id="rw-edit-keywords-${id}" type="text" style="width:100%; max-width:640px; box-sizing:border-box;" value="${escapeHtml(s.keywords || '')}">
+      </div>
+      <div id="rw-edit-error-${id}" class="muted" style="color:#A2502E; display:none; margin-bottom:8px;"></div>
+      <button class="btn btn-primary" type="button" data-action="save-edit-regulatory-source" data-id="${id}">Enregistrer</button>
+      <button class="btn btn-ghost" type="button" data-action="cancel-edit-regulatory-source">Annuler</button>
+    </td>
+  `;
+}
+
+async function saveEditRegulatorySource(id) {
+  const errorEl = document.getElementById(`rw-edit-error-${id}`);
+  errorEl.style.display = 'none';
+  const body = {
+    name: document.getElementById(`rw-edit-name-${id}`).value.trim(),
+    url: document.getElementById(`rw-edit-url-${id}`).value.trim(),
+    category: document.getElementById(`rw-edit-category-${id}`).value.trim(),
+    source_type: document.getElementById(`rw-edit-type-${id}`).value,
+    keywords: document.getElementById(`rw-edit-keywords-${id}`).value.trim(),
+  };
+  try {
+    await fetchJSON(`/api/supadmin/regulatory-watch/sources/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    loadRegulatorySources();
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.style.display = 'block';
+  }
+}
+
+document.getElementById('rw-add-source-btn').addEventListener('click', async () => {
+  const errorEl = document.getElementById('rw-source-error');
+  errorEl.style.display = 'none';
+  const body = {
+    name: document.getElementById('rw-source-name').value.trim(),
+    url: document.getElementById('rw-source-url').value.trim(),
+    category: document.getElementById('rw-source-category').value.trim(),
+    source_type: document.getElementById('rw-source-type').value,
+    keywords: document.getElementById('rw-source-keywords').value.trim(),
+  };
+  try {
+    await fetchJSON('/api/supadmin/regulatory-watch/sources', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    document.getElementById('rw-source-name').value = '';
+    document.getElementById('rw-source-url').value = '';
+    document.getElementById('rw-source-category').value = '';
+    document.getElementById('rw-source-keywords').value = '';
+    document.getElementById('rw-source-type').value = 'html_diff';
+    loadRegulatorySources();
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.style.display = 'block';
+  }
+});
+
+document.getElementById('rw-check-now-btn').addEventListener('click', async (evt) => {
+  evt.target.disabled = true;
+  evt.target.textContent = 'Vérification en cours…';
+  try {
+    await fetchJSON('/api/supadmin/regulatory-watch/check-now', { method: 'POST' });
+    await loadRegulatorySources();
+    await loadRegulatoryAlerts();
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    evt.target.disabled = false;
+    evt.target.textContent = 'Vérifier maintenant';
+  }
+});
+
+async function toggleRegulatorySource(id, active) {
+  try {
+    await fetchJSON(`/api/supadmin/regulatory-watch/sources/${id}/active`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active }),
+    });
+  } catch (err) {
+    alert(err.message);
+    loadRegulatorySources();
+  }
+}
+
+async function deleteRegulatorySource(id) {
+  if (!confirm("Supprimer cette source et toutes ses alertes associées ?")) return;
+  try {
+    await fetchJSON(`/api/supadmin/regulatory-watch/sources/${id}`, { method: 'DELETE' });
+    loadRegulatorySources();
+    loadRegulatoryAlerts();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function loadRegulatoryAlerts() {
+  const status = document.getElementById('rw-alert-filter').value;
+  try {
+    const qs = status ? `?status=${encodeURIComponent(status)}` : '';
+    const data = await fetchJSON(`/api/supadmin/regulatory-watch/alerts${qs}`);
+    renderRegulatoryAlerts(data.alerts);
+  } catch (err) {
+    document.getElementById('rw-alerts-container').innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderRegulatoryAlerts(alerts) {
+  if (!alerts.length) {
+    document.getElementById('rw-alerts-container').innerHTML = `<div class="empty-state">Aucune alerte pour l'instant.</div>`;
+    return;
+  }
+  document.getElementById('rw-alerts-container').innerHTML = alerts.map(a => `
+    <div class="panel-body" style="border-top:1px solid var(--border, #eee);">
+      <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:baseline;">
+        <div>
+          <strong>${escapeHtml(a.source_name)}</strong>
+          <span class="muted"> — ${formatDateTime(a.detected_at)}</span>
+        </div>
+        <a href="${escapeHtml(a.url || a.source_url)}" target="_blank" rel="noopener" style="font-size:12.5px;">Ouvrir ↗</a>
+      </div>
+      <p>${escapeHtml(a.resume || '')}</p>
+      <p class="muted"><em>Pertinence ClickProspect (évaluation IA, à vérifier) : ${escapeHtml(a.pertinence || 'Non évalué.')}</em></p>
+      <div style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
+        <div style="flex:1; min-width:220px;">
+          <label>Notes</label>
+          <textarea id="rw-notes-${a.id}" rows="2" style="width:100%; box-sizing:border-box; font-family:inherit;">${escapeHtml(a.notes || '')}</textarea>
+        </div>
+        <div>
+          <label>Statut</label>
+          <select id="rw-status-${a.id}">
+            ${Object.entries(RW_STATUS_LABELS).map(([val, label]) => `<option value="${val}" ${a.status === val ? 'selected' : ''}>${label}</option>`).join('')}
+          </select>
+        </div>
+        <button class="btn btn-primary" type="button" data-action="save-regulatory-alert" data-id="${a.id}">Enregistrer</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function saveRegulatoryAlert(id) {
+  const status = document.getElementById(`rw-status-${id}`).value;
+  const notes = document.getElementById(`rw-notes-${id}`).value;
+  try {
+    await fetchJSON(`/api/supadmin/regulatory-watch/alerts/${id}/status`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, notes }),
+    });
+    loadRegulatoryAlerts();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+document.getElementById('rw-alert-filter').addEventListener('change', loadRegulatoryAlerts);
+</script>
+</body>
+</html>
