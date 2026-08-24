@@ -265,13 +265,57 @@ transition: background 0.2s ease, transform 0.2s ease;
 
 @media (max-width: 980px) {
 .shell { grid-template-columns: 1fr; align-content: start; }
-.sidebar { position: sticky; top: 0; height: auto; flex-direction: row; align-items: center; overflow-x: auto; z-index: 20; padding: 10px 14px; }
-.side-nav { flex-direction: row; }
-/* Carte "Espace de travail" masquée sur mobile — V1 consultation, priorité
-   à l'espace vertical pour la liste des fiches (demande explicite
-   d'Alexis). L'info reste accessible via la page Mon compte si besoin ;
-   rien n'est perdu, juste replié pour ne pas manger l'écran. */
+
+/* Barre du haut mobile : logo + bouton menu, toujours visible, hauteur
+   fixe et réduite — remplace l'ancienne rangée horizontale scrollable
+   (logo + espace de travail + recherche + nav en une seule ligne), dont
+   les liens de droite étaient inatteignables sans savoir qu'il fallait
+   scroller latéralement (retour d'Alexis après test réel sur téléphone). */
+.mobile-topbar {
+display: flex; align-items: center; justify-content: space-between;
+padding: 12px 16px; background: var(--white); border-bottom: 1px solid var(--border);
+position: sticky; top: 0; z-index: 25;
+}
+.mobile-nav-toggle {
+display: flex; align-items: center; justify-content: center;
+width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--border);
+background: var(--cream); cursor: pointer; flex-shrink: 0; color: var(--text);
+}
+.mobile-nav-toggle svg { width: 20px; height: 20px; }
+
+/* Le menu (ex-sidebar desktop) devient un tiroir plein écran qui glisse
+   depuis la droite, cf. JS (mobile-nav-toggle) — masqué hors-écran par
+   défaut, jamais retiré du DOM (juste translaté), pour ne pas perturber
+   les scripts existants qui référencent son contenu (recherche, nav). */
+.sidebar {
+position: fixed; top: 0; right: 0; height: 100vh; width: min(300px, 84vw);
+flex-direction: column; align-items: stretch; overflow-y: auto; overflow-x: hidden;
+z-index: 40; padding: 20px 18px; gap: 20px;
+transform: translateX(100%); transition: transform 0.25s ease;
+box-shadow: -6px 0 24px rgba(53,40,24,0.14);
+}
+body.mobile-nav-open .sidebar { transform: translateX(0); }
+.side-nav { flex-direction: column; }
+
+/* Logo déjà affiché dans la barre du haut (toujours visible) — évité en
+   double à l'intérieur du tiroir, qui lui n'est visible qu'à la demande. */
+.sidebar > .logo { display: none; }
+
+/* Carte "Espace de travail" masquée sur mobile, y compris dans le tiroir
+   — demande explicite d'Alexis. L'info reste consultable depuis la page
+   Mon compte ; rien n'est perdu, juste retiré de la navigation mobile. */
 .workspace-picker { display: none; }
+
+#mobile-nav-scrim {
+position: fixed; inset: 0; background: rgba(53,40,24,0.35); z-index: 35;
+display: none;
+}
+body.mobile-nav-open #mobile-nav-scrim { display: block; }
+body.mobile-nav-open { overflow: hidden; }
+}
+
+@media (min-width: 981px) {
+.mobile-topbar, #mobile-nav-scrim { display: none; }
 }
 
 /* --- Verrouillage mobile (visibilitychange + PIN local à l'appareil) ---
@@ -328,6 +372,13 @@ font-family: inherit; margin-bottom: 12px; box-sizing: border-box;
 </div>
 
 <div class="shell">
+<div class="mobile-topbar">
+<a href="/" class="logo"><img src="/static/img/logo-icon-nav.png" alt="" class="logo-mark"><span class="logo-text">Click<span class="logo-accent">Prospect</span></span></a>
+<button type="button" class="mobile-nav-toggle" id="mobile-nav-toggle" aria-label="Ouvrir le menu" aria-expanded="false">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+</button>
+</div>
+<div id="mobile-nav-scrim"></div>
 <aside class="sidebar">
 <a href="/" class="logo"><img src="/static/img/logo-icon-nav.png" alt="" class="logo-mark"><span class="logo-text">Click<span class="logo-accent">Prospect</span></span></a>
 
@@ -1058,6 +1109,27 @@ if (e.key === 'Enter') appLockSubmit();
 document.getElementById('app-lock-logout-link').addEventListener('click', (e) => {
 e.preventDefault();
 appLockFullLogout();
+});
+
+// --- Menu mobile (tiroir) --------------------------------------------
+function closeMobileNav() {
+document.body.classList.remove('mobile-nav-open');
+document.getElementById('mobile-nav-toggle').setAttribute('aria-expanded', 'false');
+}
+function openMobileNav() {
+document.body.classList.add('mobile-nav-open');
+document.getElementById('mobile-nav-toggle').setAttribute('aria-expanded', 'true');
+}
+document.getElementById('mobile-nav-toggle').addEventListener('click', () => {
+document.body.classList.contains('mobile-nav-open') ? closeMobileNav() : openMobileNav();
+});
+document.getElementById('mobile-nav-scrim').addEventListener('click', closeMobileNav);
+// Ferme automatiquement le tiroir quand on choisit un lien de nav — sans
+// ça, la navigation multi-page (pas de SPA ici) rechargerait la page
+// suivante avec le tiroir resté "ouvert" en classe body le temps du
+// premier rendu, effet de clignotement visible.
+document.querySelectorAll('.side-nav a').forEach(link => {
+link.addEventListener('click', closeMobileNav);
 });
 
 initAuth();
