@@ -123,6 +123,14 @@ CREATE TABLE IF NOT EXISTS superadmins (
 -- toujours 'administrateur'.
 ALTER TABLE superadmins ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'administrateur'
     CHECK (role IN ('administrateur', 'technicien'));
+
+-- Dernière suggestion (admin_feedback.id) vue par ce compte superadmin —
+-- sert uniquement au badge "non lu" de l'onglet Suggestions (voir
+-- superadmin.py::unread_feedback_count). 0 = jamais rien vu. Par compte et
+-- non global : avec plusieurs superadmins (administrateur + technicien),
+-- chacun doit voir son propre badge, pas un état partagé qui se marquerait
+-- "lu" pour tout le monde dès qu'un seul l'ouvre.
+ALTER TABLE superadmins ADD COLUMN IF NOT EXISTS last_feedback_seen_id INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE superadmins ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
 -- Code PIN de confirmation pour le changement de mot de passe (pas pour la
 -- récupération, contrairement à users.pin_hash) : même principe que pour
