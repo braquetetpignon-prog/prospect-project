@@ -75,6 +75,7 @@
 </div>
 <div style="display:flex; gap:10px;">
 <button class="btn btn-ghost" id="toggle-active-btn"></button>
+<button class="btn btn-ghost" id="delete-campaign-btn" style="display:none; color:#9B4646; border-color:#E3C7C7;">Supprimer</button>
 </div>
 </div>
 
@@ -203,11 +204,13 @@ return fmt(s.created_at);
 }
 let workspaceId = null;
 let canWrite = false;
+let isAdmin = false;
 let currentCampaign = null;
 
 function onAuthReady(me) {
 workspaceId = me.workspace_id;
 canWrite = me.role !== 'lecture_seule';
+isAdmin = me.role === 'admin';
 if (!canWrite) document.getElementById('new-campaign-btn').style.display = 'none';
 
 if (me.plan_effective === 'free') {
@@ -339,6 +342,10 @@ const toggleBtn = document.getElementById('toggle-active-btn');
 toggleBtn.textContent = currentCampaign.statut === 'active' ? 'Désactiver' : 'Réactiver';
 toggleBtn.style.display = canWrite ? 'inline-flex' : 'none';
 toggleBtn.onclick = () => toggleCampaignActive(currentCampaign);
+
+const deleteBtn = document.getElementById('delete-campaign-btn');
+deleteBtn.style.display = isAdmin ? 'inline-flex' : 'none';
+deleteBtn.onclick = () => deleteCampaign(currentCampaign);
 
 document.getElementById('edit-form').querySelectorAll('input,textarea,button').forEach(el => el.disabled = !canWrite);
 document.getElementById('trigger-send-btn').style.display = canWrite ? 'inline-flex' : 'none';
@@ -529,6 +536,19 @@ body: JSON.stringify({ statut: campaign.statut === 'active' ? 'inactive' : 'acti
 });
 showToast('Statut mis à jour.');
 openCampaign(campaign.id);
+} catch (err) {
+showToast(err.message, true);
+}
+}
+
+async function deleteCampaign(campaign) {
+if (!confirm(`Supprimer définitivement la campagne "${campaign.nom}" ? Tout son historique d'envoi sera perdu. Cette action est irréversible.`)) return;
+try {
+await fetchJSON(`/api/campaigns/${campaign.id}`, { method: 'DELETE' });
+showToast('Campagne supprimée.');
+document.getElementById('detail-view').style.display = 'none';
+document.getElementById('list-view').style.display = 'block';
+loadCampaigns();
 } catch (err) {
 showToast(err.message, true);
 }

@@ -1536,13 +1536,25 @@ def _check_campaign_access(campaign_id):
     return None
 
 
-@app.route("/api/campaigns/<int:campaign_id>", methods=["PUT"])
+@app.route("/api/campaigns/<int:campaign_id>", methods=["PUT", "DELETE"])
 @login_required
 @require_role(*WRITE_ROLES)
 def campaigns_update(campaign_id):
     error = _check_campaign_access(campaign_id)
     if error:
         return error
+
+    if request.method == "DELETE":
+        # Suppression réservée aux administrateurs — plus restrictif que la
+        # modification (ouverte aux commerciaux via WRITE_ROLES) : action
+        # irréversible qui supprime aussi tout l'historique d'envoi de la
+        # campagne (cascade DB, voir campaigns.delete_campaign). Demande
+        # explicite d'Alexis : seul un administrateur d'espace de travail
+        # doit pouvoir le faire.
+        if session.get("role") != "admin":
+            return jsonify(error="Seul un administrateur peut supprimer une campagne."), 403
+        campaigns.delete_campaign(session["workspace_id"], campaign_id)
+        return jsonify(status="deleted")
 
     body = request.get_json(silent=True) or {}
     body.pop("workspace_id", None)

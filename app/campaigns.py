@@ -93,6 +93,26 @@ def campaign_workspace_id(campaign_id):
         conn.close()
 
 
+def delete_campaign(workspace_id, campaign_id):
+    """Supprime définitivement la campagne et tout son historique d'envoi
+    (ON DELETE CASCADE sur campaign_sends, voir schema.sql) — aucun moyen
+    de restaurer après coup. Le contrôle de rôle (admin uniquement) et la
+    confirmation utilisateur sont à la charge de l'appelant (voir
+    main.py::campaigns_update) ; le filtre sur workspace_id ici est une
+    deuxième barrière contre toute suppression inter-espace de travail si
+    cette fonction était un jour appelée sans ce contrôle en amont."""
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM campaigns WHERE id = %s AND workspace_id = %s",
+                (campaign_id, workspace_id),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def list_campaigns(workspace_id):
     conn = get_db()
     try:
