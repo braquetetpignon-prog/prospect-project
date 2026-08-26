@@ -1785,6 +1785,25 @@ def campaign_relance_eligible(campaign_id):
     return jsonify(sending.get_relance_eligible_prospects(session["workspace_id"]))
 
 
+@app.route("/api/campaigns/<int:campaign_id>/recipient-candidates")
+@login_required
+def campaign_recipient_candidates(campaign_id):
+    """Pendant de campaign_relance_eligible pour les campagnes non-relance
+    (avis, publicitaire, newsletter) — même liste que l'ancien appel
+    générique à /api/prospects, mais annotée du statut de consentement par
+    prospect pour ce type précis de campagne (voir
+    sending.get_recipient_candidates)."""
+    error = _check_campaign_access(campaign_id)
+    if error:
+        return error
+    campaign = campaigns.get_campaign(campaign_id)
+    if not campaign:
+        return jsonify(error="Campagne introuvable"), 404
+    if campaign["type"] == "relance":
+        return jsonify(error="Utilise /relance-eligible pour les campagnes de type relance."), 400
+    return jsonify(candidates=sending.get_recipient_candidates(session["workspace_id"], campaign["type"]))
+
+
 @app.route("/api/campaigns/<int:campaign_id>/send-by-type", methods=["POST"])
 @login_required
 @require_role(*WRITE_ROLES)

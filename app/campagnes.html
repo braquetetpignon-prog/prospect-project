@@ -145,6 +145,7 @@ les prospects nouveaux ou recalés ne peuvent pas être sollicités par campagne
 <div class="field"><label for="send-date">Planifier pour (optionnel)</label><input id="send-date" type="datetime-local"></div>
 <button class="btn btn-ghost btn-sm" type="button" id="preview-send-btn" style="margin-right:8px;">Aperçu du mail</button>
 <button class="btn btn-primary btn-sm" id="trigger-send-btn">Envoyer</button>
+<div id="send-result-panel" style="display:none; margin-top:12px; padding:12px 14px; border-radius:10px; font-size:13px;"></div>
 </div>
 </div>
 </div>
@@ -213,6 +214,7 @@ let workspaceId = null;
 let canWrite = false;
 let isAdmin = false;
 let currentCampaign = null;
+let currentRecipientCandidates = []; // pour retrouver un nom depuis un id dans le résultat d'envoi (voir triggerSend)
 
 function onAuthReady(me) {
 workspaceId = me.workspace_id;
@@ -607,6 +609,7 @@ showToast(err.message, true);
 
 async function loadRecipientChecklist() {
 const container = document.getElementById('recipient-checklist');
+document.getElementById('send-result-panel').style.display = 'none';
 
 if (currentCampaign && currentCampaign.type === 'relance') {
 try {
@@ -629,6 +632,7 @@ ${data.cooling_down.map(p => `
 ` : '';
 
 container.innerHTML = eligibleHtml + coolingHtml;
+currentRecipientCandidates = data.eligible;
 } catch (e) {
 container.innerHTML = `<div class="empty-state"><p>Impossible de charger les prospects éligibles.</p></div>`;
 }
@@ -636,17 +640,26 @@ return;
 }
 
 try {
-const data = await fetchJSON(`/api/prospects?workspace_id=${workspaceId}&statut=qualifie&statut=en_attente&statut=client`);
-if (!data.prospects.length) {
-container.innerHTML = `<div class="empty-state"><p>Aucun prospect qualifié, en attente ou client à qui envoyer pour le moment.</p></div>`;
+const data = await fetchJSON(`/api/campaigns/${currentCampaign.id}/recipient-candidates`);
+currentRecipientCandidates = data.candidates;
+if (!data.candidates.length) {
+container.innerHTML = `<div class="empty-state"><p>Aucun prospect qualifié, en attente ou client avec e-mail pour le moment.</p></div>`;
 return;
 }
-container.innerHTML = data.prospects.filter(p => p.email).map(p => `
-<label class="prospect-check-row">
-<input type="checkbox" value="${p.id}" class="recipient-check">
-<span>${escapeHtml(p.nom_entreprise)} <span style="color:var(--text-soft); font-size:12.5px;">(${escapeHtml(p.email)})</span></span>
+// Statut de consentement affiché AVANT l'envoi (pas seulement découvert
+// après un envoi silencieusement ignoré) — cf. décision avec Alexis :
+// expliquer le blocage à l'endroit exact où il se produit plutôt qu'un
+// système de guidage séparé. Case décochable désactivée pour les
+// destinataires bloqués : les cocher ne servirait à rien, le serveur les
+// ignorerait quand même à l'envoi (voir sending.queue_send).
+container.innerHTML = data.candidates.map(p => `
+<label class="prospect-check-row" ${!p.consent_allowed ? 'style="opacity:.6;"' : ''}>
+<input type="checkbox" value="${p.id}" class="recipient-check" ${!p.consent_allowed ? 'disabled' : ''}>
+<span>${escapeHtml(p.nom_entreprise)} <span style="color:var(--text-soft); font-size:12.5px;">(${escapeHtml(p.email)})</span>
+${!p.consent_allowed ? `<br><span style="color:#9B4646; font-size:12px;">⚠️ Ne recevra pas le message — ${escapeHtml(p.consent_reason)}</span>` : ''}
+</span>
 </label>
-`).join('') || `<div class="empty-state"><p>Aucun prospect avec e-mail.</p></div>`;
+`).join('');
 } catch (e) {
 container.innerHTML = `<div class="empty-state"><p>Impossible de charger les prospects.</p></div>`;
 }
@@ -660,6 +673,8 @@ const dateVal = document.getElementById('send-date').value;
 const body = { prospect_ids: ids };
 if (dateVal) body.planifie_pour = new Date(dateVal).toISOString();
 
+const resultPanel = document.getElementById('send-result-panel');
+
 try {
 const result = await fetchJSON(`/api/campaigns/${currentCampaign.id}/send`, {
 method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -667,6 +682,28 @@ body: JSON.stringify(body),
 });
 const skipped = result.skipped || [];
 showToast(`${result.queued.length} mis en file${skipped.length ? `, ${skipped.length} ignoré(s)` : ''}.`, skipped.length > 0 && result.queued.length === 0);
+
+// Motifs détaillés affichés directement ici (panneau persistant, pas un
+// toast qui disparaît en quelques secondes) — décision avec Alexis :
+// expliquer à l'endroit exact du blocage plutôt qu'un simple compteur
+// qu'il faut deviner. Le serveur calcule déjà ces raisons (voir
+// sending.queue_send) ; auparavant elles étaient reçues puis jetées.
+if (skipped.length) {
+const nameFor = (id) => {
+const c = currentRecipientCandidates.find(c => c.id === id);
+return c ? escapeHtml(c.nom_entreprise) : `Prospect #${id}`;
+};
+resultPanel.style.cssText = 'display:block; margin-top:12px; padding:12px 14px; border-radius:10px; font-size:13px; background:#FBF0DB; border:1px solid #E8D4A0; color:#5C4A1E;';
+resultPanel.innerHTML = `
+<strong>${skipped.length} destinataire${skipped.length > 1 ? 's n\'ont' : ' n\'a'} pas reçu le message :</strong>
+<ul style="margin:8px 0 0; padding-left:20px;">
+${skipped.map(s => `<li>${nameFor(s.prospect_id)} — ${escapeHtml(s.reason)}</li>`).join('')}
+</ul>
+`;
+} else {
+resultPanel.style.display = 'none';
+}
+
 loadSends(currentCampaign.id);
 } catch (err) {
 showToast(err.message, true);
