@@ -112,6 +112,50 @@ def can_send(prospect_id, type_):
     return True, current["statut"] if current else "Intérêt légitime (par défaut)."
 
 
+def bulk_can_send(prospect_ids, type_):
+    """Version en lot de can_send — une seule requête SQL au lieu d'une par
+    prospect. Utilisé pour annoter une liste de destinataires potentiels
+    AVANT l'envoi (voir sending.get_recipient_candidates et la checklist
+    dans campagnes.html), pour que l'utilisateur voie qui recevra
+    réellement le message sans attendre un envoi raté pour le découvrir.
+    Renvoie {prospect_id: (allowed_bool, raison_str)} — même logique que
+    can_send, dupliquée volontairement plutôt que d'appeler can_send en
+    boucle, pour éviter le N+1 requêtes sur une checklist de plusieurs
+    dizaines de prospects."""
+    if not prospect_ids or type_ not in CONSENT_TYPES:
+        return {}
+
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT DISTINCT ON (prospect_id) prospect_id, statut
+                FROM consents
+                WHERE prospect_id = ANY(%s) AND type = %s
+                ORDER BY prospect_id, created_at DESC
+                """,
+                (prospect_ids, type_),
+            )
+            latest_statut = {row[0]: row[1] for row in cur.fetchall()}
+    finally:
+        conn.close()
+
+    result = {}
+    for prospect_id in prospect_ids:
+        statut = latest_statut.get(prospect_id)
+        if statut == "opt_out":
+            result[prospect_id] = (False, "Le prospect s'est désinscrit de ce type de communication.")
+        elif type_ in OPT_IN_REQUIRED_TYPES:
+            if statut != "opt_in":
+                result[prospect_id] = (False, "Opt-in requis et absent pour ce type de campagne.")
+            else:
+                result[prospect_id] = (True, "Opt-in explicite.")
+        else:
+            result[prospect_id] = (True, statut or "Intérêt légitime (par défaut).")
+    return result
+
+
 # --- Désinscription (lien signé, sans authentification) -------------------
 
 def _signature(prospect_id, type_):

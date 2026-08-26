@@ -38,6 +38,47 @@ class SendError(Exception):
     pass
 
 
+def get_recipient_candidates(workspace_id, campaign_type):
+    """Prospects potentiellement destinataires d'une campagne de ce type
+    (qualifié/en_attente/client, avec e-mail), annotés avec leur statut de
+    consentement pour CE type précis — pour affichage dans la checklist
+    d'envoi (voir campagnes.html), afin que l'utilisateur voie AVANT de
+    cocher qui recevra réellement le message. Purement informatif côté
+    interface : le filtrage réel et contraignant reste fait par
+    consent_module.can_send au moment de l'envoi effectif dans
+    queue_send — ceci n'ajoute aucun contrôle de sécurité supplémentaire,
+    juste de la visibilité sur une règle déjà appliquée en silence."""
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, nom_entreprise, email FROM prospects
+                WHERE workspace_id = %s AND statut IN ('qualifie', 'en_attente', 'client')
+                  AND email IS NOT NULL AND email != ''
+                ORDER BY nom_entreprise
+                """,
+                (workspace_id,),
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    prospect_ids = [r[0] for r in rows]
+    consent_map = consent_module.bulk_can_send(prospect_ids, campaign_type)
+
+    return [
+        {
+            "id": r[0],
+            "nom_entreprise": r[1],
+            "email": r[2],
+            "consent_allowed": consent_map.get(r[0], (True, ""))[0],
+            "consent_reason": consent_map.get(r[0], (True, ""))[1],
+        }
+        for r in rows
+    ]
+
+
 def get_relance_eligible_prospects(workspace_id):
     """Prospects qualifiés avec e-mail, séparés en deux groupes :
     - eligible : jamais relancés, ou dernière relance il y a plus de
