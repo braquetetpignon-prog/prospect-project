@@ -340,7 +340,24 @@ def preview_campaign_email(campaign_id, prospect_id, workspace_id):
     return {"subject": subject, "body_html": body_html, "to_email": prospect.get("email")}
 
 
+def _sanitize_header_value(value):
+    """Neutralise les retours à la ligne dans une valeur destinée à un
+    en-tête e-mail (Subject) — défense en profondeur. Vérifié empiriquement
+    (test manuel) : Python refuse déjà de construire un message si un
+    en-tête contient un retour à la ligne suivi d'un motif ressemblant à un
+    autre en-tête (email.errors.HeaderParseError), donc l'injection d'un
+    Bcc/en-tête arbitraire via un champ prospect (nom_entreprise,
+    contact_prenom...) n'est pas exploitable telle quelle. Mais sans ce
+    nettoyage, une donnée mal importée (CSV corrompu, copier-coller avec
+    retour à la ligne parasite) fait planter tout l'envoi avec une
+    exception non gérée au lieu de partir normalement. Remplace CR/LF par
+    un espace plutôt que de les supprimer, pour ne pas recoller deux mots
+    ensemble par accident."""
+    return (value or "").replace("\r", " ").replace("\n", " ").strip()
+
+
 def _send_via_smtp(smtp_creds, to_email, subject, body, attachments=None, bcc=None):
+    subject = _sanitize_header_value(subject)
     if attachments:
         msg = MIMEMultipart()
         msg.attach(MIMEText(body, "plain", "utf-8"))
@@ -381,6 +398,7 @@ def _send_via_smtp(smtp_creds, to_email, subject, body, attachments=None, bcc=No
 
 
 def _send_campaign_email(smtp_creds, to_email, subject, body_html, body_text, image=None, bcc=None):
+    subject = _sanitize_header_value(subject)
     root = MIMEMultipart("related")
     alt = MIMEMultipart("alternative")
     alt.attach(MIMEText(body_text, "plain", "utf-8"))
