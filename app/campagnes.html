@@ -32,6 +32,13 @@
 
 {% block content %}
 <div id="list-view">
+<div id="consent-hint-banner" style="display:none; background:#FBF0DB; border:1px solid #E8D4A0; border-radius:12px; padding:14px 16px; margin-bottom:18px; align-items:flex-start; gap:12px;">
+<span style="font-size:20px; line-height:1;">💡</span>
+<div style="flex:1; font-size:13.5px; color:#5C4A1E; line-height:1.5;">
+<strong>Avant d'envoyer une campagne publicitaire ou newsletter</strong> : seuls les destinataires ayant explicitement donné leur accord dans l'onglet "Consentement campagnes" de leur fiche recevront le message — c'est automatique, rien à filtrer toi-même. Pour les demandes d'avis, l'accord n'est pas obligatoire (intérêt légitime), mais reste vérifiable de la même façon.
+</div>
+<button type="button" id="consent-hint-dismiss-btn" aria-label="Ne plus afficher ce rappel" style="background:none; border:none; cursor:pointer; font-size:16px; color:#8A7238; padding:2px 4px; flex-shrink:0;">✕</button>
+</div>
 <div class="topbar">
 <div>
 <h1>Campagnes <button type="button" class="kb-help-btn" data-kb-article="campagnes-premiere-utilisation" aria-label="Aide sur les campagnes">?</button></h1>
@@ -212,6 +219,7 @@ workspaceId = me.workspace_id;
 canWrite = me.role !== 'lecture_seule';
 isAdmin = me.role === 'admin';
 if (!canWrite) document.getElementById('new-campaign-btn').style.display = 'none';
+initConsentHintBanner();
 
 if (me.plan_effective === 'free') {
 const typeSelect = document.getElementById('c-type');
@@ -261,6 +269,32 @@ el.textContent = `Taux de désabonnement (sur cette catégorie) : ${rate.rate}% 
 el.textContent = '';
 }
 }
+
+// --- Bandeau rappel consentement (effaçable, cf. app/hints.py) --------
+const CONSENT_HINT_KEY = 'campagnes_consentement';
+
+async function initConsentHintBanner() {
+try {
+const data = await fetchJSON('/api/hints/dismissed');
+if (!data.dismissed.includes(CONSENT_HINT_KEY)) {
+document.getElementById('consent-hint-banner').style.display = 'flex';
+}
+} catch (e) {
+// Silencieux : au pire le bandeau ne s'affiche pas cette fois-ci, pas
+// bloquant pour le reste de la page.
+}
+}
+
+document.getElementById('consent-hint-dismiss-btn').addEventListener('click', async () => {
+document.getElementById('consent-hint-banner').style.display = 'none';
+try {
+await fetchJSON(`/api/hints/${CONSENT_HINT_KEY}/dismiss`, { method: 'POST' });
+} catch (e) {
+// Si l'appel échoue, le bandeau réapparaîtra à la prochaine visite —
+// sans gravité, pas de raison de rouvrir le bandeau tout de suite pour
+// prévenir d'une erreur réseau ponctuelle.
+}
+});
 
 async function loadCampaigns() {
 const container = document.getElementById('campaigns-container');

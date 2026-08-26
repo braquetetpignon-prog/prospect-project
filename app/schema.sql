@@ -1614,3 +1614,18 @@ CREATE TABLE IF NOT EXISTS call_prep_consent (
     accepted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (user_id, disclaimer_version)
 );
+
+-- Bandeaux d'aide contextuelle effaçables par l'utilisateur une fois qu'il
+-- maîtrise le sujet (ex : rappel consentement RGPD sur la page Campagnes,
+-- voir campagnes.html). Générique et réutilisable pour de futurs bandeaux
+-- similaires sans nouvelle migration : hint_key identifie le bandeau,
+-- jamais interprété niveau base — la clé est définie et lue côté
+-- application (voir app/hints.py). Par utilisateur, pas par espace de
+-- travail : un commercial qui masque un rappel ne doit pas le masquer pour
+-- ses collègues.
+CREATE TABLE IF NOT EXISTS user_dismissed_hints (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    hint_key TEXT NOT NULL,
+    dismissed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, hint_key)
+);
