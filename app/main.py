@@ -13,6 +13,7 @@ from app import naf_search
 from app import ia_search
 from app import workspace_settings
 from app import campaigns
+from app import hints
 from app import campaign_image
 from app import campaign_ai
 from app import consent
@@ -1495,6 +1496,22 @@ def workspace_rgpd_registre(workspace_id):
         mimetype="text/csv",
         headers={"Content-Disposition": "attachment; filename=registre-traitement-rgpd.csv"},
     )
+
+
+@app.route("/api/hints/dismissed")
+@login_required
+def hints_dismissed():
+    return jsonify(dismissed=hints.get_dismissed_hints(session["user_id"]))
+
+
+@app.route("/api/hints/<hint_key>/dismiss", methods=["POST"])
+@login_required
+def hints_dismiss(hint_key):
+    try:
+        hints.dismiss_hint(session["user_id"], hint_key)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(status="ok")
 
 
 @app.route("/api/campaigns", methods=["GET", "POST"])
